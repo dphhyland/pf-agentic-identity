@@ -215,7 +215,7 @@ class AttestationMetadataFilterTest {
                 assertEquals(List.of("issuer", "token_endpoint", "ping_end_session_endpoint", "token_endpoint_auth_methods_supported",
                         "backchannel_logout_supported", "dpop_signing_alg_values_supported", "client_id_metadata_document_supported",
                         "client_attestation_signing_alg_values_supported", "client_attestation_pop_signing_alg_values_supported",
-                        "client_attestation_pop_methods_supported", "challenge_endpoint"), List.copyOf(doc.keySet()));
+                        "challenge_endpoint"), List.copyOf(doc.keySet()));
                 for (String own : pf.keySet()) {
                     if (!"token_endpoint_auth_methods_supported".equals(own)) {
                         assertEquals(pf.get(own), doc.get(own), own);
@@ -268,11 +268,17 @@ class AttestationMetadataFilterTest {
         HttpServletRequest request = request("GET", OIDC, "");
         HttpServletResponse response = mock(HttpServletResponse.class);
         List<ServletResponse> passed = new ArrayList<>();
-        new AttestationMetadataFilter(() -> {
+        AttestationMetadataFilter filter = new AttestationMetadataFilter(() -> {
             throw new IllegalArgumentException("a refused setting");
-        }).doFilter(request, response, (req, resp) -> passed.add(resp));
+        });
+        long before = AttestationMetadataFilter.counted("openid-configuration", "no_configuration");
+        // the second request inside the minute is counted and passed, but not logged again
+        for (int i = 0; i < 2; i++) {
+            filter.doFilter(request, response, (req, resp) -> passed.add(resp));
+        }
         assertSame(response, passed.get(0));
-        assertTrue(AttestationMetadataFilter.counted("openid-configuration", "no_configuration") > 0);
+        assertSame(response, passed.get(1));
+        assertEquals(before + 2, AttestationMetadataFilter.counted("openid-configuration", "no_configuration"));
     }
 
     /** A document it cannot parse goes out byte for byte, counted - JSON that is not an object, names no issuer, and so on. */

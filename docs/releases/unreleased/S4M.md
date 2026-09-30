@@ -5,12 +5,15 @@
 - PingFederate's `/.well-known/openid-configuration` and `/.well-known/oauth-authorization-server` now carry the
   authorization server's attestation members (plan item S-4, F-0115): `attest_jwt_client_auth` and
   `attest_jwt_client_auth_dpop` appended to `token_endpoint_auth_methods_supported`,
-  `client_attestation_signing_alg_values_supported`, `client_attestation_pop_signing_alg_values_supported`,
-  `client_attestation_pop_methods_supported` and `challenge_endpoint`. A new filter, `AttestationMetadata`
+  `client_attestation_signing_alg_values_supported`, `client_attestation_pop_signing_alg_values_supported` and
+  `challenge_endpoint`. A new filter, `AttestationMetadata`
   (`AttestationMetadataFilter`, registered by `build/pingfederate/filters.xml`), adds them; PingFederate's own members
   are kept first, in its order and with its values.
 - The Entity Configuration's `oauth_authorization_server` block carries the same members, added to PingFederate's own
   RFC 8414 document; its `openid_provider` block carries them as before.
+- `client_attestation_pop_methods_supported` stays in `openid_provider` alone. ABCA-10 §7.6 reads it, present without
+  `none`, as the server asking every client for an attestation, and PingFederate's two documents are read by every
+  client, most of which are not asked for one (F-0412).
 - With `OIDF_ATTESTATION_AUTH_ENABLED=false`, or no `attest_jwt_client_auth*` method in `tokenEndpointAuthMethodsSupported`,
   none of the four documents advertises an attestation member.
 - `/.well-known/client-attester` names the authorization server: `authorization_servers` (its issuer, RFC 9728 §2's
@@ -26,8 +29,8 @@
    says an authorization server that offers a challenge endpoint and supports RFC 8414 metadata "MUST signal support
    for the challenge endpoint by including the metadata entry challenge_endpoint", and before 0.6.0 only the Entity
    Configuration's `openid_provider` block did. How to tell: `curl https://<pf>/.well-known/oauth-authorization-server`
-   now ends with `client_attestation_signing_alg_values_supported`, `client_attestation_pop_signing_alg_values_supported`,
-   `client_attestation_pop_methods_supported` and `challenge_endpoint` (`<issuer>/federation/attestation-challenge`), and
+   now ends with `client_attestation_signing_alg_values_supported`, `client_attestation_pop_signing_alg_values_supported`
+   and `challenge_endpoint` (`<issuer>/federation/attestation-challenge`), and
    its `token_endpoint_auth_methods_supported` ends with `attest_jwt_client_auth` and `attest_jwt_client_auth_dpop`; the
    same for `/.well-known/openid-configuration` and the Entity Configuration's `oauth_authorization_server` block. Both
    PingFederate documents are now written as compact JSON, not indented; their content is otherwise PingFederate's.
@@ -36,7 +39,9 @@
    it (RFC 8414 §3.2: the response's members are "a subset of the metadata values defined in Section 2. Other claims
    MAY also be returned"). To advertise nothing, switch attestation off with `OIDF_ATTESTATION_AUTH_ENABLED=false`, which also
    stops the token endpoint accepting it. There is no development-profile escape: this is what the documents say, not
-   a check that refuses anything.
+   a check that refuses anything. Neither document carries `client_attestation_pop_methods_supported`, so no client
+   is told it should attach an attestation (ABCA-10 §7.6: "When the parameter is omitted, presenting a Client
+   Attestation as an additional security signal is OPTIONAL").
 2. **With attestation switched off, no document advertises it.** What to do: nothing, unless you run with
    `OIDF_ATTESTATION_AUTH_ENABLED=false` and a federation relying party reads attestation from the Entity Configuration.
    Why: plan item S9b's rule for a disabled component is that it advertises nothing, and a switched-off component
@@ -70,9 +75,11 @@ Discovery is what the FAPI 2.0 plan reads first, so it was run again against tha
 `https://host.docker.internal:34031` and attestation switched on (plan `Q7Rdbq4ROahUw`, `fapi2-security-profile-final-test-plan`,
 `client_auth_type=private_key_jwt sender_constrain=dpop fapi_profile=plain_fapi openid=openid_connect`, suite
 release-v5.3.1, 2026-10-01): 50 PASSED, 3 REVIEW, 2 WARNING, 1 SKIPPED, 0 FAILED of 56, as on main. The discovery
-module's warning about members the suite does not know names `client_attestation_pop_methods_supported` with
+module's warning about members the suite does not know named `client_attestation_pop_methods_supported` with
 PingFederate's `ping_*` and identity-chaining members; it knows `challenge_endpoint` and the two attestation algorithm
-lists. The rig and the suite are down, their keys deleted.
+lists. The rig and the suite are down, their keys deleted. That image still added
+`client_attestation_pop_methods_supported` to both documents; the review took it out afterwards, and the plan was not
+run again on the final image - one member fewer, which the suite only warned about.
 
 Tests: `AttestationMetadataConfigTest` (the set, its order, the document's own members kept, a document without a
 method list, one that cannot be extended, the switch), `FederationServiceMetadataTest` (both blocks carry the same
@@ -84,6 +91,9 @@ challenge), `AttesterConfigurationServletTest` (RFC 8414 §3's URL), and the war
 golden descriptor against 13.1.3's stock war. `SurfaceMatrix` in servlets/ssf and servlets/attestation-issuer names the
 filter as no component's: it never refuses, and what it adds follows `ATTESTATION_AUTH`'s switch.
 
-Residual: the Entity Configuration's `openid_provider` block still replaces PingFederate's `token_endpoint_auth_methods_supported`
+Residual: `client_attestation_pop_methods_supported` in `openid_provider` still asks every federation client for an
+attestation (F-0412). With `ATTESTATION_AUTH` refused at start-up, rather than switched off, the documents still
+advertise it (F-0413). The attester's `authorization_server_metadata` for an issuer with a path is unverified
+(U-0420). The Entity Configuration's `openid_provider` block still replaces PingFederate's `token_endpoint_auth_methods_supported`
 and `dpop_signing_alg_values_supported` with the configured lists, where the other three documents extend PingFederate's
 (F-0410). The attester's document names only `attest_jwt_client_auth` as the token endpoint's method (F-0411).

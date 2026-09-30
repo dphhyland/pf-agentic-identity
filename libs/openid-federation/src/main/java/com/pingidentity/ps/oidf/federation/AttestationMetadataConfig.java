@@ -16,7 +16,8 @@ import java.util.Map;
 /**
  * Capability lists advertised for attestation-based client authentication (draft-ietf-oauth-attestation-based-client-auth
  * Section 8): the supported token endpoint auth methods, the attestation / PoP / DPoP signing algorithm sets, the accepted
- * proof-of-possession methods (draft-10 registry), plus whether the challenge endpoint is advertised. All values default
+ * proof-of-possession methods (draft-10 registry; {@code openid_provider} only, see {@link #extend}), plus whether the
+ * challenge endpoint is advertised. All values default
  * sensibly and may be overridden via servlet init-params, read through the {@code federation-entity} settings catalogue
  * ({@link #from}).
  *
@@ -175,6 +176,10 @@ public final class AttestationMetadataConfig {
      *       omitted, the default is "client_secret_basic"", which an attestation-only list would silently withdraw).</li>
      *   <li>Every other member only where the document has none, so the document's own - PingFederate's
      *       {@code dpop_signing_alg_values_supported}, which its DPoP validation holds proofs to - is never replaced.</li>
+     *   <li>Never {@code client_attestation_pop_methods_supported}: ABCA-10 §7.6 (read 2026-10-01) makes it a demand on
+     *       every client - "When the parameter is present and does not include none, a Client SHOULD include the Client
+     *       Attestation and its Proof of Possession in its requests to that server" - and these documents are read by
+     *       every client of the authorization server, most of which are not asked for an attestation (F-0412).</li>
      * </ul>
      *
      * @param challengeEndpoint the authorization server's challenge endpoint URL, published when the challenge endpoint is
@@ -203,10 +208,6 @@ public final class AttestationMetadataConfig {
         out.putIfAbsent("client_attestation_pop_signing_alg_values_supported", this.clientAttestationPopSigningAlgValuesSupported);
         if (methods.contains("attest_jwt_client_auth_dpop")) {
             out.putIfAbsent("dpop_signing_alg_values_supported", this.dpopSigningAlgValuesSupported);
-        }
-        if (!this.clientAttestationPopMethodsSupported.isEmpty()) {
-            // draft-10 §8: the array MUST NOT be empty when the parameter is present
-            out.putIfAbsent("client_attestation_pop_methods_supported", this.clientAttestationPopMethodsSupported);
         }
         if (this.challengeEndpointEnabled && challengeEndpoint != null) {
             out.putIfAbsent("challenge_endpoint", challengeEndpoint);

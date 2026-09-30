@@ -104,7 +104,9 @@ issuer:
 - `authorization_server_metadata`: that issuer's RFC 8414 §3 metadata URL,
   `<scheme>://<host>/.well-known/oauth-authorization-server<path>`, named as RFC 9728 §5.1 names a protected resource's
   (`resource_metadata`, "The URL of the protected resource metadata"). No attestation specification defines a member
-  for this; the attester's document is this repository's own.
+  for this; the attester's document is this repository's own. For a root issuer this is the URL PingFederate answers
+  and the filter extends (the rig, 2026-10-01); for an issuer with a path, such as one under a runtime context path,
+  whether PingFederate serves the path-inserted form was not checked ([U-0420](../../docs/findings/U-0420.yaml)).
 
 The document's own `challenge_endpoint` stays the attester's. Neither member is published when PingFederate cannot give
 its issuer, or the issuer is not an absolute URL without a query or fragment.

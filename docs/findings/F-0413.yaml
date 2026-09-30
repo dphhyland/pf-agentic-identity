@@ -1,0 +1,21 @@
+id: F-0413
+title: The discovery documents advertise attestation while ATTESTATION_AUTH is refused at start-up
+severity: low
+area: pf-integration
+source: pr-review
+status: open
+plan_items: [S-4]
+prs: [95]
+verification: ''
+target_release: 1.0.0
+notes: >
+  Found on 2026-10-01 in S4M's review. AttestationMetadataConfig suppresses the attestation members only when
+  ATTESTATION_AUTH's switch verdict is DISABLED (OIDF_ATTESTATION_AUTH_ENABLED=false). When the verdict is
+  FAILED_CONFIG - enabled or inferred with no bridge signing key, say - ClientAttestationAuthFilter refuses the part
+  while the Entity Configuration's two blocks and PingFederate's two discovery documents still advertise
+  attest_jwt_client_auth, its algorithm lists and challenge_endpoint. S4M's spec asked for "none when disabled", which
+  holds; S9b's intent, that a component that is not serving advertises nothing, does not. Documented in the
+  pf-integration README ("Attestation in the discovery documents"). Low: advertisement, not a control; the token
+  endpoint refuses what the documents offer, and the refusal is in the health output. The fix is to read the
+  component's state, not only its switch, when deciding what to advertise - which needs the state to be known before
+  the federation servlet reads its settings.

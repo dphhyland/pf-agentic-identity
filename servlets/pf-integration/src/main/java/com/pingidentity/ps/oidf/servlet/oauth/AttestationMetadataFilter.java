@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
@@ -77,7 +78,12 @@ public final class AttestationMetadataFilter implements Filter {
             "PingFederate discovery documents the attestation metadata filter answered, by document and what it did",
             Label.oneOf("document", DOCUMENTS), Label.oneOf("outcome", OUTCOMES));
 
+    /** At most one warning a minute about unreadable settings: every discovery request would otherwise log one. */
+    static final long WARN_EVERY_MILLIS = 60_000;
+
     private final Supplier<AttestationMetadataConfig> configuration;
+    /** When the last unreadable-settings warning was logged, as {@link System#currentTimeMillis}; 0 for never. */
+    private final AtomicLong warned = new AtomicLong();
 
     /** The federation servlet's member set, as {@link AttestationMetadataConfig#current} gives it. */
     public AttestationMetadataFilter() {
@@ -108,8 +114,15 @@ public final class AttestationMetadataFilter implements Filter {
         try {
             members = this.configuration.get();
         } catch (RuntimeException e) {
-            LOGGER.warn((Object) ("AttestationMetadataFilter: the attestation metadata settings could not be read, so "
-                    + http.getRequestURI() + " goes out without its attestation members: " + e.getMessage()));
+            long now = System.currentTimeMillis();
+            // two requests racing past the minute may both log; that is the most it costs
+            if (now - this.warned.get() >= WARN_EVERY_MILLIS) {
+                this.warned.set(now);
+                LOGGER.warn((Object) ("AttestationMetadataFilter: the attestation metadata settings could not be read, so "
+                        + http.getRequestURI() + " goes out without its attestation members (counted in"
+                        + " oidf_discovery_attestation_members_total{outcome=\"no_configuration\"}; logged at most once a minute): "
+                        + e.getMessage()));
+            }
             count(document, "no_configuration");
             chain.doFilter(request, response);
             return;

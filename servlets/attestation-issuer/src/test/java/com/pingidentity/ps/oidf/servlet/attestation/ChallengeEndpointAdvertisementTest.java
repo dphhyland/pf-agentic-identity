@@ -3,6 +3,7 @@ package com.pingidentity.ps.oidf.servlet.attestation;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -100,7 +101,7 @@ class ChallengeEndpointAdvertisementTest {
     private static Map<String, Object> attestationMembers(Map<String, Object> document) {
         Map<String, Object> members = new java.util.TreeMap<>();
         for (String name : java.util.List.of("client_attestation_signing_alg_values_supported", "client_attestation_pop_signing_alg_values_supported",
-                "client_attestation_pop_methods_supported", "challenge_endpoint")) {
+                "challenge_endpoint")) {
             if (document.containsKey(name)) {
                 members.put(name, document.get(name));
             }
@@ -177,10 +178,16 @@ class ChallengeEndpointAdvertisementTest {
         Map<String, Object> first = attestationMembers(four.get(0));
         assertEquals(ISSUER + AS_PATH, first.get("challenge_endpoint"));
         assertEquals(AttestationMetadataConfig.ATTESTATION_METHODS, first.get("methods"));
-        assertEquals(5, first.size(), "the methods, both algorithm lists, the PoP methods and the challenge endpoint");
+        assertEquals(4, first.size(), "the methods, both algorithm lists and the challenge endpoint");
         for (Map<String, Object> document : four) {
             assertEquals(first, attestationMembers(document));
             assertFalse(names(document, CAS_PATH), "the attester's challenge endpoint is in none of them");
+        }
+        // ABCA-10 §7.6: client_attestation_pop_methods_supported without none asks every client for an attestation, so
+        // only openid_provider, as before this change, carries it (F-0412)
+        assertTrue(four.get(0).containsKey("client_attestation_pop_methods_supported"));
+        for (Map<String, Object> document : four.subList(1, 4)) {
+            assertFalse(document.containsKey("client_attestation_pop_methods_supported"));
         }
     }
 

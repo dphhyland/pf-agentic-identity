@@ -67,7 +67,7 @@ class AttestationMetadataConfigTest {
 
         assertEquals(List.of("issuer", "token_endpoint_auth_methods_supported", "dpop_signing_alg_values_supported",
                 "prompt_values_supported", "client_attestation_signing_alg_values_supported",
-                "client_attestation_pop_signing_alg_values_supported", "client_attestation_pop_methods_supported", "challenge_endpoint"),
+                "client_attestation_pop_signing_alg_values_supported", "challenge_endpoint"),
                 List.copyOf(out.keySet()));
         assertEquals(List.of("client_secret_basic", "client_secret_post", "client_secret_jwt", "private_key_jwt", "tls_client_auth", "none",
                 "attest_jwt_client_auth", "attest_jwt_client_auth_dpop"), out.get("token_endpoint_auth_methods_supported"));
@@ -75,7 +75,8 @@ class AttestationMetadataConfigTest {
                 "PingFederate's own DPoP list, which its DPoP validation holds proofs to, is never replaced");
         assertEquals(List.of("RS256", "PS256", "ES256"), out.get("client_attestation_signing_alg_values_supported"));
         assertEquals(List.of("ES256", "RS256", "PS256"), out.get("client_attestation_pop_signing_alg_values_supported"));
-        assertEquals(List.of("attestation_pop_jwt", "dpop_combined"), out.get("client_attestation_pop_methods_supported"));
+        assertFalse(out.containsKey("client_attestation_pop_methods_supported"),
+                "ABCA-10 §7.6: present without none, it asks every client that reads the document for an attestation");
         assertEquals(CHALLENGE, out.get("challenge_endpoint"));
         assertEquals(pingFederateDocument(), doc, "the document itself is not changed");
     }
@@ -119,7 +120,7 @@ class AttestationMetadataConfigTest {
 
         assertEquals(List.of("none", "attest_jwt_client_auth"), out.get("token_endpoint_auth_methods_supported"));
         assertFalse(out.containsKey("dpop_signing_alg_values_supported"));
-        assertFalse(out.containsKey("client_attestation_pop_methods_supported"), "draft-10 §8: never an empty array");
+        assertFalse(out.containsKey("client_attestation_pop_methods_supported"), "ABCA-10 §7.6: never in an extended document");
         assertEquals(CHALLENGE, out.get("challenge_endpoint"));
     }
 

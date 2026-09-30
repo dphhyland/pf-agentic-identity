@@ -82,7 +82,7 @@ class FederationServiceMetadataTest {
     static Map<String, Object> attestationMembers(Map<String, Object> block) {
         Map<String, Object> members = new java.util.LinkedHashMap<>();
         for (String name : List.of("client_attestation_signing_alg_values_supported", "client_attestation_pop_signing_alg_values_supported",
-                "client_attestation_pop_methods_supported", "challenge_endpoint")) {
+                "challenge_endpoint")) {
             if (block.containsKey(name)) {
                 members.put(name, block.get(name));
             }
@@ -120,6 +120,8 @@ class FederationServiceMetadataTest {
         assertEquals(List.of("client_secret_basic", "private_key_jwt", "attest_jwt_client_auth", "attest_jwt_client_auth_dpop"),
                 as.get("token_endpoint_auth_methods_supported"), "PingFederate's methods first, extended");
         assertEquals(List.of("RS256", "ES384"), as.get("dpop_signing_alg_values_supported"), "PingFederate's DPoP list kept");
+        assertFalse(as.containsKey("client_attestation_pop_methods_supported"),
+                "ABCA-10 §7.6: without none it asks every client for an attestation (F-0412)");
     }
 
     /** S9b: ATTESTATION_AUTH switched off advertises no attestation member in either block. */

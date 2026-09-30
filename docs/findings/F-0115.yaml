@@ -17,7 +17,10 @@ verification: >
   AttestationMetadata in both documents' chains. The Entity Configuration's oauth_authorization_server block carries
   the same set through AttestationMetadataConfig.extend. ChallengeEndpointAdvertisementTest
   .theFourDocumentsCarryTheSameAttestationMembers holds the four documents to one set, and
-  switchedOffNoneOfTheFourAdvertisesAMember holds S9b's rule.
+  switchedOffNoneOfTheFourAdvertisesAMember holds S9b's rule. After that run the review took
+  client_attestation_pop_methods_supported out of the three extended documents (ABCA-10 section 7.6 reads it, without
+  none, as a demand on every client; F-0412), so the final set is the methods, the two algorithm lists and
+  challenge_endpoint, which the same tests hold; the rig was not booted again for that change.
 target_release: 0.6.0
 notes: >
   Found on 2026-09-27 in S4b. ABCA-10 section 6.1 (read at ietf.org that day; draft -11 says the same): an
