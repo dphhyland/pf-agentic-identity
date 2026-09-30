@@ -124,7 +124,7 @@
                                         <!-- Which database, and the refusals: the JDBC URL and a store that is not
                                              PostgreSQL under production (ST-5, PR-3). -->
                                         <include>com.pingidentity.ps.oidf.registry.InstanceRegistryDataSource.configure(java.lang.String*</include>
-                                        <include>com.pingidentity.ps.oidf.registry.InstanceRegistryDataSource.DataStoreSource.getConnection()</include>
+                                        <include>com.pingidentity.ps.oidf.registry.InstanceRegistryDataSource.DataStoreSource.getConnection(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
