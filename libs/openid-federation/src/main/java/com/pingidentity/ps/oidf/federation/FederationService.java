@@ -211,12 +211,37 @@ public final class FederationService {
         JwtClaims claims = this.baseClaims(oidcIssuer, oidcIssuer);
         claims.setClaim("jwks", this.buildInlineJwks());
         claims.setClaim("metadata", this.selfMetadata(oidcIssuer));
-        List<String> authorityHints = this.configuration.authorityHints();
-        if (!authorityHints.isEmpty() && !this.configuration.isTrustAnchor(oidcIssuer)) {
+        List<String> authorityHints = this.authorityHints(oidcIssuer);
+        if (!authorityHints.isEmpty()) {
             claims.setClaim("authority_hints", authorityHints);
         }
         this.addTrustMarkClaims(claims, oidcIssuer);
         return this.signClaims(claims, ENTITY_STATEMENT_TYP);
+    }
+
+    /**
+     * This entity's Immediate Superiors, for its Entity Configuration's {@code authority_hints} - OpenID Federation 1.0
+     * §3.1.2: "This Claim is REQUIRED in Entity Configurations of the Entities that have at least one Superior above them,
+     * such as Leaf and Intermediate Entities. Its value MUST contain the Entity Identifiers of its Immediate Superiors and
+     * MUST NOT be the empty array []. This Claim MUST NOT be present in Entity Configurations of Trust Anchors with no
+     * Superiors."
+     *
+     * <p>The configuration names this entity's superiors in its trust anchors ({@code OIDF_FEDERATION_TRUST_ANCHORS}).
+     * When this entity is one of them it is a Trust Anchor, and nothing in the configuration names a superior of it, so
+     * it has none: no hints. Otherwise its superiors are the anchors named, each once ({@link EntityId#same}). Empty means
+     * the claim is left out, never published as {@code []}.
+     */
+    List<String> authorityHints(String oidcIssuer) {
+        List<String> hints = new ArrayList<>();
+        for (String anchor : this.configuration.authorityHints()) {
+            if (EntityId.same(anchor, oidcIssuer)) {
+                return List.of();
+            }
+            if (hints.stream().noneMatch(h -> EntityId.same(h, anchor))) {
+                hints.add(anchor);
+            }
+        }
+        return hints;
     }
 
     /**
@@ -379,21 +404,17 @@ public final class FederationService {
     }
 
     /**
-     * The non-standard {@code /federation/entity} statement: this entity's self statement when
-     * {@code subject} is itself, otherwise the same Subordinate Statement the fetch endpoint issues.
-     * {@code requestedIssuer} is ignored - a statement signed with this entity's key names this entity as
-     * issuer, whatever the caller asked for.
+     * The non-standard {@code /federation/entity} statement: this entity's Entity Configuration when {@code subject} is
+     * itself - the same statement {@code /.well-known/openid-federation} serves, {@code authority_hints} included, so the
+     * two cannot disagree (plan item H-FED-8) - otherwise the same Subordinate Statement the fetch endpoint issues.
+     * {@code requestedIssuer} is ignored - a statement signed with this entity's key names this entity as issuer, whatever
+     * the caller asked for.
      */
     public String createEntityStatement(String subject, String requestedIssuer, String oidcIssuer) throws JoseException {
         if (!EntityId.same(subject, oidcIssuer)) {
             return this.subordinateStatement(subject, oidcIssuer);
         }
-        JwtClaims claims = this.baseClaims(oidcIssuer, subject);
-        claims.setClaim("jwks", this.buildInlineJwks());
-        claims.setClaim("metadata", this.selfMetadata(oidcIssuer));
-        claims.setClaim("authority_hints", this.configuration.authorityHints());
-        this.addTrustMarkClaims(claims, oidcIssuer);
-        return this.signClaims(claims, ENTITY_STATEMENT_TYP);
+        return this.createEntityConfigurationJwt(oidcIssuer);
     }
 
     private String subordinateStatement(String subject, String oidcIssuer) throws JoseException {

@@ -151,4 +151,22 @@ class JdbcTrustMarkRegistryTest extends TrustMarkRegistryContract {
         assertEquals(1, registry.standing(CERTIFIED, "https://pf.example.com/federation/agents/n7", this.clock.instant()).size());
         assertEquals(2, counting.statements(), counting.sql().toString());
     }
+
+    /** H-FED-9: TrustMarkIssuer.marked answers a type and a subject - or a whole type - in one statement, however many grants. */
+    @Test
+    void theIssuerAnswersMarkedInOneStatement() throws Exception {
+        TrustMarkRegistry setup = this.newRegistry();
+        for (int i = 0; i < 20; i++) {
+            setup.grant(CERTIFIED, "https://pf.example.com/federation/agents/n" + i, null, null);
+        }
+        Racing.Counting counting = Racing.counting(this.dataSource);
+        TrustMarkIssuer issuer = new TrustMarkIssuer(java.util.Map.of(CERTIFIED, new TrustMarkType(CERTIFIED, 3600, TrustMarkType.Subjects.ANY,
+                null, null, null)), new JdbcTrustMarkRegistry(counting.dataSource(), this.clock), id -> false, this.clock);
+
+        assertEquals(List.of("https://pf.example.com/federation/agents/n7"), issuer.marked(CERTIFIED, "https://pf.example.com/federation/agents/n7/"));
+        assertEquals(1, counting.statements(), counting.sql().toString());
+        counting.reset();
+        assertEquals(20, issuer.marked(CERTIFIED, null).size());
+        assertEquals(1, counting.statements(), counting.sql().toString());
+    }
 }

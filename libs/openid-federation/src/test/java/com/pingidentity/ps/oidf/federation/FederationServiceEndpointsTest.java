@@ -405,6 +405,37 @@ class FederationServiceEndpointsTest {
                 .createEntityConfigurationJwt(PF)).getStringListClaimValue("authority_hints"));
     }
 
+    /**
+     * H-FED-8: {@code /federation/entity?sub=self} and the Entity Configuration carry the same {@code authority_hints},
+     * decided by this entity's role: none for a Trust Anchor with no superiors (never {@code []}), its superiors - each
+     * once, whichever spelling the configuration used - for a Leaf or an Intermediate.
+     */
+    @Test
+    @Requirement("OIDFED §3.1.2(1.2)")
+    void bothSelfStatementsCarryTheAuthorityHintsOfThisEntitysRole() throws Exception {
+        // A Trust Anchor: it names itself among the anchors, in the other spelling too.
+        FederationConfiguration anchor = new FederationConfiguration(List.of(PF + "/", OTHER_TA), List.of(), null, false, false, null,
+                null, null, 0, "RS256", AttestationMetadataConfig.defaults(), null);
+        // A Leaf or Intermediate under two superiors, one named twice.
+        FederationConfiguration subordinate = new FederationConfiguration(List.of(OTHER_TA, OTHER_TA + "/", "https://ta3.example"),
+                List.of(), null, false, false, null, null, null, 0, "RS256", AttestationMetadataConfig.defaults(), null);
+        // Neither: nothing configured above it.
+        FederationConfiguration none = new FederationConfiguration(List.of(), List.of(), null, false, false, null, null, null, 0,
+                "RS256", AttestationMetadataConfig.defaults(), null);
+
+        for (FederationConfiguration configuration : List.of(anchor, none)) {
+            FederationService service = FederationService.builder(configuration, Keys.signingKeys(PF_KEY)).build();
+            assertFalse(claims(service.createEntityConfigurationJwt(PF)).hasClaim("authority_hints"));
+            assertFalse(claims(service.createEntityStatement(PF, null, PF)).hasClaim("authority_hints"), "sub=self agrees");
+            assertFalse(claims(service.createEntityStatement(PF + "/", null, PF)).hasClaim("authority_hints"), "in either spelling");
+        }
+        FederationService service = FederationService.builder(subordinate, Keys.signingKeys(PF_KEY)).build();
+        assertEquals(List.of(OTHER_TA, "https://ta3.example"), claims(service.createEntityConfigurationJwt(PF)).getStringListClaimValue("authority_hints"));
+        JwtClaims self = claims(service.createEntityStatement(PF + "/", null, PF));
+        assertEquals(List.of(OTHER_TA, "https://ta3.example"), self.getStringListClaimValue("authority_hints"));
+        assertEquals(PF, self.getSubject(), "sub=self is the Entity Configuration: iss and sub are the same");
+    }
+
     // ---- edges ---------------------------------------------------------------------------------------
 
     @Test

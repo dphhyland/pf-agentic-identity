@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BiPredicate;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.jwk.JsonWebKey;
@@ -182,10 +183,33 @@ public final class TrustChainValidator {
         }
         LOGGER.debug("Trust chain for " + LogSafe.value(request.subject()) + " resolved in " + elapsedMillis(started) + " ms, "
                 + budget.used() + " requests");
-        // Statements fetched on the way are cached only once the chain they belong to validated, so a
-        // refused chain leaves nothing behind for the next caller.
-        pendingWrites.commit();
+        // Statements fetched on the way are cached only once the chain they belong to validated, and only that chain's:
+        // a refused chain, or a route the search abandoned, leaves nothing behind for the next caller (H-FED-8).
+        pendingWrites.commitOnly(onRoute(result));
         return result;
+    }
+
+    /**
+     * Whether a staged statement belongs to the validated chain: a statement in it (or in its peer chain), or the Entity
+     * Configuration of an entity one of them names - an issuer, whose configuration located its fetch endpoint, or a
+     * subject. OpenID Federation 1.0 §10.2: "Federation participants MAY cache Entity Statements and signature
+     * verification results until they expire".
+     */
+    static BiPredicate<String, String> onRoute(TrustChainValidationResult result) {
+        Set<String> keys = new HashSet<>();
+        for (TrustChainValidationResult chain = result; chain != null; chain = chain.peerChain().orElse(null)) {
+            for (String jwt : chain.trustChain()) {
+                Statement statement = Statement.parse(jwt);
+                keys.add(routeKey(statement.issuer, statement.subject));
+                keys.add(routeKey(statement.issuer, statement.issuer));
+                keys.add(routeKey(statement.subject, statement.subject));
+            }
+        }
+        return (issuer, subject) -> keys.contains(routeKey(issuer, subject));
+    }
+
+    private static String routeKey(String issuer, String subject) {
+        return EntityId.comparable(issuer) + "\n" + EntityId.comparable(subject);
     }
 
     private static long elapsedMillis(long startedNanos) {

@@ -138,4 +138,36 @@ class SubordinateStatementCacheTest {
         assertThrows(NullPointerException.class, () -> new SubordinateStatementCache().newPendingWrites().stagePut(null, SUB, "j", 1, 1));
         assertThrows(NullPointerException.class, () -> new SubordinateStatementCache().put(null, SUB, "j", 1));
     }
+
+    /** H-FED-8: a trailing slash names the same entity, in the cache and in the staged writes alike. */
+    @Test
+    void eitherSpellingOfAnEntityIdentifierIsOneEntry() {
+        SubordinateStatementCache cache = new SubordinateStatementCache();
+        cache.put(ISS + "/", SUB, "jwt-1", now() + 3600);
+        cache.put(ISS, SUB + "/", "jwt-2", now() + 3600);
+
+        assertEquals(1, cache.size());
+        assertEquals("jwt-2", cache.get(ISS + "/", SUB + "/", 300));
+        cache.evict(ISS, SUB);
+        assertEquals(0, cache.size());
+
+        SubordinateStatementCache.PendingWrites pending = cache.newPendingWrites();
+        pending.stagePut(ISS, SUB + "/", "jwt-3", now() + 3600, 0L);
+        assertEquals("jwt-3", pending.find(ISS + "/", SUB));
+    }
+
+    /** H-FED-8: only the staged statements a route accepts are committed; the rest are dropped with the walk. */
+    @Test
+    void commitOnlyKeepsTheStatementsOfTheValidatedRoute() {
+        SubordinateStatementCache cache = new SubordinateStatementCache();
+        SubordinateStatementCache.PendingWrites pending = cache.newPendingWrites();
+        pending.stagePut(ISS, SUB, "on-route", now() + 3600, 0L);
+        pending.stagePut("https://abandoned.example", SUB, "abandoned", now() + 3600, 0L);
+
+        pending.commitOnly((issuer, subject) -> EntityId.same(issuer, ISS));
+
+        assertEquals("on-route", cache.get(ISS, SUB, 300));
+        assertNull(cache.get("https://abandoned.example", SUB, 300));
+        assertEquals(0, pending.stagedCount());
+    }
 }
