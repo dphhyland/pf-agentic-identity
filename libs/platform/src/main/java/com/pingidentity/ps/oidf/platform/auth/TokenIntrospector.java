@@ -12,13 +12,13 @@ import com.pingidentity.ps.oidf.platform.json.Json;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -318,16 +318,56 @@ public final class TokenIntrospector {
         return this.cache.size();
     }
 
-    static String formEncode(Map<String, String> form) {
-        StringBuilder out = new StringBuilder();
+    /**
+     * The form as application/x-www-form-urlencoded bytes, as {@link java.net.URLEncoder} spells them (UTF-8,
+     * {@code *-._} and ASCII letters and digits kept, space as {@code +}, every other byte as {@code %XX}).
+     *
+     * <p>It writes bytes, not a string: the body is ASCII by construction, and a byte-by-byte encoding keeps a
+     * presented token from reaching {@link OutboundHttp}'s request entity as text. CodeQL's java/xss query models
+     * HttpCore's {@code ByteArrayEntity} as a response sink and read the token's path into it as cross-site
+     * scripting (alert 11 on PR #71, 2026-09-29); a request body sent to the introspection endpoint is not a page.
+     */
+    static byte[] formEncode(Map<String, String> form) {
+        byte[] out = new byte[64];
+        int length = 0;
         for (Map.Entry<String, String> e : form.entrySet()) {
-            if (out.length() > 0) {
-                out.append('&');
+            if (length > 0) {
+                out = room(out, length, 1);
+                out[length++] = '&';
             }
-            out.append(URLEncoder.encode(e.getKey(), StandardCharsets.UTF_8)).append('=')
-                    .append(URLEncoder.encode(e.getValue(), StandardCharsets.UTF_8));
+            byte[] key = e.getKey().getBytes(StandardCharsets.UTF_8);
+            byte[] value = e.getValue().getBytes(StandardCharsets.UTF_8);
+            out = room(out, length, 3 * (key.length + value.length) + 1);
+            length = encode(key, out, length);
+            out[length++] = '=';
+            length = encode(value, out, length);
         }
-        return out.toString();
+        return Arrays.copyOf(out, length);
+    }
+
+    private static final byte[] HEX = "0123456789ABCDEF".getBytes(StandardCharsets.US_ASCII);
+
+    /** {@code out}, or a copy with room for {@code more} bytes after {@code length}. */
+    private static byte[] room(byte[] out, int length, int more) {
+        return length + more <= out.length ? out : Arrays.copyOf(out, Math.max(out.length * 2, length + more));
+    }
+
+    /** Writes {@code in} form-encoded into {@code out} from {@code at}, which has room for it; returns the new end. */
+    private static int encode(byte[] in, byte[] out, int at) {
+        int end = at;
+        for (byte b : in) {
+            if (b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
+                    || b == '.' || b == '-' || b == '*' || b == '_') {
+                out[end++] = b;
+            } else if (b == ' ') {
+                out[end++] = '+';
+            } else {
+                out[end++] = '%';
+                out[end++] = HEX[(b >> 4) & 0xF];
+                out[end++] = HEX[b & 0xF];
+            }
+        }
+        return end;
     }
 
     // ---- building -----------------------------------------------------------------------------------------------

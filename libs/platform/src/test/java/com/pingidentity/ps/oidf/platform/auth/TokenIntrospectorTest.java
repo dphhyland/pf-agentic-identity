@@ -289,8 +289,28 @@ class TokenIntrospectorTest {
     @Test
     void theCacheKeyIsTheTokensDigest() {
         assertEquals("n4bQgYhMfWWaL-qgxVrQFaO_TxsrC4Is0V1sFbDwCgg", TokenIntrospector.cacheKey("test"));
-        assertEquals("a=1&b=x+y%26z", TokenIntrospector.formEncode(new LinkedHashMap<>(Map.of("a", "1"))) + "&"
-                + TokenIntrospector.formEncode(Map.of("b", "x y&z")));
+    }
+
+    @Test
+    void theFormIsEncodedAsUrlEncoderSpellsIt() {
+        Map<String, String> form = new LinkedHashMap<>();
+        form.put("a", "1");
+        form.put("b", "x y&z");
+        assertEquals("a=1&b=x+y%26z", new String(TokenIntrospector.formEncode(form), StandardCharsets.US_ASCII));
+        assertEquals("", new String(TokenIntrospector.formEncode(Map.of()), StandardCharsets.US_ASCII));
+        StringBuilder every = new StringBuilder();
+        for (char c = 0; c < 0x250; c++) {
+            every.append(c);
+        }
+        every.append("\uD83D\uDE00").append("x".repeat(500));
+        Map<String, String> wide = new LinkedHashMap<>();
+        wide.put("token", every.toString());
+        wide.put("k\u00e9y*._-", "~!'()");
+        String expected = java.net.URLEncoder.encode("token", StandardCharsets.UTF_8) + "="
+                + java.net.URLEncoder.encode(every.toString(), StandardCharsets.UTF_8) + "&"
+                + java.net.URLEncoder.encode("k\u00e9y*._-", StandardCharsets.UTF_8) + "="
+                + java.net.URLEncoder.encode("~!'()", StandardCharsets.UTF_8);
+        assertEquals(expected, new String(TokenIntrospector.formEncode(wide), StandardCharsets.US_ASCII));
     }
 
     private static final class MutableClock extends Clock {
