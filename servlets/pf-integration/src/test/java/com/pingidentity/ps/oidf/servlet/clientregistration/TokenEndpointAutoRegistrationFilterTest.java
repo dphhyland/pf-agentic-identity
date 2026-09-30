@@ -24,6 +24,7 @@ import static org.mockito.Mockito.when;
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.pf.PfRequestScope;
 import com.pingidentity.ps.oidf.pf.testkit.AuditCapture;
 import com.pingidentity.ps.oidf.platform.component.ComponentState;
@@ -95,7 +96,7 @@ class TokenEndpointAutoRegistrationFilterTest {
         System.clearProperty(HOST_PROP);
         System.clearProperty(ANCHOR_JWKS_PROP);
         System.clearProperty(RegistrationExpirySweeper.OWNER_PROPERTY);
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
     }
 
     @BeforeEach
@@ -482,7 +483,7 @@ class TokenEndpointAutoRegistrationFilterTest {
         System.setProperty(ANCHOR_JWKS_PROP, "{\"keys\":[" + anchor.toJson(JsonWebKey.OutputControlLevel.PUBLIC_ONLY) + "]}");
         System.setProperty("oidf.auto.registration.fail.closed", "false");
         try {
-            FederationRuntimeConfig.resetForTests();
+            FederationRuntimeConfigTestAccess.reset();
             TokenEndpointAutoRegistrationFilter filter = new TokenEndpointAutoRegistrationFilter();
             filter.init(mock(FilterConfig.class));
 

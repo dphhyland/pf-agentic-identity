@@ -9,7 +9,6 @@ import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.federation.TrustChainValidationException.Kind;
 import com.pingidentity.ps.oidf.federation.testkit.Federation;
 import com.pingidentity.ps.oidf.federation.testkit.Statements;
-import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -480,16 +479,6 @@ class TrustChainValidatorEdgeTest {
 
         DelegatingGateway(TrustControllerGateway delegate) {
             this.delegate = delegate;
-        }
-
-        @Override
-        public com.pingidentity.ps.oidf.jose.UnverifiedClaims fetchEntityConfiguration() throws Exception {
-            return this.delegate.fetchEntityConfiguration();
-        }
-
-        @Override
-        public List<String> fetchMembers() throws Exception {
-            return this.delegate.fetchMembers();
         }
 
         @Override

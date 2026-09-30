@@ -15,6 +15,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 
 /**
  * The OGNL helpers accept a trust controller host as an argument, but the anchors' keys are
@@ -31,7 +32,7 @@ class ConfiguredAnchorAgreementTest {
     void reset() throws Exception {
         System.clearProperty(HOST_PROP);
         System.clearProperty(JWKS_PROP);
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
     }
 
     private static Map<String, Object> jwks() throws Exception {

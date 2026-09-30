@@ -70,10 +70,6 @@ class LiveChainValidationTest {
 
     private TrustControllerGateway liveGateway() {
         return new TrustControllerGateway() {
-            @Override public UnverifiedClaims fetchEntityConfiguration() throws Exception {
-                return JwtCodec.parseUnverifiedClaims(entityConfigs.get(TA));
-            }
-            @Override public List<String> fetchMembers() { return List.copyOf(entityConfigs.keySet()); }
             @Override public String fetchEntityStatement(String issuer) { return entityConfigs.get(issuer); }
             @Override public String fetchSubordinateStatement(String authority, String subject) {
                 return subStatements.get(authority + "|" + subject);

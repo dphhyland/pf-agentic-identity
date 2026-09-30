@@ -26,8 +26,8 @@ import java.util.Map;
  * {@code agent_id}. The builder drops {@code instance_subject} and {@code spiffe_id} from any event that
  * carries {@code agent_id}.
  *
- * @deprecated Emit through {@link com.pingidentity.ps.oidf.platform.events.Events}; the emitters move with plan
- *     item O-2 (Phase 3), which removes this façade.
+ * @deprecated Emit through {@link com.pingidentity.ps.oidf.platform.events.Events}. Kept while federation code
+ *     still emits through it (plan item H-FED-10, checked 2026-10-01); removed at 1.0.0.
  */
 @Deprecated(since = "0.5.0", forRemoval = true)
 public record FederationEvent(String code, Outcome outcome, String reason, String subject, String partner,

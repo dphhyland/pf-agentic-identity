@@ -12,6 +12,7 @@ import static org.mockito.Mockito.mock;
 
 import com.pingidentity.ps.oidf.pf.BridgeSigners;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.platform.component.ComponentState;
 import com.pingidentity.ps.oidf.platform.component.Components;
 import com.pingidentity.ps.oidf.platform.health.PartStatus;
@@ -44,7 +45,7 @@ class ComponentStatesTest {
         for (String p : new String[] {HOST_PROP, ANCHOR_JWKS_PROP, FRONT_CHANNEL_PROP, REQUIRE_PROP, BACKING_PROP, KEYS_PROP}) {
             System.clearProperty(p);
         }
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
         java.lang.reflect.Method bridge = BridgeSigners.class.getDeclaredMethod("resetForTest");
         bridge.setAccessible(true);
         bridge.invoke(null);
@@ -59,7 +60,7 @@ class ComponentStatesTest {
         anchor.setKeyId("anchor-1");
         System.setProperty(HOST_PROP, "https://anchor.example");
         System.setProperty(ANCHOR_JWKS_PROP, "{\"keys\":[" + anchor.toJson(JsonWebKey.OutputControlLevel.PUBLIC_ONLY) + "]}");
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
     }
 
     // ---- AUTO_REGISTRATION ---------------------------------------------------------------------------
@@ -138,7 +139,7 @@ class ComponentStatesTest {
     void attestationAuthenticationWithoutPinnedAnchorKeysIsDegradedAndCountsAsReady(@TempDir Path dir) throws Exception {
         configureKeys(dir);
         System.setProperty(HOST_PROP, "https://anchor.example");
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
         new ClientAttestationAuthFilter().init(null);
         assertEquals(ComponentState.DEGRADED, part("ClientAttestationAuthFilter").state());
         assertTrue(part("ClientAttestationAuthFilter").reason().contains("statically trusted attesters are unaffected"));

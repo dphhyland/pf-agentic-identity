@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.AutoRegistrationSettings;
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import java.util.HashMap;
@@ -294,7 +295,7 @@ class FederationClientBuilderTest {
             FederationRuntimeConfig.install(FederationRuntimeConfig.from(name -> null, name -> null));
             assertTrue(FederationClientBuilder.agent(RP, rp(), INLINE, EXPLICIT_RP).isRequireProofKeyForCodeExchange(), "on by default");
         } finally {
-            FederationRuntimeConfig.resetForTests();
+            FederationRuntimeConfigTestAccess.reset();
         }
     }
 

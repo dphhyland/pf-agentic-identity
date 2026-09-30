@@ -85,6 +85,18 @@
         <plugins>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.16.0</version></plugin>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.6.0</version></plugin>
+            <!-- H-FED-10: the test hooks of FederationRuntimeConfig and FederationPolicySupport are package-private, so
+                 production code cannot reset the process-wide configuration. Their *TestAccess classes reach them for
+                 the tests in other packages here and in attestation-issuer, published as a test-jar as
+                 openid-federation's fixtures are. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.5.1</version>
+                <executions>
+                    <execution><goals><goal>test-jar</goal></goals></execution>
+                </executions>
+            </plugin>
             <!--
               Coverage gate on the registration and attestation-bridge decision points: who becomes a
               client, on whose trust chain, and what the bridge will authenticate. 100% line + branch,
@@ -561,7 +573,7 @@
                 </executions>
             </plugin>
             <!-- oidf.war is assembled by the servlets/oidf-war aggregation module (it can depend on every
-                 servlet module without a reactor cycle); this module produces just its library jar. -->
+                 servlet module without a reactor cycle); this module produces its library jar and the test-jar above. -->
         </plugins>
     </build>
     <!-- Published to the monorepo's own package registry. These used to point at the abandoned

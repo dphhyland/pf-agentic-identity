@@ -66,9 +66,6 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
   gateway, which verifies each anchor's entity configuration against that anchor's pinned keys before
   using its fetch endpoint (§10.2), and retrieves it once more before refusing on a mismatch (§11.3). Within a
   resolution each of those requests is paid for from the resolution's budget and made by its deadline.
-- **`ClientEntityAuthorizer`** — the pure AS-side decision for a client that is itself a federation
-  entity: member (chain resolves), status active, `oauth_client` metadata within registration policy,
-  requested scopes within registered scopes. No I/O.
 - **`FederationService`** — this entity's statements and federation endpoints: its entity configuration
   (advertising fetch and list only when it has subordinates, resolve only when a resolver is configured,
   and the registration types it accepts), subordinate statements for `fetch` (§8.1, by `sub`, naming their

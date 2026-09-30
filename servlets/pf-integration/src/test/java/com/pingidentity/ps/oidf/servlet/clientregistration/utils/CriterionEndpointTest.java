@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import jakarta.servlet.http.HttpServletRequest;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -71,7 +72,7 @@ class CriterionEndpointTest {
     }
 
     private static void resetSingletons() throws Exception {
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
         java.lang.reflect.Method mock = ClientAttestationUtils.class.getDeclaredMethod("resetMockAttesterResolverForTest");
         mock.setAccessible(true);
         mock.invoke(null);

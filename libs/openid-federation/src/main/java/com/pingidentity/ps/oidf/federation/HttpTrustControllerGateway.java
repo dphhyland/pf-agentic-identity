@@ -1,12 +1,8 @@
 package com.pingidentity.ps.oidf.federation;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -19,7 +15,7 @@ import com.pingidentity.ps.oidf.jose.Claims;
 import com.pingidentity.ps.oidf.jose.VerificationPolicy;
 
 /**
- * HTTP-backed {@link TrustControllerGateway}. Fetches entity configurations, member lists and
+ * HTTP-backed {@link TrustControllerGateway}. Fetches entity configurations and
  * subordinate statements over HTTP (resolving each authority's {@code federation_fetch_endpoint}
  * on demand) and caches statements in a {@link SubordinateStatementCache}, honouring optional
  * max-age freshness bounds and staging writes into a supplied {@link SubordinateStatementCache.PendingWrites}.
@@ -35,7 +31,6 @@ public final class HttpTrustControllerGateway
 implements TrustControllerGateway {
     private static final Log LOGGER = LogFactory.getLog(HttpTrustControllerGateway.class);
     private static final String ENTITY_STATEMENT_ACCEPT = "application/entity-statement+jwt, application/json";
-    private static final String JSON_ACCEPT = "application/json";
     private final HttpGetClient http;
     private final String trustControllerBaseUrl;
     private final String selfIssuer;
@@ -77,22 +72,6 @@ implements TrustControllerGateway {
         this.trustControllerBaseUrl = normalizeBaseUrl(Objects.requireNonNull(trustControllerBaseUrl, "trustControllerBaseUrl"));
         this.selfIssuer = selfIssuer;
         this.subordinateStatementCache = Objects.requireNonNull(subordinateStatementCache, "subordinateStatementCache");
-    }
-
-    @Override
-    public UnverifiedClaims fetchEntityConfiguration() throws Exception {
-        String url = this.trustControllerBaseUrl + "/.well-known/openid-federation";
-        String jwt = this.http.get(url, ENTITY_STATEMENT_ACCEPT);
-        EntityStatementType.require(jwt, "from " + url);
-        return JwtCodec.parseUnverifiedClaims(jwt);
-    }
-
-    @Override
-    public List<String> fetchMembers() throws Exception {
-        String body = this.http.get(this.trustControllerBaseUrl + "/list", JSON_ACCEPT);
-        ObjectMapper mapper = new ObjectMapper();
-        List<String> items = mapper.readValue(body, new TypeReference<List<String>>(){});
-        return toStringList(items);
     }
 
     @Override
@@ -275,11 +254,6 @@ implements TrustControllerGateway {
         }
     }
 
-    @Override
-    public UnverifiedClaims fetchEntityConfigurationOf(String issuer, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
-        return this.configurationOf(issuer, pendingWrites, ownBudget());
-    }
-
     /** An Entity Configuration, a request of {@code budget} when it goes to the network. */
     private UnverifiedClaims configurationOf(String issuer, SubordinateStatementCache.PendingWrites pendingWrites, ResolutionBudget budget)
             throws Exception {
@@ -400,14 +374,6 @@ implements TrustControllerGateway {
             LOGGER.debug("Failed to parse iat claim from subordinate statement; will cache without age bound: " + e.getMessage());
             return null;
         }
-    }
-
-    private static List<String> toStringList(List<?> list) {
-        ArrayList<String> result = new ArrayList<String>();
-        for (Object item : list) {
-            result.add(String.valueOf(item));
-        }
-        return result;
     }
 
     private static String normalizeBaseUrl(String baseUrl) {

@@ -20,7 +20,7 @@ import com.pingidentity.ps.oidf.platform.events.LoggingSink;
  * configures one, events go to a {@link LoggingEventSink}. The engine classloader (OGNL issuance criteria) and the
  * webapp classloader each hold their own copy of platform, and each configures its own sink.
  *
- * @deprecated Use {@link Events}; plan item O-2 (Phase 3) moves the emitters and the codes, and removes this façade.
+ * @deprecated Use {@link Events}. Kept while federation code emits through it (H-FED-10, 2026-10-01); removed at 1.0.0.
  */
 @Deprecated(since = "0.5.0", forRemoval = true)
 @SuppressWarnings("removal")

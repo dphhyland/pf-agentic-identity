@@ -146,7 +146,7 @@ public final class RedisAttestationStore implements AttestationChallengeService,
         }
     }
 
-    /** The relative form, timed by this store's clock rather than the system's. */
+    /** The relative form, timed by this store's clock rather than the system's. Deprecated; removed at 1.0.0. */
     @Override
     @Deprecated
     public Verdict record(String clientId, String jti, long ttlSeconds) {

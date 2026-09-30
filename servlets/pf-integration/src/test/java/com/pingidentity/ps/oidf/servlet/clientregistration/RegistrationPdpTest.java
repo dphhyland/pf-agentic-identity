@@ -21,7 +21,9 @@ import com.pingidentity.ps.oidf.jose.HttpPostClient;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import com.pingidentity.ps.oidf.pf.FederationPolicySupport;
+import com.pingidentity.ps.oidf.pf.FederationPolicySupportTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.AutoRegistrationSettings;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpAuth;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpMode;
@@ -77,8 +79,8 @@ class RegistrationPdpTest {
     @AfterEach
     void tearDown() {
         this.events.close();
-        FederationRuntimeConfig.resetForTests();
-        FederationPolicySupport.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
+        FederationPolicySupportTestAccess.reset();
     }
 
     private static PdpSettings settings(PdpMode mode, boolean failOpen) {

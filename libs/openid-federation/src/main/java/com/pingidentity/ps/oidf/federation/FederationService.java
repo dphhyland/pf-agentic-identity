@@ -415,12 +415,6 @@ public final class FederationService {
         return this.subordinateStatement(sub, oidcIssuer);
     }
 
-    /** @deprecated the pre-§8.1 signature, which required {@code iss}; see {@link #fetchSubordinateStatement}. */
-    @Deprecated
-    public String fetchEntityStatement(String issuer, String subject, String oidcIssuer) throws JoseException {
-        return this.fetchSubordinateStatement(issuer, subject, oidcIssuer);
-    }
-
     /**
      * The non-standard {@code /federation/entity} statement: this entity's Entity Configuration when {@code subject} is
      * itself - the same statement {@code /.well-known/openid-federation} serves, {@code authority_hints} included, so the
@@ -467,13 +461,6 @@ public final class FederationService {
     }
 
     // ---- list (§8.2) ---------------------------------------------------------------------------------
-
-    /** @deprecated a single {@code entity_type}; see {@link #listSubordinates(ListRequest)}. */
-    @Deprecated
-    public List<String> listSubordinates(String entityType) {
-        return this.listSubordinates(new ListRequest(entityType == null || entityType.isBlank() ? List.of() : List.of(entityType),
-                null, null, null));
-    }
 
     /**
      * The list endpoint (§8.2): the Immediate Subordinates, filtered.

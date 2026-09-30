@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
+import com.pingidentity.ps.oidf.authority.AuthoritySupportTestAccess;
 import com.pingidentity.ps.oidf.authority.EntityStatus;
 import com.pingidentity.ps.oidf.authority.HostedEntity;
 import com.pingidentity.ps.oidf.authority.HostedEntityRegistry;
@@ -72,7 +73,7 @@ class HostedEntityAdminTest {
     @BeforeEach
     void host() throws Exception {
         this.events = EventCapture.install();
-        AuthoritySupport.resetForTests();
+        AuthoritySupportTestAccess.reset();
         AuthoritySupport.configureSigning(entity -> {
             if (entity.hostingKeyRef().startsWith("good")) {
                 return SIGNER;
@@ -85,7 +86,7 @@ class HostedEntityAdminTest {
     @AfterEach
     void release() {
         this.events.close();
-        AuthoritySupport.resetForTests();
+        AuthoritySupportTestAccess.reset();
     }
 
     private final class Exchange {
@@ -247,7 +248,7 @@ class HostedEntityAdminTest {
 
     @Test
     void withoutHostingThereIsNothingToAdminister() throws Exception {
-        AuthoritySupport.resetForTests();
+        AuthoritySupportTestAccess.reset();
 
         assertEquals("not_found", this.get("/entities", Map.of()).json(404).get("error"));
         assertEquals("not_found", this.get("/entities/audit", Map.of("entity_id", AGENT)).json(404).get("error"));
@@ -256,7 +257,7 @@ class HostedEntityAdminTest {
 
     @Test
     void aStoreThatFailsIsAServerError() throws Exception {
-        AuthoritySupport.resetForTests();
+        AuthoritySupportTestAccess.reset();
         AuthoritySupport.configureJdbcRegistry((javax.sql.DataSource) java.lang.reflect.Proxy.newProxyInstance(
                 javax.sql.DataSource.class.getClassLoader(), new Class<?>[]{javax.sql.DataSource.class}, (proxy, method, args) -> {
                     throw new java.sql.SQLException("connection refused");

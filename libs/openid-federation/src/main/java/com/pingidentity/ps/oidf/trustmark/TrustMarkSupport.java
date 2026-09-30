@@ -103,7 +103,7 @@ public final class TrustMarkSupport {
     }
 
     /** Tests only: forget the registry. */
-    public static void resetForTests() {
+    static void resetForTests() {
         synchronized (LOCK) {
             registry = null;
         }

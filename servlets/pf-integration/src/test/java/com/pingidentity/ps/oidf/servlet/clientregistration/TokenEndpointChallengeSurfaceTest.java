@@ -15,6 +15,7 @@ import com.pingidentity.ps.oidf.clientattestation.StoreNamespace;
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.pf.BridgeSigners;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.http.HttpServletRequest;
@@ -273,7 +274,7 @@ class TokenEndpointChallengeSurfaceTest {
 
     /** The runtime, bridge and mock-attester holders memoise what they read; each test starts from its own settings. */
     private static void resetSingletons() throws Exception {
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
         java.lang.reflect.Method bridge = BridgeSigners.class.getDeclaredMethod("resetForTest");
         bridge.setAccessible(true);
         bridge.invoke(null);

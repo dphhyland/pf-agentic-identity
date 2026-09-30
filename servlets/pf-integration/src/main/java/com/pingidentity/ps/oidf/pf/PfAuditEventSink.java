@@ -20,8 +20,8 @@ import java.util.function.Function;
  * emitted in and the {@code protocol} column its component's catalogue names ({@code OpenID Federation} for the
  * federation events). {@code OIDF_EVENTS_AUDIT=false} keeps events in {@code server.log} only.
  *
- * @deprecated Plan item O-2 (Phase 3) moves the emitters onto {@code platform.events} and the callers onto
- *     {@link PfAuditSink#install(java.util.function.Supplier)}, and removes this shim.
+ * @deprecated Install {@link PfAuditSink#install(java.util.function.Supplier)} instead. Kept while the servlets still
+ *     install this shim (plan item H-FED-10, checked 2026-10-01); removed at 1.0.0.
  */
 @Deprecated(since = "0.5.0", forRemoval = true)
 @SuppressWarnings("removal")

@@ -77,7 +77,7 @@ public final class InMemoryAttestationReplayCache implements AttestationReplayCa
         return Verdict.FIRST_USE;
     }
 
-    /** The relative form, timed by this cache's clock rather than the system's. */
+    /** The relative form, timed by this cache's clock rather than the system's. Deprecated; removed at 1.0.0. */
     @Override
     @Deprecated
     public Verdict record(String clientId, String jti, long ttlSeconds) {

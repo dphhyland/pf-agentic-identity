@@ -17,6 +17,7 @@ import com.pingidentity.ps.oidf.federation.testkit.MutableClock;
 import com.pingidentity.ps.oidf.federation.testkit.Statements;
 import com.pingidentity.ps.oidf.jose.HttpPostClient;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.RegistrationSettings;
 import com.pingidentity.ps.oidf.pf.testkit.FakeClientStore;
 import java.time.Duration;
@@ -53,7 +54,7 @@ class RegistrationTrustMarkBudgetTest {
     @AfterEach
     void tearDown() {
         this.events.close();
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
     }
 
     private static void requireCertified(boolean statusCheck) {

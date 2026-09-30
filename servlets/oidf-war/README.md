@@ -10,7 +10,7 @@ of its own: a `web.xml`, an assembly descriptor, and dependencies on `pf-integra
 
 `attestation-issuer` depends on `pf-integration` (client store, `FederationWalletProviderKeyResolver`,
 `PfJwksSigningKeyProvider`). If `pf-integration` also built the war it would have to depend on
-`attestation-issuer` - a reactor cycle. So `pf-integration` produces only `oidf.jar`, and this
+`attestation-issuer` - a reactor cycle. So `pf-integration` produces only `oidf.jar` (plus a test-jar of test hooks that is never staged), and this
 aggregation module sits downstream of every servlet module and packs them together. It exists because
 before it did, `/federation/attestation` was in no built war at all (commit `1ac888b`).
 

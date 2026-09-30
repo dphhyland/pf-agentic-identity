@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.pf.BridgeSigners;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.platform.component.ComponentState;
 import com.pingidentity.ps.oidf.servlet.GateTesting;
 import jakarta.servlet.FilterChain;
@@ -38,7 +39,7 @@ class SurfaceGateTest {
     void reset() throws Exception {
         System.clearProperty("oidf.federation.trust.controller.host");
         System.clearProperty("oidf.federation.trust.anchor.jwks");
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
         FederationClientLookup.useForTests(null);
         java.lang.reflect.Method bridge = BridgeSigners.class.getDeclaredMethod("resetForTest");
         bridge.setAccessible(true);

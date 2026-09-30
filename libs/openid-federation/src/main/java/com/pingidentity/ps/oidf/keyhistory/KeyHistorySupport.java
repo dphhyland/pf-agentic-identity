@@ -84,7 +84,7 @@ public final class KeyHistorySupport {
     }
 
     /** Tests only: forget the store. */
-    public static void resetForTests() {
+    static void resetForTests() {
         synchronized (LOCK) {
             store = null;
         }

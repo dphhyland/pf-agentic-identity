@@ -3,8 +3,6 @@
  */
 package com.pingidentity.ps.oidf.federation;
 
-import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
-import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
@@ -25,16 +23,6 @@ public final class LocalFirstTrustControllerGateway implements TrustControllerGa
     public LocalFirstTrustControllerGateway(TrustControllerGateway delegate, LocalStatementSource local) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.local = Objects.requireNonNull(local, "local");
-    }
-
-    @Override
-    public UnverifiedClaims fetchEntityConfiguration() throws Exception {
-        return this.delegate.fetchEntityConfiguration();
-    }
-
-    @Override
-    public List<String> fetchMembers() throws Exception {
-        return this.delegate.fetchMembers();
     }
 
     @Override

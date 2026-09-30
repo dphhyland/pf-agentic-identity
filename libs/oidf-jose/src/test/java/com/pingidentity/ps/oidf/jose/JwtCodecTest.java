@@ -36,7 +36,7 @@ class JwtCodecTest {
         PublicJsonWebKey key = TestJwts.ec("k1");
         String jwt = signStatement(key, "ES256", ISSUER, ISSUER, 300);
 
-        JwtClaims verified = JwtCodec.verifyAgainstInlineJwks(jwt, jwks(key), ISSUER);
+        JwtClaims verified = JwtCodec.verifyAgainstInlineJwks(jwt, jwks(key), ISSUER, Set.of(), VerificationPolicy.legacy());
 
         assertEquals(ISSUER, verified.getIssuer());
         assertEquals(ISSUER, verified.getSubject());
@@ -48,7 +48,7 @@ class JwtCodecTest {
         String jwt = signStatement(key, "ES256", ISSUER, ISSUER, 300);
 
         JwtClaims verified = JwtCodec.verifyAgainstKeys(
-                jwt, List.of(JsonWebKey.Factory.newJwk(TestJwts.publicParams(key))), ISSUER, Set.of());
+                jwt, List.of(JsonWebKey.Factory.newJwk(TestJwts.publicParams(key))), ISSUER, Set.of(), VerificationPolicy.legacy());
 
         assertEquals(ISSUER, verified.getIssuer());
     }
@@ -61,7 +61,7 @@ class JwtCodecTest {
         String jwt = signStatement(key, "ES256", ISSUER, ISSUER, 300);
 
         assertThrows(JwtVerificationException.class,
-                () -> JwtCodec.verifyAgainstInlineJwks(jwt, jwks(key), "https://someone-else.example.com"));
+                () -> JwtCodec.verifyAgainstInlineJwks(jwt, jwks(key), "https://someone-else.example.com", Set.of(), VerificationPolicy.legacy()));
     }
 
     @Test
@@ -69,7 +69,7 @@ class JwtCodecTest {
         PublicJsonWebKey key = TestJwts.ec("k1");
         String jwt = signStatement(key, "ES256", ISSUER, ISSUER, -300);
 
-        assertThrows(JwtVerificationException.class, () -> JwtCodec.verifyAgainstInlineJwks(jwt, jwks(key), ISSUER));
+        assertThrows(JwtVerificationException.class, () -> JwtCodec.verifyAgainstInlineJwks(jwt, jwks(key), ISSUER, Set.of(), VerificationPolicy.legacy()));
     }
 
     @Test
@@ -81,7 +81,7 @@ class JwtCodecTest {
         // no exp set
         String jwt = TestJwts.sign(key, "ES256", null, claims);
 
-        assertThrows(JwtVerificationException.class, () -> JwtCodec.verifyAgainstInlineJwks(jwt, jwks(key), ISSUER));
+        assertThrows(JwtVerificationException.class, () -> JwtCodec.verifyAgainstInlineJwks(jwt, jwks(key), ISSUER, Set.of(), VerificationPolicy.legacy()));
     }
 
     @Test
@@ -93,7 +93,7 @@ class JwtCodecTest {
         // no sub set
         String jwt = TestJwts.sign(key, "ES256", null, claims);
 
-        assertThrows(JwtVerificationException.class, () -> JwtCodec.verifyAgainstInlineJwks(jwt, jwks(key), ISSUER));
+        assertThrows(JwtVerificationException.class, () -> JwtCodec.verifyAgainstInlineJwks(jwt, jwks(key), ISSUER, Set.of(), VerificationPolicy.legacy()));
     }
 
     @Test
@@ -102,7 +102,7 @@ class JwtCodecTest {
         String jwt = signStatement(key, "ES256", ISSUER, ISSUER, 300);
         String tampered = corruptSignature(jwt);
 
-        assertThrows(JwtVerificationException.class, () -> JwtCodec.verifyAgainstInlineJwks(tampered, jwks(key), ISSUER));
+        assertThrows(JwtVerificationException.class, () -> JwtCodec.verifyAgainstInlineJwks(tampered, jwks(key), ISSUER, Set.of(), VerificationPolicy.legacy()));
     }
 
     @Test
@@ -119,7 +119,7 @@ class JwtCodecTest {
                 .encodeToString(JsonUtil.toJson(forged).getBytes(StandardCharsets.UTF_8));
         String tampered = parts[0] + "." + forgedPayload + "." + parts[2];
 
-        assertThrows(JwtVerificationException.class, () -> JwtCodec.verifyAgainstInlineJwks(tampered, jwks(key), ISSUER));
+        assertThrows(JwtVerificationException.class, () -> JwtCodec.verifyAgainstInlineJwks(tampered, jwks(key), ISSUER, Set.of(), VerificationPolicy.legacy()));
     }
 
     // ---- algorithm constraints -------------------------------------------------------------------
@@ -130,7 +130,7 @@ class JwtCodecTest {
         String jwt = signStatement(rsaKey, "RS256", ISSUER, ISSUER, 300);
 
         JwtVerificationException e = assertThrows(JwtVerificationException.class, () -> JwtCodec.verifyAgainstKeys(
-                jwt, List.of(JsonWebKey.Factory.newJwk(TestJwts.publicParams(rsaKey))), ISSUER, Set.of("ES256")));
+                jwt, List.of(JsonWebKey.Factory.newJwk(TestJwts.publicParams(rsaKey))), ISSUER, Set.of("ES256"), VerificationPolicy.legacy()));
         assertTrue(e.getMessage() != null);
     }
 
@@ -140,7 +140,7 @@ class JwtCodecTest {
         String jwt = signStatement(rsaKey, "RS256", ISSUER, ISSUER, 300);
 
         JwtClaims verified = JwtCodec.verifyAgainstKeys(
-                jwt, List.of(JsonWebKey.Factory.newJwk(TestJwts.publicParams(rsaKey))), ISSUER, Set.of("RS256"));
+                jwt, List.of(JsonWebKey.Factory.newJwk(TestJwts.publicParams(rsaKey))), ISSUER, Set.of("RS256"), VerificationPolicy.legacy());
         assertEquals(ISSUER, verified.getIssuer());
     }
 
@@ -157,7 +157,7 @@ class JwtCodecTest {
         String jwt = signStatement(rsaKey, "RS256", ISSUER, ISSUER, 300);
 
         JwtClaims verified = JwtCodec.verifyAgainstKeys(
-                jwt, List.of(JsonWebKey.Factory.newJwk(TestJwts.publicParams(rsaKey))), ISSUER, Set.of());
+                jwt, List.of(JsonWebKey.Factory.newJwk(TestJwts.publicParams(rsaKey))), ISSUER, Set.of(), VerificationPolicy.legacy());
         assertEquals(ISSUER, verified.getIssuer());
     }
 
@@ -173,7 +173,7 @@ class JwtCodecTest {
         String jwt = unsecuredNoneAlgorithmJwt(ISSUER, ISSUER);
 
         assertThrows(Exception.class, () -> JwtCodec.verifyAgainstKeys(
-                jwt, List.of(JsonWebKey.Factory.newJwk(TestJwts.publicParams(key))), ISSUER, Set.of()));
+                jwt, List.of(JsonWebKey.Factory.newJwk(TestJwts.publicParams(key))), ISSUER, Set.of(), VerificationPolicy.legacy()));
     }
 
     // ---- verifyAttestationPop --------------------------------------------------------------------
@@ -336,7 +336,7 @@ class JwtCodecTest {
         // method - but a verified path (verifyAgainstInlineJwks) must still reject the same token.
         UnverifiedClaims claims = JwtCodec.parseUnverifiedClaims(tampered);
         assertEquals(ISSUER, claims.unverifiedIssuer());
-        assertThrows(JwtVerificationException.class, () -> JwtCodec.verifyAgainstInlineJwks(tampered, jwks(key), ISSUER));
+        assertThrows(JwtVerificationException.class, () -> JwtCodec.verifyAgainstInlineJwks(tampered, jwks(key), ISSUER, Set.of(), VerificationPolicy.legacy()));
     }
 
     @Test

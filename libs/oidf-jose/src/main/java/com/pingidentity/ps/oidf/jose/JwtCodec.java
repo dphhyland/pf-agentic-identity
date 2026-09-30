@@ -69,27 +69,6 @@ public final class JwtCodec {
     }
 
     /**
-     * As {@link #verifyAgainstInlineJwks(String, Map, String, Set, VerificationPolicy)} with any asymmetric algorithm
-     * and {@link VerificationPolicy#legacy()}. {@code none} and MAC algorithms are refused, as they are everywhere here.
-     *
-     * @deprecated names no algorithms and no policy; pass both. Removed in plan item H-FED-10.
-     */
-    @Deprecated(forRemoval = true)
-    public static JwtClaims verifyAgainstInlineJwks(String jwt, Map<String, Object> jwks, String expectedIssuer) throws JwtVerificationException {
-        return verifyAgainstInlineJwks(jwt, jwks, expectedIssuer, Set.of(), VerificationPolicy.legacy());
-    }
-
-    /**
-     * As {@link #verifyAgainstInlineJwks(String, Map, String, Set, VerificationPolicy)} with {@link VerificationPolicy#legacy()}.
-     *
-     * @deprecated names no policy; pass one. Removed in plan item H-FED-10.
-     */
-    @Deprecated(forRemoval = true)
-    public static JwtClaims verifyAgainstInlineJwks(String jwt, Map<String, Object> jwks, String expectedIssuer, Set<String> acceptedAlgorithms) throws JwtVerificationException {
-        return verifyAgainstInlineJwks(jwt, jwks, expectedIssuer, acceptedAlgorithms, VerificationPolicy.legacy());
-    }
-
-    /**
      * Verifies against a JWK Set carried inline (a statement's {@code jwks} claim). With a policy that
      * requires {@code kid} the set is read as Federation Entity Keys ({@link Jwks#parseFederationKeySet}):
      * public, asymmetric, each with a unique {@code kid} - a symmetric key in an inline set would let
@@ -113,20 +92,10 @@ public final class JwtCodec {
      * resolved set of issuer keys. Requires {@code iss}/{@code sub}/{@code exp} (as entity statements
      * and client attestations do) and applies a 60s clock skew. Audience is not validated here.
      *
-     * @deprecated names no policy; pass one ({@link VerificationPolicy#legacy()} is what this does). Removed in plan
-     *     item H-FED-10.
-     */
-    @Deprecated(forRemoval = true)
-    public static JwtClaims verifyAgainstKeys(String jwt, List<JsonWebKey> keys, String expectedIssuer, Set<String> acceptedAlgorithms) throws JwtVerificationException {
-        return verifyAgainstKeys(jwt, keys, expectedIssuer, acceptedAlgorithms, VerificationPolicy.legacy());
-    }
-
-    /**
-     * As {@link #verifyAgainstKeys(String, List, String, Set)}, plus the {@link VerificationPolicy}:
-     * when it requires {@code kid} the key is selected by an exact match before any verification is
-     * attempted (never by jose4j's key-type heuristics); when it requires {@code iat}, a missing or
-     * future {@code iat} is refused; when it names a {@code typ}, any other type is refused before the
-     * signature is looked at.
+     * <p>The {@link VerificationPolicy} ({@link VerificationPolicy#legacy()} when null): when it requires {@code kid}
+     * the key is selected by an exact match before any verification is attempted (never by jose4j's key-type
+     * heuristics); when it requires {@code iat}, a missing or future {@code iat} is refused; when it names a
+     * {@code typ}, any other type is refused before the signature is looked at.
      *
      * <p>Whatever the policy, the verifier chooses the algorithm and the key, never the token (RFC 8725 §3.1, §3.2):
      * {@code none} and the MAC algorithms are refused even when {@code acceptedAlgorithms} names them, and only an

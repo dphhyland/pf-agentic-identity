@@ -38,3 +38,13 @@ method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.DpopPr
 # and ssf's gate names PushDeliveryService.deliver, which maps each answer and failure, in their place.
 method servlets/ssf com.pingidentity.ps.oidf.ssf.PushDeliveryService.CappedBody.onNext(java.util.List)
 method servlets/ssf com.pingidentity.ps.oidf.ssf.PushDeliveryService.send(java.net.http.HttpClient,java.net.http.HttpRequest,java.time.Duration,int)
+# HFEDD (H-FED-10, F-0052): dead code deleted with its <include>. JwtCodec's overloads without a VerificationPolicy and
+# FederationService.listSubordinates(String) had no caller; the gateway's Entity Configuration reads had none once S5B
+# moved the one production read to HttpTrustControllerGateway.configurationOf, which the gate now names in their place.
+method libs/oidf-jose com.pingidentity.ps.oidf.jose.JwtCodec.verifyAgainstInlineJwks(java.lang.String,java.util.Map,java.lang.String)
+method libs/oidf-jose com.pingidentity.ps.oidf.jose.JwtCodec.verifyAgainstInlineJwks(java.lang.String,java.util.Map,java.lang.String,java.util.Set)
+method libs/openid-federation com.pingidentity.ps.oidf.federation.FederationService.listSubordinates(java.lang.String)
+method libs/openid-federation com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.fetchEntityConfiguration()
+method libs/openid-federation com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.fetchEntityConfigurationOf(java.lang.String,com.pingidentity.ps.oidf.federation.SubordinateStatementCache$PendingWrites)
+method libs/openid-federation com.pingidentity.ps.oidf.federation.TrustControllerGateway.fetchEntityConfigurationOf(java.lang.String)
+method libs/openid-federation com.pingidentity.ps.oidf.federation.TrustControllerGateway.fetchEntityConfigurationOf(java.lang.String,com.pingidentity.ps.oidf.federation.SubordinateStatementCache$PendingWrites)

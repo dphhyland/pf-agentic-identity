@@ -19,7 +19,9 @@ import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.federation.policy.DecisionPoint;
 import com.pingidentity.ps.oidf.jose.HttpPostClient;
 import com.pingidentity.ps.oidf.pf.FederationPolicySupport;
+import com.pingidentity.ps.oidf.pf.FederationPolicySupportTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpAuth;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpMode;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings;
@@ -65,8 +67,8 @@ class OIDFederationUtilsTest {
     @AfterEach
     void tearDown() {
         OIDFederationUtils.resetForTests();
-        FederationRuntimeConfig.resetForTests();
-        FederationPolicySupport.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
+        FederationPolicySupportTestAccess.reset();
         this.events.close();
     }
 

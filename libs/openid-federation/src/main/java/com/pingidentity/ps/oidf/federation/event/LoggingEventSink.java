@@ -17,7 +17,7 @@ import java.util.Objects;
  * marks {@code debug} (fetches) at DEBUG, everything else at INFO. A field the event's code does not declare is
  * dropped and counted, and every value goes through {@link LogSafe}.
  *
- * @deprecated Use {@link LoggingSink}; plan item O-2 (Phase 3) removes this façade.
+ * @deprecated Use {@link LoggingSink}. Kept while federation code uses it (H-FED-10, 2026-10-01); removed at 1.0.0.
  */
 @Deprecated(since = "0.5.0", forRemoval = true)
 @SuppressWarnings("removal")

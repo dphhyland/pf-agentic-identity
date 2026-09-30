@@ -84,7 +84,7 @@ public final class FederationPolicySupport {
     }
 
     /** Test seam: forgets what was built, so the next caller builds again. */
-    public static synchronized void resetForTests() {
+    static synchronized void resetForTests() {
         policies = null;
     }
 
