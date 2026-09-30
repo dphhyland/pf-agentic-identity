@@ -15,10 +15,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
+import com.pingidentity.ps.oidf.authority.AuthoritySupportTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.platform.component.ComponentState;
 import com.pingidentity.ps.oidf.servlet.GateTesting;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
+import com.pingidentity.ps.oidf.trustmark.TrustMarkSupportTestAccess;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -41,7 +44,7 @@ class SurfaceGateTest {
     void reset() {
         System.clearProperty(POLICY_PROP);
         System.clearProperty(TOKEN_PROP);
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
         // A refusal in code another test made (an in-memory store under production) must not refuse these parts.
         com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.resetForTests();
     }
@@ -67,7 +70,7 @@ class SurfaceGateTest {
                 com.pingidentity.ps.oidf.platform.profile.DeploymentProfile.DEVELOPMENT, java.util.List.of(), java.util.List.of()));
         // An authority is named, and its domain metadata policy is not one: the start fails before signing is published.
         System.setProperty(POLICY_PROP, "{\"openid_relying_party\":5}");
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
         ServletConfig config = mock(ServletConfig.class);
         when(config.getInitParameter("authorityEntityId")).thenReturn("https://authority.example");
         HostedEntityServlet servlet = new HostedEntityServlet();
@@ -86,11 +89,11 @@ class SurfaceGateTest {
     void aStoreIsNotPublishedWhenALaterStepOfTheAuthorityFails() {
         // configureAuthority resolves the store, the policy and the signer before it publishes anything, so a policy that
         // is not one leaves no registry behind - with the registry configured first, the store would stay published.
-        AuthoritySupport.resetForTests();
-        TrustMarkSupport.resetForTests();
+        AuthoritySupportTestAccess.reset();
+        TrustMarkSupportTestAccess.reset();
         try {
             System.setProperty(POLICY_PROP, "{\"openid_relying_party\":5}");
-            FederationRuntimeConfig.resetForTests();
+            FederationRuntimeConfigTestAccess.reset();
             // Development: under production the direct URL would be refused before the policy is read (PR-2).
             com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.publish(new com.pingidentity.ps.oidf.platform.settings.ProfileAudit.Result(
                     com.pingidentity.ps.oidf.platform.profile.DeploymentProfile.DEVELOPMENT, java.util.List.of(), java.util.List.of()));
@@ -103,8 +106,8 @@ class SurfaceGateTest {
             assertFalse(AuthoritySupport.isHostingConfigured(), "a failed configuration publishes no signing");
             assertFalse(TrustMarkSupport.isConfigured(), "a failed configuration publishes no Trust Mark store");
         } finally {
-            AuthoritySupport.resetForTests();
-            TrustMarkSupport.resetForTests();
+            AuthoritySupportTestAccess.reset();
+            TrustMarkSupportTestAccess.reset();
         }
     }
 

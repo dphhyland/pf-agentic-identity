@@ -493,7 +493,7 @@ public final class FederationRuntimeConfig {
     }
 
     /** Tests only: forget the resolved configuration so the next {@link #get()} resolves again. */
-    public static void resetForTests() {
+    static void resetForTests() {
         synchronized (FederationRuntimeConfig.class) {
             instance = null;
             ownKeys = FederationRuntimeConfig::pfSigningJwks;

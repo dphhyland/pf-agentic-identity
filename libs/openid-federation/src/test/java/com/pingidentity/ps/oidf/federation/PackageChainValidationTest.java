@@ -58,12 +58,6 @@ class PackageChainValidationTest {
 
     private TrustControllerGateway packageGateway() {
         return new TrustControllerGateway() {
-            @Override public UnverifiedClaims fetchEntityConfiguration() throws Exception {
-                return JwtCodec.parseUnverifiedClaims(entityConfigs.get(TA));
-            }
-            @Override public List<String> fetchMembers() {
-                return List.copyOf(entityConfigs.keySet());
-            }
             @Override public String fetchEntityStatement(String issuer) {
                 return entityConfigs.get(issuer);
             }

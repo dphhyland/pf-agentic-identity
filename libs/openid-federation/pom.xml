@@ -11,9 +11,8 @@
 
     <name>openid-federation</name>
     <description>OpenID Federation 1.0 building blocks: distributed trust-chain resolution + validation
-        (TrustChainValidator, gateways, subordinate-statement cache), AS-side client authorization
-        (ClientEntityAuthorizer — federation membership/policy/status + scope entitlement), and the entity/
-        federation endpoint service. Depends only on the oidf-jose SDK + the servlet API — no PingFederate.</description>
+        (TrustChainValidator, gateways, subordinate-statement cache), and the entity/federation endpoint
+        service. Depends only on the oidf-jose SDK + the servlet API — no PingFederate.</description>
     <url>https://github.com/dphhyland/openid-federation</url>
 
     <licenses>
@@ -132,9 +131,8 @@
                                         <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.bindTrustAnchor(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.authorityConfiguration(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.EntityStatementType.require(*</include>
-                                        <include>com.pingidentity.ps.oidf.federation.TrustControllerGateway.fetchEntityConfigurationOf(*</include>
-                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.fetchEntityConfiguration(*</include>
-                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.fetchEntityConfigurationOf(*</include>
+                                        <!-- H-FED-10: the one Entity Configuration read left, which refuses an untyped one (§3). -->
+                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.configurationOf(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.ResolutionBudget.of(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.ResolutionBudget.child(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.ResolutionBudget.spend(*</include>

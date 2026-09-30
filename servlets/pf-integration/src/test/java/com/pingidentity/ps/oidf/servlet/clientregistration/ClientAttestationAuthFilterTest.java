@@ -16,6 +16,7 @@ import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.pf.BridgeSigners;
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -78,7 +79,7 @@ class ClientAttestationAuthFilterTest {
 
     /** Both holders memoise; a test that changes the environment has to clear them. */
     private static void resetSingletons() throws Exception {
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
         java.lang.reflect.Method reset = BridgeSigners.class.getDeclaredMethod("resetForTest");
         reset.setAccessible(true);
         reset.invoke(null);

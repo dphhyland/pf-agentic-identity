@@ -188,15 +188,6 @@ public final class BridgeSigners {
         return Set.copyOf(out);
     }
 
-    /** The signer, or a failure naming what to configure for this specific client. */
-    public static JwsSigner require(String clientId) {
-        return forClient(clientId).orElseThrow(() -> new IllegalStateException(
-                "no bridge signing key for " + clientId + ". Add it to " + KEYS_ENV
-                        + " (\"key_ref\" for " + BACKING_ENV + "=vault, \"jwk\" for =config), or set "
-                        + FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV
-                        + "=false to run without attestation-based client authentication."));
-    }
-
     /**
      * Starts the check of every configured client's key in this copy, once: a later call while it runs does nothing.
      * Called from the attestation filter's start function, so only the webapp's copy runs it. Never throws and never

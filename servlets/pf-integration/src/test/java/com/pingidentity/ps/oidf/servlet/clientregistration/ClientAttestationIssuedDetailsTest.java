@@ -20,6 +20,7 @@ import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.pf.BridgeSigners;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.rar.model.Json;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
 import com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver;
@@ -112,7 +113,7 @@ class ClientAttestationIssuedDetailsTest {
     }
 
     private static void resetSingletons() throws Exception {
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
         java.lang.reflect.Method bridge = BridgeSigners.class.getDeclaredMethod("resetForTest");
         bridge.setAccessible(true);
         bridge.invoke(null);
@@ -532,11 +533,11 @@ class ClientAttestationIssuedDetailsTest {
         assertSame(filter.errorPage(), filter.errorPage(), "read once");
         System.setProperty("oidf.federation.error.page", dir.resolve("missing.html").toString());
         try {
-            FederationRuntimeConfig.resetForTests();
+            FederationRuntimeConfigTestAccess.reset();
             assertNotNull(filter().errorPage(), "an unreadable page is the built-in one");
         } finally {
             System.clearProperty("oidf.federation.error.page");
-            FederationRuntimeConfig.resetForTests();
+            FederationRuntimeConfigTestAccess.reset();
         }
     }
 

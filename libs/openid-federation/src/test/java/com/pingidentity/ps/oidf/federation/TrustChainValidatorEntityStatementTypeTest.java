@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.EnumMap;
@@ -349,42 +348,26 @@ class TrustChainValidatorEntityStatementTypeTest {
         assertTrue(e.getMessage().contains("'typ'"), "rejected, but not for the typ header: " + e);
     }
 
+    /** The unbound gateway reads a typed configuration to find the authority's fetch endpoint. */
     @Test
-    @Requirement("OIDFED §3(2)")
-    void theGatewayRefusesAMistypedEntityConfigurationWhicheverWayItIsAskedFor() throws Exception {
-        Map<Position, String> statements = federation(typAt(Position.ANCHOR_CONFIG, WRONG_TYP));
-        HttpTrustControllerGateway gateway = new HttpTrustControllerGateway(serving(Map.of(
-                ANCHOR + "/.well-known/openid-federation", statements.get(Position.ANCHOR_CONFIG))), ANCHOR);
-        assertTrue(assertThrows(Exception.class, () -> gateway.fetchEntityConfiguration()).getMessage().contains("'typ'"));
-        assertTrue(assertThrows(Exception.class, () -> gateway.fetchEntityConfigurationOf(ANCHOR)).getMessage().contains("'typ'"));
-    }
-
-    @Test
-    void theGatewayReadsATypedEntityConfigurationWhicheverWayItIsAskedFor() throws Exception {
+    void theGatewayReadsATypedEntityConfigurationToFindTheFetchEndpoint() throws Exception {
         Map<Position, String> statements = federation(Map.of());
-        HttpTrustControllerGateway gateway = new HttpTrustControllerGateway(serving(Map.of(
-                ANCHOR + "/.well-known/openid-federation", statements.get(Position.ANCHOR_CONFIG))), ANCHOR);
-        assertEquals(ANCHOR, gateway.fetchEntityConfiguration().unverifiedSubject());
-        assertEquals(ANCHOR, gateway.fetchEntityConfigurationOf(ANCHOR).unverifiedSubject());
+        HttpTrustControllerGateway unbound = new HttpTrustControllerGateway(serving(Map.of(
+                ANCHOR + "/.well-known/openid-federation", statements.get(Position.ANCHOR_CONFIG),
+                fetchUrl(ANCHOR, INTERMEDIATE), statements.get(Position.ANCHOR_ABOUT_INTERMEDIATE))), ANCHOR);
+        assertEquals(statements.get(Position.ANCHOR_ABOUT_INTERMEDIATE), unbound.fetchSubordinateStatement(ANCHOR, INTERMEDIATE));
     }
 
     /**
-     * A gateway that implements only the abstract fetches - as the fixture-driven chain tests do - gets
-     * the check from the interface's default Entity Configuration reads, not just from the HTTP gateway.
-     * A supplied chain through such a gateway never reads the anchor's configuration (its keys are
-     * pinned), so the untyped copy is refused where it is read and plays no part in the chain.
+     * A gateway that implements only the abstract fetches - as the fixture-driven chain tests do. A supplied
+     * chain through such a gateway never reads the anchor's configuration (its keys are pinned), so an untyped
+     * copy there plays no part in the chain.
      */
     @Test
     @Requirement("OIDFED §3(2)")
-    void aMinimalGatewayStillRejectsAnUntypedAnchorConfigurationWhereItIsRead() throws Exception {
+    void aMinimalGatewaysSuppliedChainNeverReadsAnUntypedAnchorConfiguration() throws Exception {
         Map<Position, String> statements = federation(typAt(Position.ANCHOR_CONFIG, null));
         TrustControllerGateway minimal = new TrustControllerGateway() {
-            @Override public UnverifiedClaims fetchEntityConfiguration() {
-                throw new UnsupportedOperationException();
-            }
-            @Override public List<String> fetchMembers() {
-                return List.of();
-            }
             @Override public String fetchEntityStatement(String issuer) {
                 return ANCHOR.equals(issuer) ? statements.get(Position.ANCHOR_CONFIG) : null;
             }
@@ -394,8 +377,6 @@ class TrustChainValidatorEntityStatementTypeTest {
         };
         assertEquals(ANCHOR, new TrustChainValidator(minimal, TrustAnchor.of(ANCHOR, jwks(anchorKey)))
                 .validate(suppliedChain(statements), LEAF, LEAF).trustAnchorIssuer());
-        assertTrue(assertThrows(Exception.class, () -> minimal.fetchEntityConfigurationOf(ANCHOR)).getMessage().contains("'typ'"));
-        assertTrue(assertThrows(Exception.class, () -> minimal.fetchEntityConfigurationOf(ANCHOR, null)).getMessage().contains("'typ'"));
     }
 
     @Test
@@ -403,12 +384,6 @@ class TrustChainValidatorEntityStatementTypeTest {
     void aMinimalGatewayStillReadsATypedConfiguration() throws Exception {
         Map<Position, String> statements = federation(Map.of());
         TrustControllerGateway minimal = new TrustControllerGateway() {
-            @Override public UnverifiedClaims fetchEntityConfiguration() {
-                throw new UnsupportedOperationException();
-            }
-            @Override public List<String> fetchMembers() {
-                return List.of();
-            }
             @Override public String fetchEntityStatement(String issuer) {
                 return statements.get(Position.ANCHOR_CONFIG);
             }
@@ -416,8 +391,6 @@ class TrustChainValidatorEntityStatementTypeTest {
                 return null;
             }
         };
-        assertEquals(ANCHOR, minimal.fetchEntityConfigurationOf(ANCHOR).unverifiedSubject());
-        assertEquals(ANCHOR, minimal.fetchEntityConfigurationOf(ANCHOR, null).unverifiedSubject());
         assertEquals(ANCHOR, new TrustChainValidator(minimal, TrustAnchor.of(ANCHOR, jwks(anchorKey))).validate(suppliedChain(statements), LEAF, LEAF).trustAnchorIssuer());
     }
 }

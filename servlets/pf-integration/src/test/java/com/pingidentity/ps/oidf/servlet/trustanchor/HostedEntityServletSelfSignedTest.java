@@ -12,11 +12,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
+import com.pingidentity.ps.oidf.authority.AuthoritySupportTestAccess;
 import com.pingidentity.ps.oidf.authority.EntityStatus;
 import com.pingidentity.ps.oidf.authority.HostedEntity;
 import com.pingidentity.ps.oidf.authority.HostingMode;
 import com.pingidentity.ps.oidf.federation.testkit.EventCapture;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
+import com.pingidentity.ps.oidf.trustmark.TrustMarkSupportTestAccess;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.BufferedReader;
@@ -54,8 +56,8 @@ class HostedEntityServletSelfSignedTest {
     @BeforeEach
     void reset() throws Exception {
         this.events = EventCapture.install();
-        AuthoritySupport.resetForTests();
-        TrustMarkSupport.resetForTests();
+        AuthoritySupportTestAccess.reset();
+        TrustMarkSupportTestAccess.reset();
         // As the authority servlet does at start-up; a self-signed agent must never reach this signer.
         AuthoritySupport.configureSigning(entity -> {
             throw new AssertionError("the authority never signs for a self-signed agent");
@@ -67,8 +69,8 @@ class HostedEntityServletSelfSignedTest {
     @AfterEach
     void release() {
         this.events.close();
-        AuthoritySupport.resetForTests();
-        TrustMarkSupport.resetForTests();
+        AuthoritySupportTestAccess.reset();
+        TrustMarkSupportTestAccess.reset();
     }
 
     private static final class Exchange {
@@ -231,7 +233,7 @@ class HostedEntityServletSelfSignedTest {
         refusals.add(Map.entry("not_found", new Exchange("PUT", "/" + marker + "/entity-configuration", this.configuration(exp, List.of(AUTHORITY)), false)));
         refusals.add(Map.entry("not_found", new Exchange("PUT", "/a1/" + marker, "x", false)));
 
-        AuthoritySupport.resetForTests();
+        AuthoritySupportTestAccess.reset();
         javax.sql.DataSource unreachable = mock(javax.sql.DataSource.class);
         when(unreachable.getConnection()).thenThrow(new java.sql.SQLException("the database is down " + marker));
         AuthoritySupport.configureJdbcRegistry(unreachable);
@@ -265,7 +267,7 @@ class HostedEntityServletSelfSignedTest {
     void aRevocationWithNoEntityIs404AndOneTheStoreCannotRecordIs500() throws Exception {
         assertEquals("not_found", new Exchange("DELETE", null, null).error(404), "the collection itself is not revocable");
 
-        AuthoritySupport.resetForTests();
+        AuthoritySupportTestAccess.reset();
         javax.sql.DataSource unreachable = mock(javax.sql.DataSource.class);
         when(unreachable.getConnection()).thenThrow(new java.sql.SQLException("the database is down"));
         AuthoritySupport.configureJdbcRegistry(unreachable);

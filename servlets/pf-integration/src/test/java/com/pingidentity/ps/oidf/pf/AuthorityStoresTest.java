@@ -11,13 +11,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
+import com.pingidentity.ps.oidf.authority.AuthoritySupportTestAccess;
 import com.pingidentity.ps.oidf.keyhistory.KeyHistorySupport;
+import com.pingidentity.ps.oidf.keyhistory.KeyHistorySupportTestAccess;
 import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import com.pingidentity.ps.oidf.platform.profile.ProfileRefusals;
 import com.pingidentity.ps.oidf.platform.settings.ProfileAudit;
 import com.pingidentity.ps.oidf.platform.settings.ProfileRefused;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
+import com.pingidentity.ps.oidf.trustmark.TrustMarkSupportTestAccess;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
@@ -42,9 +45,9 @@ class AuthorityStoresTest {
     @AfterEach
     void reset() {
         ProfileRefusals.resetForTests();
-        TrustMarkSupport.resetForTests();
-        KeyHistorySupport.resetForTests();
-        AuthoritySupport.resetForTests();
+        TrustMarkSupportTestAccess.reset();
+        KeyHistorySupportTestAccess.reset();
+        AuthoritySupportTestAccess.reset();
         System.clearProperty(URL_PROPERTY);
     }
 

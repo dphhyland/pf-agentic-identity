@@ -13,7 +13,7 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link FederationService#listSubordinates(String)} — Phase 1.7: the untyped list still surfaces the
+ * {@link FederationService#listSubordinates(ListRequest)} — Phase 1.7: the untyped list still surfaces the
  * statically configured subordinates (which carry no verified type of their own), a typed request never
  * guesses at their type, and hosted-entity ids (already filtered by {@code listable}/resolvable/type by
  * the injected function) are always merged in regardless of filter.
@@ -42,7 +42,7 @@ class FederationServiceListSubordinatesTest {
                 entityType -> "oauth_client".equals(entityType)
                         ? List.of("https://anchor.example.com/agents/hosted-1") : List.of());
 
-        List<String> listed = anchor.listSubordinates("oauth_client");
+        List<String> listed = anchor.listSubordinates(new ListRequest(List.of("oauth_client"), null, null, null));
         assertEquals(List.of("https://anchor.example.com/agents/hosted-1"), listed);
         assertTrue(!listed.contains("https://static.example.com"));
     }
@@ -56,7 +56,7 @@ class FederationServiceListSubordinatesTest {
         FederationService anchor = new FederationService(anchorConfig, anchorKeys);
 
         assertEquals(List.of("https://static.example.com"), anchor.listSubordinates(ListRequest.all()));
-        assertEquals(List.of(), anchor.listSubordinates("oauth_client"));
+        assertEquals(List.of(), anchor.listSubordinates(new ListRequest(List.of("oauth_client"), null, null, null)));
     }
 
     private static FederationService anchorWithHostedIds(List<String> staticSubordinates,

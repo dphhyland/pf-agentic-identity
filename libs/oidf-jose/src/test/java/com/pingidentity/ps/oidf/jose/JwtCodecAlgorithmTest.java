@@ -40,9 +40,9 @@ class JwtCodecAlgorithmTest {
         String none = unsigned(statement());
         PublicJsonWebKey key = TestJwts.ec("k1");
 
-        assertAlgorithm(() -> JwtCodec.verifyAgainstKeys(none, List.of(key), ISSUER, Set.of()));
+        assertAlgorithm(() -> JwtCodec.verifyAgainstKeys(none, List.of(key), ISSUER, Set.of(), VerificationPolicy.legacy()));
         assertAlgorithm(() -> JwtCodec.verifyAgainstKeys(none, List.of(key), ISSUER, Set.of("none"), VerificationPolicy.legacy()));
-        assertAlgorithm(() -> JwtCodec.verifyAgainstInlineJwks(none, jwks(key), ISSUER));
+        assertAlgorithm(() -> JwtCodec.verifyAgainstInlineJwks(none, jwks(key), ISSUER, Set.of(), VerificationPolicy.legacy()));
         assertAlgorithm(() -> JwtCodec.verifySignature(none, List.of(key), Set.of()));
         assertAlgorithm(() -> JwtCodec.verifyAttestationPop(none, key.getPublicKey(), Set.of(), Set.of(), 60));
     }
@@ -55,10 +55,10 @@ class JwtCodecAlgorithmTest {
         String hs256 = mac(secret, statement());
         Map<String, Object> inline = Map.of("keys", List.of(secret.toParams(JsonWebKey.OutputControlLevel.INCLUDE_SYMMETRIC)));
 
-        assertAlgorithm(() -> JwtCodec.verifyAgainstKeys(hs256, List.of(secret), ISSUER, Set.of("HS256")));
-        assertAlgorithm(() -> JwtCodec.verifyAgainstKeys(hs256, List.of(secret), ISSUER, Set.of()));
-        assertAlgorithm(() -> JwtCodec.verifyAgainstInlineJwks(hs256, inline, ISSUER));
-        assertAlgorithm(() -> JwtCodec.verifyAgainstInlineJwks(hs256, inline, ISSUER, Set.of("HS256")));
+        assertAlgorithm(() -> JwtCodec.verifyAgainstKeys(hs256, List.of(secret), ISSUER, Set.of("HS256"), VerificationPolicy.legacy()));
+        assertAlgorithm(() -> JwtCodec.verifyAgainstKeys(hs256, List.of(secret), ISSUER, Set.of(), VerificationPolicy.legacy()));
+        assertAlgorithm(() -> JwtCodec.verifyAgainstInlineJwks(hs256, inline, ISSUER, Set.of(), VerificationPolicy.legacy()));
+        assertAlgorithm(() -> JwtCodec.verifyAgainstInlineJwks(hs256, inline, ISSUER, Set.of("HS256"), VerificationPolicy.legacy()));
         assertAlgorithm(() -> JwtCodec.verifySignature(hs256, List.of(secret), Set.of("HS256")));
     }
 
@@ -106,7 +106,7 @@ class JwtCodecAlgorithmTest {
         assertAlgorithm(() -> JwtCodec.verifyAgainstKeys(es256, List.of(signing), ISSUER, Set.of("PS256"), VerificationPolicy.legacy()));
         assertEquals(ISSUER, JwtCodec.verifyAgainstKeys(es256, List.of(signing), ISSUER, Set.of("ES256"),
                 VerificationPolicy.legacy()).getIssuer());
-        assertEquals(ISSUER, JwtCodec.verifyAgainstInlineJwks(es256, jwks(signing), ISSUER, Set.of("ES256")).getIssuer());
+        assertEquals(ISSUER, JwtCodec.verifyAgainstInlineJwks(es256, jwks(signing), ISSUER, Set.of("ES256"), VerificationPolicy.legacy()).getIssuer());
         assertEquals(ISSUER, JwtCodec.verifyAgainstKeys(es256, List.of(signing), ISSUER, null,
                 VerificationPolicy.legacy()).getIssuer(), "no set is any asymmetric algorithm");
     }

@@ -9,6 +9,7 @@ import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.issuer.ClientResolverPlugins;
 import com.pingidentity.ps.oidf.issuer.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import java.util.List;
 import java.util.Map;
 import org.jose4j.jwk.EcJwkGenerator;
@@ -39,7 +40,7 @@ class AttesterResolversTest {
         System.clearProperty(AttesterResolvers.CIMD_URL_PROPERTY);
         System.clearProperty("oidf.federation.trust.controller.host");
         System.clearProperty("oidf.federation.trust.anchor.jwks");
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
     }
 
     @Test

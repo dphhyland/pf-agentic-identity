@@ -1,14 +1,10 @@
 package com.pingidentity.ps.oidf.federation;
 
-import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
-import java.util.List;
-import com.pingidentity.ps.oidf.jose.JwtCodec;
-
 /**
- * Read-only access to a federation trust controller: fetching an entity's own configuration,
- * its listed members, entity configurations of other entities, and subordinate statements.
+ * Read-only access to federation statements: the Entity Configurations of entities, and the Subordinate
+ * Statements their authorities issue about them.
  * Default methods layer optional max-age freshness bounds and cache-write batching
- * ({@link SubordinateStatementCache.PendingWrites}) over the three abstract fetch operations.
+ * ({@link SubordinateStatementCache.PendingWrites}) over the two abstract fetch operations.
  *
  * <h2>The resolution budget</h2>
  * A trust chain resolution spends from one {@link ResolutionBudget} (plan item S5b), and the overloads that take
@@ -29,10 +25,6 @@ public interface TrustControllerGateway {
     public static final long DEFAULT_MAX_AGE_LIMIT = -1L;
     public static final long DEFAULT_REQUEST_MAX_AGE_LIMIT = 60L;
 
-    public UnverifiedClaims fetchEntityConfiguration() throws Exception;
-
-    public List<String> fetchMembers() throws Exception;
-
     public String fetchEntityStatement(String var1) throws Exception;
 
     default public String fetchEntityStatement(String issuer, long maxAgeFromIatSeconds) throws Exception {
@@ -50,20 +42,6 @@ public interface TrustControllerGateway {
     default public String fetchEntityStatement(String issuer, long maxAgeFromIatSeconds, SubordinateStatementCache.PendingWrites pendingWrites,
             ResolutionBudget budget) throws Exception {
         return this.fetchEntityStatement(issuer, maxAgeFromIatSeconds, pendingWrites);
-    }
-
-    /** Rejects a configuration that is not typed {@code entity-statement+jwt} (OpenID Federation 1.0 §3). */
-    default public UnverifiedClaims fetchEntityConfigurationOf(String issuer) throws Exception {
-        String jwt = this.fetchEntityStatement(issuer);
-        EntityStatementType.require(jwt, "iss=sub=" + issuer);
-        return JwtCodec.parseUnverifiedClaims(jwt);
-    }
-
-    /** Rejects a configuration that is not typed {@code entity-statement+jwt} (OpenID Federation 1.0 §3). */
-    default public UnverifiedClaims fetchEntityConfigurationOf(String issuer, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
-        String jwt = this.fetchEntityStatement(issuer, -1L, pendingWrites);
-        EntityStatementType.require(jwt, "iss=sub=" + issuer);
-        return JwtCodec.parseUnverifiedClaims(jwt);
     }
 
     public String fetchSubordinateStatement(String var1, String var2) throws Exception;

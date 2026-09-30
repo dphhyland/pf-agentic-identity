@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.federation;
 
+import com.pingidentity.ps.oidf.jose.VerificationPolicy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -96,7 +97,7 @@ class FederationServiceEndpointsTest {
         String jwt = service.fetchSubordinateStatement(null, HOSTED, PF);
         String withIss = service.fetchSubordinateStatement(PF + "/", HOSTED, PF);
 
-        JwtClaims claims = JwtCodec.verifyAgainstKeys(jwt, List.of(PF_KEY), PF, Set.of());
+        JwtClaims claims = JwtCodec.verifyAgainstKeys(jwt, List.of(PF_KEY), PF, Set.of(), VerificationPolicy.legacy());
         assertEquals(HOSTED, claims.getSubject());
         assertEquals(Keys.publicJwks(HOSTED_KEY), claims.getClaimValue("jwks"), "the subordinate's keys, not this entity's");
         assertEquals(PF + "/oidf/federation/fetch", claims.getClaimValue("source_endpoint"));
@@ -222,10 +223,10 @@ class FederationServiceEndpointsTest {
     }
 
     @Test
-    void theSingleTypeListStillWorks() {
+    void aSingleTypeListFilters() {
         FederationService service = pf(configuration(), new ServingMap()).build();
-        assertEquals(List.of(HOSTED), service.listSubordinates("oauth_client"));
-        assertEquals(List.of(FOREIGN, HOSTED), service.listSubordinates(" "));
+        assertEquals(List.of(HOSTED), service.listSubordinates(new ListRequest(List.of("oauth_client"), null, null, null)));
+        assertEquals(List.of(FOREIGN, HOSTED), service.listSubordinates(new ListRequest(List.of(" "), null, null, null)));
         assertEquals(List.of(FOREIGN), FederationService.builder(configuration(), Keys.signingKeys(PF_KEY)).build()
                 .listSubordinates(ListRequest.all()));
     }
@@ -243,7 +244,7 @@ class FederationServiceEndpointsTest {
 
         assertEquals("resolve-response+jwt", JwtCodec.getJwtHeaders(jwt).get("typ"));
         assertEquals("pf-1", JwtCodec.getJwtHeaders(jwt).get("kid"));
-        JwtClaims response = JwtCodec.verifyAgainstKeys(jwt, List.of(PF_KEY), PF, Set.of());
+        JwtClaims response = JwtCodec.verifyAgainstKeys(jwt, List.of(PF_KEY), PF, Set.of(), VerificationPolicy.legacy());
         assertEquals(HOSTED, response.getSubject());
         @SuppressWarnings("unchecked")
         List<String> chain = (List<String>) response.getClaimValue("trust_chain");
@@ -494,7 +495,7 @@ class FederationServiceEndpointsTest {
         FederationService service = pf(configuration(), http).build();
 
         assertEquals(HOSTED, claims(service.fetchSubordinateStatement(" ", HOSTED, PF)).getSubject(), "a blank iss is no iss");
-        assertEquals(HOSTED, claims(service.fetchEntityStatement(PF, HOSTED, PF)).getSubject());
+        assertEquals(HOSTED, claims(service.fetchSubordinateStatement(PF, HOSTED, PF)).getSubject(), "an iss naming this entity");
         service.fetchSubordinateStatement(null, FOREIGN, PF);
         service.fetchSubordinateStatement(null, FOREIGN, PF);
         assertEquals(1, http.hits(FOREIGN + "/.well-known/openid-federation"), "the second statement uses the cached keys");
@@ -525,7 +526,7 @@ class FederationServiceEndpointsTest {
 
         assertEquals(List.of(), service.listSubordinates(new ListRequest(List.of("openid_provider"), null, null, true)),
                 "a subordinate that publishes no fetch endpoint is not an Intermediate");
-        assertEquals(List.of(FOREIGN, HOSTED), service.listSubordinates((String) null));
+        assertEquals(List.of(FOREIGN, HOSTED), service.listSubordinates(ListRequest.all()));
     }
 
     @Test

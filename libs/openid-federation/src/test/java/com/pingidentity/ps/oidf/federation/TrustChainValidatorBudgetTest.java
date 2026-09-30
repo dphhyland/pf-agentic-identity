@@ -493,16 +493,6 @@ class TrustChainValidatorBudgetTest {
         Federation f = threeLevels();
         TrustControllerGateway refusing = new TrustControllerGateway() {
             @Override
-            public com.pingidentity.ps.oidf.jose.UnverifiedClaims fetchEntityConfiguration() {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public java.util.List<String> fetchMembers() {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
             public String fetchEntityStatement(String issuer) throws Exception {
                 return f.http().get(issuer + "/.well-known/openid-federation", "application/entity-statement+jwt");
             }
@@ -524,7 +514,7 @@ class TrustChainValidatorBudgetTest {
     void aConfigurationFetchedOutsideAResolutionHasABudgetOfItsOwn() throws Exception {
         Federation f = threeLevels();
 
-        assertEquals(LEAF, f.gateway(TA).fetchEntityConfigurationOf(LEAF, null).unverifiedSubject());
+        assertEquals(f.entityConfiguration(LEAF), f.gateway(TA).fetchEntityStatement(LEAF));
         assertEquals(1, f.http().requests().size());
     }
 

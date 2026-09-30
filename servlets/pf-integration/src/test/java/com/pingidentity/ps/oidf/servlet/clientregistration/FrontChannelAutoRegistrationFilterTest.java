@@ -22,6 +22,7 @@ import static org.mockito.Mockito.when;
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.AutoRegistrationSettings;
 import com.pingidentity.ps.oidf.pf.PfRequestScope;
 import com.pingidentity.ps.oidf.pf.testkit.AuditCapture;
@@ -78,7 +79,7 @@ class FrontChannelAutoRegistrationFilterTest {
     @BeforeEach
     @AfterEach
     void resetConfig() {
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
         System.clearProperty("oidf.federation.trust.controller.host");
         System.clearProperty("oidf.federation.trust.anchor.jwks");
         System.clearProperty("oidf.auto.registration.front.channel");
@@ -453,7 +454,7 @@ class FrontChannelAutoRegistrationFilterTest {
         anchor.setKeyId("anchor-1");
         System.setProperty("oidf.federation.trust.controller.host", "https://anchor.example");
         System.setProperty("oidf.federation.trust.anchor.jwks", "{\"keys\":[" + anchor.toJson(JsonWebKey.OutputControlLevel.PUBLIC_ONLY) + "]}");
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
     }
 
     @Test

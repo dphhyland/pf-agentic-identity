@@ -14,6 +14,7 @@ import org.jose4j.jwk.JsonWebKeySet;
 import org.jose4j.jwk.PublicJsonWebKey;
 import org.jose4j.keys.EllipticCurves;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,7 +49,7 @@ class ServletEnvWiringTest {
         for (String p : PROPS) {
             System.clearProperty(p);
         }
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
     }
 
     @Test
@@ -78,7 +79,7 @@ class ServletEnvWiringTest {
         assertNull(AttestationIssuanceServlet.federationWalletValidatorFromEnv());   // op issuer missing
         System.setProperty("oidf.attester.op.issuer", "https://attester.example.com");
         System.setProperty("oidf.trust.anchor.jwks", anchorJwks());
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
         InstanceAttestationValidator v = AttestationIssuanceServlet.federationWalletValidatorFromEnv();
         assertTrue(v instanceof WalletInstanceAttestationValidator);
         assertEquals("wallet", v.format());
@@ -96,7 +97,7 @@ class ServletEnvWiringTest {
 
         // And a document that is not a usable key set is refused too, rather than falling back.
         System.setProperty("oidf.trust.anchor.jwks", "{\"keys\":[]}");
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
         assertThrows(IllegalArgumentException.class, AttestationIssuanceServlet::federationWalletValidatorFromEnv);
     }
 
@@ -111,7 +112,7 @@ class ServletEnvWiringTest {
         System.setProperty("oidf.trust.controller.host", "https://trust-controller.example.com");
         System.setProperty("oidf.attester.op.issuer", "https://attester.example.com");
         System.setProperty("oidf.trust.anchor.jwks", anchorJwks());
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
         InstanceAttestationValidator v = AttestationIssuanceServlet.walletValidatorFromEnv();
         assertTrue(v instanceof WalletInstanceAttestationValidator);
         assertEquals("wallet", v.format());

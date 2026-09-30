@@ -67,7 +67,7 @@ public interface AttestationReplayCache {
      * client assertion, the device-enrolment service - whose own windows this package did not re-derive.
      *
      * @deprecated retention counted from first use can be shorter than the proof's acceptance window; derive the
-     *             retention from the window and call {@link #recordUntil}
+     *             retention from the window and call {@link #recordUntil}. Removed at 1.0.0 (plan item H-FED-10)
      * @throws IllegalArgumentException if {@code jti} is blank
      */
     @Deprecated
@@ -80,7 +80,7 @@ public interface AttestationReplayCache {
      * The boolean view of {@link #record}: {@code true} on {@link Verdict#FIRST_USE}, {@code false} on
      * {@link Verdict#REPLAY} or {@link Verdict#STALE}. A store outage is not a boolean and throws instead.
      *
-     * @deprecated as {@link #record(String, String, long)}: retention counted from first use
+     * @deprecated as {@link #record(String, String, long)}: retention counted from first use. Removed at 1.0.0
      * @throws StoreUnavailableException on {@link Verdict#STORE_UNAVAILABLE}
      */
     @Deprecated

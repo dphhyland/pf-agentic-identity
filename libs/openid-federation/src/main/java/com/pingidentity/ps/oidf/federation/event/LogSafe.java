@@ -9,8 +9,8 @@ package com.pingidentity.ps.oidf.federation.event;
  * at {@link #maxValueLength()} characters. The rules, and the one truncation length per loader, are
  * {@link com.pingidentity.ps.oidf.platform.events.LogSafe}'s.
  *
- * @deprecated Use {@link com.pingidentity.ps.oidf.platform.events.LogSafe}; plan item O-2 (Phase 3) removes this
- *     façade.
+ * @deprecated Use {@link com.pingidentity.ps.oidf.platform.events.LogSafe}. Kept while federation code still
+ *     uses it (plan item H-FED-10, checked 2026-10-01); removed at 1.0.0.
  */
 @Deprecated(since = "0.5.0", forRemoval = true)
 public final class LogSafe {

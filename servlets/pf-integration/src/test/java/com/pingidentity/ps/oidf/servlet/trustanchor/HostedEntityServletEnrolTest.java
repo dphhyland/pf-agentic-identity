@@ -15,6 +15,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
+import com.pingidentity.ps.oidf.authority.AuthoritySupportTestAccess;
 import com.pingidentity.ps.oidf.authority.HostedEntity;
 import com.pingidentity.ps.oidf.authority.JdbcHostedEntityRegistry;
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
@@ -23,13 +24,16 @@ import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.federation.policy.DecisionPoint;
 import com.pingidentity.ps.oidf.jose.HttpPostClient;
 import com.pingidentity.ps.oidf.pf.FederationPolicySupport;
+import com.pingidentity.ps.oidf.pf.FederationPolicySupportTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpAuth;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpMode;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings;
 import com.pingidentity.ps.oidf.pf.PfRequestScope;
 import com.pingidentity.ps.oidf.pf.testkit.AuditCapture;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
+import com.pingidentity.ps.oidf.trustmark.TrustMarkSupportTestAccess;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.BufferedReader;
@@ -57,8 +61,8 @@ class HostedEntityServletEnrolTest {
     @BeforeEach
     void reset() {
         this.events = EventCapture.install();
-        AuthoritySupport.resetForTests();
-        TrustMarkSupport.resetForTests();
+        AuthoritySupportTestAccess.reset();
+        TrustMarkSupportTestAccess.reset();
         // These tests configure an authority without a durable store, which the production profile refuses without the
         // in-memory-state risk (PR-2): they run as a development deployment does.
         // underProductionAnAuthorityInMemoryRefusesHosting covers production.
@@ -75,10 +79,10 @@ class HostedEntityServletEnrolTest {
     void release() {
         this.events.close();
         ProfileRefusals.resetForTests();
-        AuthoritySupport.resetForTests();
-        TrustMarkSupport.resetForTests();
-        FederationRuntimeConfig.resetForTests();
-        FederationPolicySupport.resetForTests();
+        AuthoritySupportTestAccess.reset();
+        TrustMarkSupportTestAccess.reset();
+        FederationRuntimeConfigTestAccess.reset();
+        FederationPolicySupportTestAccess.reset();
     }
 
     private static void host(JwsSigner signer) {

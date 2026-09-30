@@ -20,6 +20,7 @@ import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.federation.testkit.EventCapture;
 import com.pingidentity.ps.oidf.pf.ClientStore;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,7 +62,7 @@ class RegistrationMetadataPolicyRequirementTest {
     @AfterEach
     void clearConfig() throws Exception {
         System.clearProperty(REQUIRE_PROP);
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
     }
 
     private RegistrationService service(TrustChainValidator validator, ClientStore store) {
@@ -192,7 +193,7 @@ class RegistrationMetadataPolicyRequirementTest {
     @Test
     void theRequirementCanBeTurnedOffDeliberately() throws Exception {
         System.setProperty(REQUIRE_PROP, "false");
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
 
         TrustChainValidator validator = mock(TrustChainValidator.class);
         ClientStore store = mock(ClientStore.class);

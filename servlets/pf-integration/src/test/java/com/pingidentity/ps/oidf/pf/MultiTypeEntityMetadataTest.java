@@ -1,7 +1,6 @@
 package com.pingidentity.ps.oidf.pf;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URLEncoder;
@@ -18,17 +17,14 @@ import com.pingidentity.ps.oidf.federation.TrustAnchor;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
 import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
 import com.pingidentity.ps.oidf.federation.TrustChainValidationResult;
-import com.pingidentity.ps.oidf.federation.ClientEntityAuthorizer;
 
 /**
  * Regression coverage for the Phase 0.1 fix: an entity holding more than one metadata type at once
  * (an agent is typically both {@code openid_relying_party} <em>and</em> {@code oauth_client}) must
  * have every type surfaced by {@link TrustChainValidator}, not just {@code openid_relying_party}.
  *
- * <p>Before the fix, {@code TrustChainValidationResult.leafMetadata()} returned only the
- * {@code openid_relying_party} block, so {@link ClientEntityAuthorizer#authorize}, which reads
- * {@code oauth_client}, was always handed an empty map and refused every agent with "resolved entity
- * has no oauth_client metadata" — regardless of what the entity actually published.
+ * <p>Before the fix the result surfaced only the {@code openid_relying_party} block, so a consumer that read
+ * {@code oauth_client} was always handed an empty map, whatever the entity actually published.
  */
 class MultiTypeEntityMetadataTest {
     private static final String AGENT = "https://agent.example.com";
@@ -94,23 +90,14 @@ class MultiTypeEntityMetadataTest {
         assertEquals(oauthClient, result.metadataFor("oauth_client"));
         assertEquals(oauthResource, result.metadataFor("oauth_resource"));
         assertTrue(result.metadataFor("does_not_exist").isEmpty(), "unknown type resolves to empty, not null");
-
-        // The deprecated accessor keeps its documented (narrower) behaviour, unchanged.
-        assertEquals(openidRelyingParty, result.leafMetadata());
-
-        // This is the actual bug: an agent resolved this way can now authenticate as an oauth_client.
-        // ClientEntityAuthorizer.authorize wants the FULL multi-type metadata map (it looks up
-        // "oauth_client" inside it itself) — resolvedMetadata(), not metadataFor("oauth_client").
-        ClientEntityAuthorizer.Decision decision = ClientEntityAuthorizer.authorize(
-                true, result.resolvedMetadata(), List.of("read_accounts"));
-        assertTrue(decision.authenticated, decision.reason);
+        assertEquals(oauthClient, result.resolvedMetadata().get("oauth_client"), "the full map carries every type too");
     }
 
     @Test
     void leafHoldingOnlyRelyingPartyTypeLeavesOauthClientEmpty() throws Exception {
         // The pre-fix shape: an entity that genuinely is *only* a relying party. oauth_client must
-        // resolve to empty (not throw), and ClientEntityAuthorizer must still refuse it correctly —
-        // the fix surfaces every type an entity holds, it doesn't fabricate types it doesn't hold.
+        // resolve to empty (not throw): the fix surfaces every type an entity holds, it doesn't fabricate
+        // types it doesn't hold.
         PublicJsonWebKey rpKey = TestJwts.ec("rp-1");
         PublicJsonWebKey anchorKey = TestJwts.ec("anchor-1");
         String rp = "https://rp.example.com";
@@ -141,9 +128,6 @@ class MultiTypeEntityMetadataTest {
         TrustChainValidationResult result = validator.validate(List.of(), rp, rp);
 
         assertTrue(result.metadataFor("oauth_client").isEmpty());
-        ClientEntityAuthorizer.Decision decision = ClientEntityAuthorizer.authorize(
-                true, result.resolvedMetadata(), List.of());
-        assertFalse(decision.authenticated);
-        assertTrue(decision.reason.contains("no oauth_client metadata"));
+        assertEquals(java.util.Set.of("openid_relying_party"), result.resolvedMetadata().keySet());
     }
 }

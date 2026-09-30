@@ -10,6 +10,7 @@ import com.pingidentity.ps.oidf.federation.testkit.EventCapture;
 import com.pingidentity.ps.oidf.federation.testkit.Federation;
 import com.pingidentity.ps.oidf.federation.testkit.MutableClock;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.AutoRegistrationSettings;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.RegistrationSettings;
 import com.pingidentity.ps.oidf.pf.testkit.FakeClientStore;
@@ -45,7 +46,7 @@ class RegistrationExtendedParamsTest {
     @AfterEach
     void tearDown() {
         this.events.close();
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
     }
 
     private RegistrationService service(FakeClientStore store) throws Exception {

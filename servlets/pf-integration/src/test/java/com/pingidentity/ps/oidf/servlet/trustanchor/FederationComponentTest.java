@@ -13,6 +13,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.platform.component.ComponentState;
 import com.pingidentity.ps.oidf.platform.component.Components;
 import com.pingidentity.ps.oidf.platform.health.ComponentParts;
@@ -35,7 +36,7 @@ class FederationComponentTest {
     @AfterEach
     void reset() {
         System.clearProperty(TOKEN_PROP);
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
     }
 
     private static PartStatus part(String name) {

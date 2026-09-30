@@ -165,7 +165,7 @@ public final class AuthoritySupport {
     }
 
     /** Tests only: forget every configuration, so a test can see the unconfigured state. */
-    public static void resetForTests() {
+    static void resetForTests() {
         synchronized (LOCK) {
             registry = null;
             signing = null;
