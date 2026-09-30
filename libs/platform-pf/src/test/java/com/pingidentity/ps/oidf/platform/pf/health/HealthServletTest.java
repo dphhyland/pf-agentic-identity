@@ -309,6 +309,19 @@ class HealthServletTest {
     }
 
     @Test
+    void aWarThatCannotLoadTheAuthenticatorFailsClosed() throws Exception {
+        Map<String, Object> versions = Map.of("agentic-identity", "0.6.0-TEST");
+        HealthServlet servlet = new HealthServlet(() -> {
+            throw new NoClassDefFoundError("com/pingidentity/ps/oidf/rs/JwksSource");
+        }, name -> null, () -> versions);
+        Answer a = call(servlet, "GET", HealthServlet.INFO, "Bearer " + TOKEN);
+        assertEquals(503, a.status);
+        assertEquals("", a.text());
+        assertEquals("no-store", a.headers.get("Cache-Control"));
+        assertEquals(200, call(servlet, "GET", HealthServlet.LIVE, null).status, "live and ready need no authenticator");
+    }
+
+    @Test
     void theRouteTableNamesTheDetailAndInfoForGetAndHeadOnly() {
         for (String path : List.of(HealthServlet.DETAIL, HealthServlet.INFO)) {
             for (String method : List.of("GET", "HEAD")) {

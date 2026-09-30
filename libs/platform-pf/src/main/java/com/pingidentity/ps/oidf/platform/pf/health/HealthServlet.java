@@ -9,6 +9,7 @@ import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Health;
 import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.platform.json.Json;
+import com.pingidentity.ps.oidf.platform.log.PlatformLog;
 import com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator;
 import com.pingidentity.ps.oidf.platform.pf.auth.OperatorRoute;
 import com.pingidentity.ps.oidf.platform.pf.auth.OperatorRoutes;
@@ -51,6 +52,7 @@ import java.util.function.Supplier;
 public class HealthServlet extends HttpServlet {
 
     private static final long serialVersionUID = 1L;
+    private static final PlatformLog LOG = PlatformLog.get(HealthServlet.class);
 
     public static final String LIVE = "/agentic-identity/health/live";
     public static final String READY = "/agentic-identity/health/ready";
@@ -104,7 +106,20 @@ public class HealthServlet extends HttpServlet {
                 resp.sendError(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
-            if (!this.authenticator.get().authorise(req, resp, route.get())) {
+            boolean authorised;
+            try {
+                authorised = this.authenticator.get().authorise(req, resp, route.get());
+            } catch (LinkageError e) {
+                // A war that bundles platform-pf without rs-validation (gm-api.war: platform-pf declares it optional)
+                // cannot authenticate an operator, so the detail and info fail closed there.
+                LOG.warn("The health detail and info answer 503 in this war: the operator authenticator cannot load"
+                        + " (" + e + "); the war needs rs-validation beside platform-pf");
+                resp.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+                resp.setHeader("Cache-Control", "no-store");
+                resp.setContentLength(0);
+                return;
+            }
+            if (!authorised) {
                 return;
             }
         }

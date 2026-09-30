@@ -88,16 +88,17 @@ platform-pf's jar in `WEB-INF/lib` and answers from that war's own component reg
 |---|---|---|
 | `GET /agentic-identity/health/live` | anyone | 200 `{"status":"UP"}` while the webapp answers |
 | `GET /agentic-identity/health/ready` | anyone | 200 `{"status":"UP"}`, or 503 `{"status":"DOWN"}` when an enabled component is not ready |
-| `GET /agentic-identity/health` | the admin bearer | each component's state, reason and parts, the profile and the versions, with ready's code |
-| `GET /agentic-identity/info` | the admin bearer | `{"agentic-identity": ..., "commit": null, "pingfederate": ..., "java": ...}` |
+| `GET /agentic-identity/health` | an operator token with `oidf.health.read` | each component's state, reason and parts, the profile and the versions, with ready's code |
+| `GET /agentic-identity/info` | the same | `{"agentic-identity": ..., "commit": null, "pingfederate": ..., "java": ...}` |
 
-Live and ready say nothing but the status. The detail and info answer only a caller whose `Authorization` header
-is `Bearer <token>` for the static admin token the federation operator API uses (`OIDF_AUTHORITY_ADMIN_TOKEN`,
-system property `oidf.authority.admin_token` first) - Phase 2's decision 6 - and anyone else, including every caller
-of a deployment with no token set, gets the container's 404 for every method, as an unmapped path does.
-`HealthAccess` repeats pf-integration's `AdminBearer` rule, because platform-pf cannot depend on pf-integration
-(finding [F-0194](../../docs/findings/F-0194.yaml)); S8b (Phase 3) moves both to the operator scope
-`oidf.health.read`. Only GET and HEAD are served (405 otherwise, after the bearer check on the restricted two), and
+Live and ready say nothing but the status. The detail and info are operator routes (`HealthServlet.ROUTES`,
+`health.detail` and `health.info`), answered through this webapp's `OperatorAuthenticator` (plan item S8b): a
+PingFederate-issued access token with `oidf.health.read`, DPoP-bound in production, and in development the static
+bearer `OIDF_AUTHORITY_ADMIN_TOKEN` as well; a refusal is the authenticator's 401, 403, 429 or 503 with its
+challenge ([operator-authentication.md](../../docs/operator/operator-authentication.md)). The second copy of the
+static-bearer rule that lived here, `HealthAccess`, is gone (finding [F-0194](../../docs/findings/F-0194.yaml)). A
+war that bundles this jar without rs-validation (gm-api.war) cannot load the authenticator, so its detail and info
+answer 503. Only GET and HEAD are served (405 otherwise, before any token is looked at), and
 every answer is JSON with `Cache-Control: no-store`. `BuildInfo` reads the versions from the jars on each request:
 this repository's from platform-pf's `pom.properties`, PingFederate's from `pf-commons.jar`'s, the JVM's from the
 runtime; nothing records the commit yet (finding [F-0190](../../docs/findings/F-0190.yaml)).

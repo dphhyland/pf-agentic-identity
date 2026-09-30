@@ -1,15 +1,12 @@
 # Operator authentication
 
-How the operator APIs will decide who may use them: a PingFederate-issued OAuth access token, bound to the caller's
-key (DPoP) or certificate in production, carrying the scope of the surface it is used on. The actor recorded for a
-change is the token's subject. This is `OperatorAuthenticator` in libs/platform-pf (plan item S8a, 0.6.0).
+How the operator APIs decide who may use them: a PingFederate-issued OAuth access token, bound to the caller's key
+(DPoP) or certificate in production, carrying the scope of the route it is used on. The actor recorded for a change is
+the token's subject. This is `OperatorAuthenticator` in libs/platform-pf (plan item S8a, 0.6.0); plan item S8b (0.6.0)
+put every operator surface on it, each route with its own scope ([the routes](#the-routes)).
 
-**Nothing uses it yet.** In this release every operator surface - the federation administration API, the hosted
-entities and registered clients APIs, the health detail and `/agentic-identity/info`, the SSF administration - still
-takes the static bearer `OIDF_AUTHORITY_ADMIN_TOKEN` (finding [F-0008](../findings/F-0008.yaml)). Plan item S8b
-(the next wave of Phase 3) moves each surface onto this authenticator with the scope below, after which the static
-bearer is development-only. Setting the variables on this page now changes nothing; setting up PingFederate for them
-now means S8b's upgrade is only a switch.
+The static bearer `OIDF_AUTHORITY_ADMIN_TOKEN` is development's escape and nothing else
+([the static bearer](#the-static-bearer)): production never accepts it, and refuses the operator APIs while it is set.
 
 ## What PingFederate needs
 
@@ -63,6 +60,87 @@ starting: the authenticator logs the reason once at WARN and answers every reque
 `OIDF_OPERATOR_BASE_URL` is configured rather than read from the request on purpose: the `Host` header is the
 caller's to choose, so a proof checked against a URL built from it proves nothing about where the caller meant to
 send it.
+
+## The routes
+
+Every operator route, by surface, with the scope a token must carry and the `route` its events are labelled with.
+HEAD is served wherever GET is, with the same route. A path or method no table names is answered 404 (405 for the
+health endpoints) before any token is looked at.
+
+`/federation/admin/*` (FederationAdminServlet; the table is `OperatorApi.FEDERATION_ADMIN` in pf-integration):
+
+| Method and path | Scope | Route |
+|---|---|---|
+| `GET /federation/admin/trust-marks` | `oidf.admin.read` | `federation-admin.trust-marks.list` |
+| `GET /federation/admin/trust-marks/audit` | `oidf.admin.read` | `federation-admin.trust-marks.audit` |
+| `GET /federation/admin/keys` | `oidf.admin.read` | `federation-admin.keys.list` |
+| `GET /federation/admin/entities` | `oidf.admin.read` | `federation-admin.entities.list` |
+| `GET /federation/admin/entities/audit` | `oidf.admin.read` | `federation-admin.entities.audit` |
+| `POST /federation/admin/trust-marks` | `oidf.admin.trust_marks` | `federation-admin.trust-marks.grant` |
+| `POST /federation/admin/trust-marks/revoke` | `oidf.admin.trust_marks` | `federation-admin.trust-marks.revoke` |
+| `POST /federation/admin/keys/revoke` | `oidf.admin.keys` | `federation-admin.keys.revoke` |
+| `POST /federation/admin/entities/suspend` | `oidf.admin.entities` | `federation-admin.entities.suspend` |
+| `POST /federation/admin/entities/reactivate` | `oidf.admin.entities` | `federation-admin.entities.reactivate` |
+| `POST /federation/admin/entities/revoke` | `oidf.admin.entities` | `federation-admin.entities.revoke` |
+| `POST /federation/admin/entities/metadata` | `oidf.admin.entities` | `federation-admin.entities.metadata` |
+| `POST /federation/admin/entities/metadata-policy` | `oidf.admin.entities` | `federation-admin.entities.metadata-policy` |
+| `POST /federation/admin/entities/rotate-key` | `oidf.admin.keys` | `federation-admin.entities.rotate-key` |
+
+Hosted-entity enrolment and revocation (HostedEntityServlet; `OperatorApi.HOSTED_ENTITIES`):
+
+| Method and path | Scope | Route |
+|---|---|---|
+| `POST /federation/agents`, `POST /federation/resources` | `oidf.admin.entities` | `hosted-entities.enrol` |
+| `DELETE /federation/agents/<id>`, `DELETE /federation/resources/<id>` | `oidf.admin.entities` | `hosted-entities.revoke` |
+
+The same servlet's `GET` (a hosted entity's Entity Configuration, which resolvers fetch with no credentials) and
+`PUT .../entity-configuration` (a SELF_SIGNED entity publishing its own configuration, authorised by its federation
+key's signature) are not operator routes (`OperatorApi.NOT_OPERATOR`).
+
+`/federation/registered-clients` (RegisteredClientsServlet, still off unless `OIDF_REGISTERED_CLIENTS_ENABLED=true`;
+`OperatorApi.REGISTERED_CLIENTS`):
+
+| Method and path | Scope | Route |
+|---|---|---|
+| `GET /federation/registered-clients` | `oidf.admin.clients.read` | `registered-clients.list` |
+
+The health detail and info (HealthServlet in platform-pf; `HealthServlet.ROUTES`); `/agentic-identity/health/live`
+and `/ready` stay open:
+
+| Method and path | Scope | Route |
+|---|---|---|
+| `GET /agentic-identity/health` | `oidf.health.read` | `health.detail` |
+| `GET /agentic-identity/info` | `oidf.health.read` | `health.info` |
+
+The other scopes have no route in this release: `oidf.admin.subordinates` and `oidf.admin.subordinates.approve`
+(no subordinate administration API is served from this repository), `ssf.admin` (every SSF path is a receiver's own
+stream or a provisioner's, on SSF's own scopes - `SsfRoutes` in servlets/ssf), and `oidf.metrics.read` (`/metrics`
+is not served yet). The RAR models' fingerprint is not served over HTTP at all. The tests `OperatorApiRoutesTest`,
+`HealthServletTest` and `SsfRoutesTest` read every `@WebServlet` mapping in their modules and fail on a path or method
+that has no route and is not listed as not being one.
+
+## The static bearer
+
+`OIDF_AUTHORITY_ADMIN_TOKEN` - or the `oidf.authority.admin_token` system property, or a servlet's `adminToken`
+init-param - is the one static credential left, and one rule, in `OperatorAuthenticator`, decides what it does:
+
+- **Development** (`OIDF_DEPLOYMENT_PROFILE=development`): a request whose `Authorization: Bearer` credential is
+  exactly the token, compared in constant time, is let through for any route, beside the OAuth path, with a WARN per
+  request naming the route. Its actor is `admin:` and the first eight hex digits of the token's SHA-256 - the label the
+  admin API recorded before - its binding `static-bearer`. A wrong credential goes on to the access-token checks, and
+  a refusal there counts against the failed-authentication limit like any other; so does a change against the change
+  limit.
+- **Production**: never accepted. While it is set, every operator request is a 503 and the operator API component is
+  `REFUSED`, with the reason "OIDF_AUTHORITY_ADMIN_TOKEN is set, and production never accepts the static bearer:
+  remove it ..." (Phase 3 decision 20): an operator who upgrades with the old token in place finds out at once,
+  instead of believing it still protects something. Its catalogue entry is classed `forbidden-in-production`.
+
+The health endpoints used to hold a second copy of this rule (`HealthAccess`, finding
+[F-0194](../findings/F-0194.yaml)); it is gone, as is pf-integration's `AdminBearer`.
+
+device-enrolment, which enrols agents through `POST /federation/agents`, gets a DPoP-bound client-credentials token
+of its own (`PF_AUTHORITY_CLIENT_ID`, see docs/configuration/device-enrolment.md); its `PF_AUTHORITY_ADMIN_TOKEN` is
+the same development escape.
 
 ## What each request goes through
 
@@ -172,11 +250,16 @@ Every request let through and every one refused emits an event from the `operato
   believed.
 
 `claimed_label` is classed `DIRECT_ID`, because a caller can put a person's name in it; `client_address` is
-`NETWORK`.
+`NETWORK`. PingFederate's audit log keeps the label as sent; server.log, usually shipped more widely, carries
+`sha256:` and twelve hex digits of it instead (platform-pf's `PfAuditSink.PROCESS_POLICY`, finding
+[F-0165](../findings/F-0165.yaml)), so two lines with the same label still match. The federation events' `actor` -
+on Trust Mark grants, hosted-entity changes, key revocations and the policy decision point's enrolment questions - is
+the token's subject, never the header.
 
 ## What it does not do yet
 
 - **DPoP nonces.** RFC 9449 §8 lets a resource server require a server-provided nonce; this authenticator does not,
   so a proof is fresh by its `iat` (rs-validation's window: 300 s, with 60 s of skew) and its `jti`
   ([F-0276](../findings/F-0276.yaml)).
-- **Who a surface is for.** The route table (`OperatorRoutes`) and each route's scope arrive with S8b.
+- **Subordinate, SSF and metrics administration.** Their scopes are defined; no route uses them yet
+  ([the routes](#the-routes)).

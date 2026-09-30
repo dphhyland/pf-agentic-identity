@@ -1,0 +1,20 @@
+id: F-0312
+title: OPERATOR_API's presence list names only the static bearer, so production infers the operator API from OAuth settings without asking for its switch
+severity: low
+area: platform
+source: design
+status: open
+plan_items: [S8b, S9b]
+prs: [75]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by package S8B (2026-09-30). ComponentSwitches.PRESENCE (libs/platform, S9A's) makes OPERATOR_API present
+  when OIDF_AUTHORITY_ADMIN_TOKEN is set. From S8B the operator API is configured by the operator-auth catalogue
+  (OIDF_OPERATOR_AUDIENCE and the rest), so in production a deployment that sets those with OIDF_OPERATOR_API_ENABLED
+  unset is inferred and runs, where decision 1's rule would make it FAILED_CONFIG asking for the switch; and one
+  that still sets the static bearer with the switch unset is FAILED_CONFIG naming the switch rather than REFUSED
+  naming the token (with the switch set to true, FederationAdminServlet's init makes it REFUSED with the removal
+  reason, and the authenticator answers 503 with it either way). Nothing is left open by it: an operator request
+  still needs a token the authenticator accepts. Fix: PRESENCE and components.json's description name
+  OIDF_OPERATOR_AUDIENCE, OIDF_OPERATOR_BASE_URL and the static bearer - the component package's owner (S9B, wave 4).

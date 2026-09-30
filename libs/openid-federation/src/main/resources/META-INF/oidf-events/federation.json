@@ -10,8 +10,8 @@
       "description": "What the policy decision point was asked about: the action of the decision point (registration, token issuance, hosted-entity enrolment)."
     },
     "actor": {
-      "pii": "DIRECT_ID",
-      "description": "Who made an administrative change: admin: and the first eight hex digits of the admin token's SHA-256, then the caller's own name for itself from X-Federation-Actor when it sent one - which can be a person's name or e-mail address."
+      "pii": "PSEUDONYMOUS_ID",
+      "description": "Who made an administrative change: the operator's access-token sub - for a client-credentials token, the operator client's id - or, with the development static bearer, admin: and the first eight hex digits of its SHA-256. Never a header: what a caller sends in X-Federation-Actor is only the operator events' claimed_label."
     },
     "changed": {
       "pii": "OPERATIONAL",

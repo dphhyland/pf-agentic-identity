@@ -368,7 +368,7 @@ the emitters):
 |---|---|---|---|
 | `OPERATIONAL` | modes, counts, endpoint names, decisions, times | kept | kept |
 | `PSEUDONYMOUS_ID` | client ids, entity identifiers, key ids, a workload's subject; the subject and partner | kept | kept (the subject and connection columns) |
-| `DIRECT_ID` | can name a person: `actor`'s self-declared name from `X-Federation-Actor` | kept - finding [F-0165](../../docs/findings/F-0165.yaml) | kept |
+| `DIRECT_ID` | can name a person: the operator events' `claimed_label`, from `X-Federation-Actor` | kept by `DEFAULT`; inside PingFederate platform-pf's audit sink digests it (`PfAuditSink.PROCESS_POLICY`, finding [F-0165](../../docs/findings/F-0165.yaml), 0.6.0) | kept |
 | `NETWORK` | addresses and host names; no field today, but platform-pf's audit sink writes the caller's address in the audit log's `ip` column under this class | kept | kept |
 | `CREDENTIAL_DIGEST` | key thumbprints, evidence digests | kept | kept |
 
@@ -581,7 +581,7 @@ always, in production while none of the component's settings is set):
 | `HOSTING` | `HostedEntityServlet` | when an authority entity id is set | at deploy |
 | `SSF` | `SsfConfigurationServlet` | when the transmitter's settings parse (an issuer is set) | at deploy |
 | `SSF_RECEIVER` | `SsfReceiverServlet` | when SSF is and a receiver issuer is set | first request |
-| `OPERATOR_API` | `FederationAdminServlet` | when `OIDF_AUTHORITY_ADMIN_TOKEN` is set | at deploy |
+| `OPERATOR_API` | `FederationAdminServlet` | when operator authentication is configured (`OIDF_OPERATOR_AUDIENCE`, or in development `OIDF_AUTHORITY_ADMIN_TOKEN`); `REFUSED` while `OIDF_AUTHORITY_ADMIN_TOKEN` is set in production | at deploy |
 | `FAPI` | `Fapi2ProfileFilter` | when `OIDF_FAPI2_CLIENTS` names a client | at deploy |
 
 The SSF states are read after `SsfHttp.bootstrap`, which never throws, by servlets/ssf's `SsfComponents`, and the
