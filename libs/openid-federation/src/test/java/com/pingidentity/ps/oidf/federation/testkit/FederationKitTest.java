@@ -11,7 +11,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import org.jose4j.jwt.JwtClaims;
 import org.junit.jupiter.api.Test;
 
 /**

@@ -105,7 +105,16 @@
                                         <!-- HJOSE (plan items H-JOSE-1, H-JOSE-2): the claims read before a signature is
                                              checked, the algorithm and key every verifier here allows, and the keys the
                                              in-process signer accepts (RFC 7518 §3.3-3.5, RFC 8725 §3.1-3.2). -->
-                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.unverifiedIssuer(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.unverifiedSubject(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.unverifiedString(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.unverifiedClaim(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.hasUnverifiedClaim(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.unverifiedNumericDate(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.unverifiedMap(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.unverifiedStringList(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.unverifiedClaimsMap(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.toString(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.JwtCodec.permittedAlgorithms(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.JwtCodec.signingKeys(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.JwtCodec.isSigningUse(*</include>
