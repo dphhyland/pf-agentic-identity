@@ -83,8 +83,7 @@ without a default ("a switch has a default"), so each is a `choice` of `true` an
 (2026-09-27, U-0023), a filter the same (2026-09-29), and a servlet that is not load-on-startup answers 500 on its
 first request and 404 from then on while the rest of the war serves (2026-09-30, U-0280).
 
-**Not in this change.** The SSF servlets keep their own start-up until ST-5 (wave 3), so the two SSF switches change nothing yet
-(F-0271). The per-surface rules - 404
-when disabled for every surface, pass-through for traffic that is not the component's, OGNL criteria answering
-`false` - are S9b's (wave 4), which closes F-0013. So is a narrower floor for `FAPI`, which answers 503 to every request its filter covers while it is failed
-(F-0270).
+**Not in this change.** The SSF servlets keep their own start-up until ST-5 (wave 3), so the two SSF switches change
+nothing yet (F-0271). The per-surface rules - 404 when disabled for every surface, pass-through for traffic that is
+not the component's, OGNL criteria answering `false` - are S9b's (wave 4), which closes F-0013. So is a narrower floor
+for `FAPI`, which answers 503 to every request its filter covers while it is failed (F-0270).
