@@ -5,7 +5,7 @@ area: pf-integration
 source: reviewer-report
 status: closed
 plan_items: [H-FED-6]
-prs: []
+prs: [96]
 verification: >
   2026-10-01, on prod/p3-federation-errors (HFEDE): FapiResourceServerFilter holds only the clients
   OIDF_FAPI2_CLIENTS names (the client_id of a JWT access token, unverified, as Fapi2ProfileFilter reads it at

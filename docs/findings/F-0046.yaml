@@ -5,7 +5,7 @@ area: pf-integration, openid-federation
 source: reviewer-report
 status: closed
 plan_items: [H-FED-4]
-prs: []
+prs: [96]
 verification: >
   2026-10-01, on prod/p3-federation-errors (HFEDE): every refusal this module writes to a caller that has not
   authenticated goes through OAuthErrorWriter, FederationErrorPage or FederationErrors.write, which answer the error

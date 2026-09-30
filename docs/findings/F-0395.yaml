@@ -5,7 +5,7 @@ area: pf-integration
 source: design
 status: open
 plan_items: [H-FED-4, O-6]
-prs: []
+prs: [96]
 verification: ''
 target_release: 0.7.0
 notes: >

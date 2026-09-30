@@ -5,7 +5,7 @@ area: pf-integration
 source: reviewer-report
 status: closed
 plan_items: [H-FED-7]
-prs: []
+prs: [96]
 verification: >
   2026-10-01, on the rig (PingFederate 13.1.3, pfai-p3-hfede), a client-credentials token request with an OGNL
   issuance criterion on the access-token mapping that wrote one of our events through PfAuditSink.loggingUtil()
