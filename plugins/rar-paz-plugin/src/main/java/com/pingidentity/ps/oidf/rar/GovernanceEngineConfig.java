@@ -158,7 +158,7 @@ public final class GovernanceEngineConfig {
         private boolean allowClientAssertedPrincipal = false;
         private boolean trustAgentMarker = false;
         private boolean insecureTls = false;
-        private int timeoutMillis = 10_000;
+        private int timeoutMillis = PdpTransport.DEFAULT_TOTAL_MILLIS;
         private Set<String> authenticatedPrincipalTypes = DEFAULT_AUTHENTICATED_PRINCIPAL_TYPES;
         private String deploymentProfile = PROFILE_PRODUCTION;
 
