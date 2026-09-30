@@ -89,6 +89,28 @@ repository knows send `Bearer`: the conformance suite's `conformance-ssf-receive
 `harness/probe-ssf.sh` sends `Authorization: Bearer`. So SSF keeps bearer receiver tokens and refuses a bound one it
 has no proof for; its callers are the transmitter's receivers and provisioners, not operators.
 
+**On the rig (2026-09-30).** The conformance rig on slot 4 (`pfai-p3-s8b`, PingFederate 13.1.3.0, java 21.0.12.1), with
+an operator scope, a JWT access token manager whose `aud` is `OIDF_OPERATOR_AUDIENCE`, and two client-credentials
+clients, one with Require DPoP:
+
+- Development: device-enrolment's registrar (`AuthorityCredentialsRigTest`) got a DPoP-bound token from PingFederate's
+  token endpoint and enrolled `https://localhost:34031/federation/agents/s8b-93ea2707`; a DPoP-bound token with
+  `oidf.admin.entities` enrolled another (`admin.request.authorised` `binding=dpop`, `actor=s8b-dpop`, the
+  `federation.hosted_entity.enrolled` actor `s8b-dpop`, and `X-Federation-Actor` in server.log only as
+  `claimed_label=sha256:...`); the same token was refused 403 `insufficient_scope` at `GET /federation/admin/entities`
+  (`oidf.admin.read`) and `GET /agentic-identity/health` (`oidf.health.read`); the DPoP-bound token sent as `Bearer`
+  was 401 `invalid_token`; an unbound token enrolled with the WARN "let through with a token bound to nothing:
+  development only"; the static bearer enrolled with the WARN naming the route and `binding=static-bearer`; no
+  credentials was 401 with both challenges.
+- Production (an image built with `data.zip.age`): with `OIDF_AUTHORITY_ADMIN_TOKEN` set, `OPERATOR_API` was
+  `REFUSED` with "OIDF_AUTHORITY_ADMIN_TOKEN is set, and production never accepts the static bearer: remove it ...",
+  `/federation/admin/entities` answered 503 through the component gate, and enrolment and the health detail 503
+  through the authenticator. With it removed, the DPoP and unbound-token cases could not be shown: the rig's
+  self-signed JWKS endpoint could not be made trusted in production (U-0320, U-0321). Restarting that production
+  container failed on the decrypted archive (F-0313, the image's).
+
+The touched modules pass on JDK 17 (the whole reactor), 20 and Temurin 21.
+
 **No route yet** for `oidf.admin.subordinates`, `oidf.admin.subordinates.approve` (no subordinate administration API
 is served from this repository), `ssf.admin` (every SSF path is a receiver's own stream or a provisioner's) or
 `oidf.metrics.read`. The RAR models' fingerprint is not served over HTTP.
