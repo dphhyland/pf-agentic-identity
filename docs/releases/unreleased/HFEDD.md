@@ -61,7 +61,8 @@
 - Kept: `RarEntitlement`, deprecated since 0.4.0 with no caller, because F-0100 records that its deletion removes a
   test class and public members of client-attestation and waits for the owner's say-so in a pull request of its own.
   The event façades and the relative replay methods have production callers (F-0430, F-0431). `ProfileRefusals.resetForTests`
-  (libs/platform) and three other public test seams in pf-integration are F-0432.
+  (libs/platform), `AttestationSupport.acceptedRisksForTests` (libs/client-attestation) and three other public test
+  seams in pf-integration are F-0432.
 - The showcase: the limitation that said the overloads without a `VerificationPolicy` remain is gone, and the citations
   into every file this package edits were re-pointed, the `JwtCodec` and `FederationService` ones by reading the lines.
 - For whoever folds the fragments: HJOSE's fragment says the `JwtCodec` overloads without a `VerificationPolicy` are
