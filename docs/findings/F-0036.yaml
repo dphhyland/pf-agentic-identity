@@ -5,9 +5,9 @@ area: attestation-issuer
 source: design
 status: closed
 plan_items: [S4c]
-prs: []
+prs: [74]
 verification: >
-  Closed 2026-09-30 by S4CP (plan item S4c, proof side). InstanceKeyProofValidator requires iat and exp, exp after
+  Closed 2026-09-30 by S4CP (PR #74, plan item S4c, proof side). InstanceKeyProofValidator requires iat and exp, exp after
   iat by at most 300 s, and accepts the proof only from iat - 60 s to exp + 60 s (CAS section 4.3, read verbatim
   2026-09-30); the attester records the jti until exp + 60 s through AttestationReplayCache.recordUntil, and the
   token endpoint records a PoP or DPoP jti until max(iat + max age + 2 x skew, now + max age + skew). Fake-clock

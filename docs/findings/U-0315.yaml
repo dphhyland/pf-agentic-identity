@@ -4,7 +4,7 @@ area: attestation-issuer
 source: design
 status: open
 plan_items: [S4c]
-prs: []
+prs: [74]
 recorded_in: docs/releases/unreleased/S4CP.md, Notes, Who sends a proof without exp
 verify_by: >
   Before a deployment moves to 0.6.0, list the workloads that call its POST /federation/attestation (the

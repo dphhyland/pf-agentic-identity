@@ -5,7 +5,7 @@ area: client-attestation
 source: design
 status: open
 plan_items: [PR-2]
-prs: []
+prs: [74]
 verification: ''
 target_release: 0.7.0
 notes: >
