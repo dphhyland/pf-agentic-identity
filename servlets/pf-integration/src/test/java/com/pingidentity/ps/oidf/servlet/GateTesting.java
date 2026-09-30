@@ -40,6 +40,15 @@ public final class GateTesting {
         }
     }
 
+    /**
+     * {@code component} registered in this loader and serving, so an OGNL entry point's gate (CriterionGate, which asks
+     * this loader's registry first) lets its criterion run: a part of the test's own, and every part made ready.
+     */
+    public static void serving(String component) {
+        Startup.begin(component, "GateTestingPart");
+        healthy(component);
+    }
+
     /** Where {@code response}'s output stream writes, as text. */
     public static ByteArrayOutputStream body(HttpServletResponse response) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();

@@ -39,6 +39,7 @@ class SurfaceGateTest {
         System.clearProperty("oidf.federation.trust.controller.host");
         System.clearProperty("oidf.federation.trust.anchor.jwks");
         FederationRuntimeConfig.resetForTests();
+        FederationClientLookup.useForTests(null);
         java.lang.reflect.Method bridge = BridgeSigners.class.getDeclaredMethod("resetForTest");
         bridge.setAccessible(true);
         bridge.invoke(null);
@@ -51,6 +52,8 @@ class SurfaceGateTest {
 
     @Test
     void theFrontChannelFilterWithNoTrustControllerAnswersFederationClients503() throws Exception {
+        // PingFederate's store, as the gate asks it: no such client.
+        FederationClientLookup.useForTests(id -> null);
         FrontChannelAutoRegistrationFilter filter = new FrontChannelAutoRegistrationFilter();
         assertDoesNotThrow(() -> filter.init(mock(FilterConfig.class)));
         assertEquals(ComponentState.FAILED_CONFIG, GateTesting.part("FrontChannelAutoRegistrationFilter").state());

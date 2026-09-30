@@ -305,7 +305,19 @@ public final class ClientAttestationAuthFilter implements Filter {
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
-        if (ComponentGate.filter(this.part, request, response, chain, ComponentGate::attestationTraffic)) {
+        // Disabled or failed: closed only for attestation traffic and for clients that authenticate only with an
+        // attestation, at the endpoints this filter authenticates at; everything else goes on to PingFederate (S9b).
+        if (ComponentGate.attestation(this.part, request, response, chain, new ComponentGate.AttestationRules() {
+            @Override
+            public boolean authenticates(HttpServletRequest http) {
+                return AttestedEndpoint.of(ClientAttestationUtils.endpointPath(http)).authenticates();
+            }
+
+            @Override
+            public boolean refusedWithoutAttestation(HttpServletRequest http, HttpServletResponse httpResponse) throws IOException {
+                return ClientAttestationAuthFilter.this.refusedWithoutAttestation(http, httpResponse);
+            }
+        })) {
             return;
         }
         if (!(request instanceof HttpServletRequest) || !(response instanceof HttpServletResponse)) {

@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import jakarta.servlet.http.HttpServletRequest;
 import com.pingidentity.ps.oidf.conformance.Requirement;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.sourceid.saml20.adapter.attribute.AttributeValue;
 
@@ -32,6 +33,12 @@ import org.sourceid.saml20.adapter.attribute.AttributeValue;
  * verifying, and an unverified header contributes nothing to a token no matter how PF is configured.
  */
 class AttestationClaimSourceTest {
+
+    /** The claims are read only while ATTESTATION_AUTH serves (S9b); another test may have left it failed. */
+    @BeforeEach
+    void attestationServes() {
+        com.pingidentity.ps.oidf.servlet.GateTesting.serving(com.pingidentity.ps.oidf.platform.health.Startup.ATTESTATION_AUTH);
+    }
 
     private static final String ATTACKER_SPIFFE = "spiffe://banking.demo/workload/treasury-admin";
 

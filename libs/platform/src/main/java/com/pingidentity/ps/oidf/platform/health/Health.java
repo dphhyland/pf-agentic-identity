@@ -19,7 +19,9 @@ import java.util.Map;
  *   <li><b>Ready</b> is {@link Status#DOWN} when an enabled component is not {@link ComponentState#READY} or
  *       {@link ComponentState#DEGRADED} - starting, failed or refused - and {@link Status#UP} otherwise, a
  *       disabled component and no component at all included. DEGRADED counts as ready, per S-9: a dependency blip
- *       must not eject every node at once.</li>
+ *       must not eject every node at once. So does a component in the first {@link ComponentParts#GRACE} of such a
+ *       blip - it was serving, failed on a dependency, and the supervisor is retrying it
+ *       ({@link ComponentParts#graced}) - which is {@code DEGRADED} for readiness whatever its state says (S9b).</li>
  *   <li>Both say nothing but the status. The detail - each component's state and reason, its parts, the profile
  *       and the versions - is {@link #detail}, which the servlet shows only to an authorised caller.</li>
  * </ul>
@@ -32,10 +34,21 @@ public final class Health {
     private Health() {
     }
 
-    /** {@link Status#DOWN} when an enabled component is neither ready nor degraded. */
+    /** {@link Status#DOWN} when an enabled component is neither ready nor degraded; no component is in a blip. */
     public static Status readiness(List<ComponentStatus> components) {
+        return readiness(components, component -> false);
+    }
+
+    /**
+     * {@link Status#DOWN} when an enabled component is neither ready nor degraded, nor in the grace of a dependency
+     * blip.
+     *
+     * @param graced whether a component is in the first {@link ComponentParts#GRACE} of a blip
+     *               ({@link ComponentParts#graced}), which counts as {@code DEGRADED}
+     */
+    public static Status readiness(List<ComponentStatus> components, java.util.function.Predicate<String> graced) {
         for (ComponentStatus c : components) {
-            if (c.enabled() && !serving(c.state())) {
+            if (c.enabled() && !serving(c.state()) && !graced.test(c.name())) {
                 return Status.DOWN;
             }
         }
@@ -65,6 +78,15 @@ public final class Health {
      */
     public static Map<String, Object> detail(List<ComponentStatus> components, List<PartStatus> parts, String profile,
             Map<String, Object> versions) {
+        return detail(components, parts, profile, versions, component -> false);
+    }
+
+    /**
+     * The detail document, its status by {@link #readiness(List, java.util.function.Predicate)}; a component in the
+     * grace of a blip carries {@code "graced": true} beside its true state.
+     */
+    public static Map<String, Object> detail(List<ComponentStatus> components, List<PartStatus> parts, String profile,
+            Map<String, Object> versions, java.util.function.Predicate<String> graced) {
         List<Object> list = new ArrayList<>();
         for (ComponentStatus c : components) {
             Map<String, Object> component = new LinkedHashMap<>();
@@ -73,6 +95,9 @@ public final class Health {
             component.put("state", c.state().name());
             component.put("reason", c.reason());
             component.put("since", c.since().toString());
+            if (c.enabled() && !serving(c.state()) && graced.test(c.name())) {
+                component.put("graced", true);
+            }
             List<Object> own = new ArrayList<>();
             for (PartStatus p : parts) {
                 if (p.component().equals(c.name())) {
@@ -87,7 +112,7 @@ public final class Health {
             component.put("parts", own);
             list.add(component);
         }
-        Map<String, Object> out = status(readiness(components));
+        Map<String, Object> out = status(readiness(components, graced));
         out.put("profile", profile);
         out.put("versions", versions);
         out.put("components", list);
