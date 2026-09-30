@@ -37,9 +37,10 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
   `client_id`, `cnf.jwk`, `authorization_details`, `workload`, `agent_id`) and the authenticated outcome
   (client id, confirmed key, PoP mode, attester, entitled vs granted details, and the fingerprint of the model
   set that checked the request).
-- **`DpopProofValidator` / `DpopProof`** — RFC 9449 proof validation for combined mode: `dpop+jwt`,
-  self-signature under the `jwk` header, algorithm allowlist, `htm`/`htu`, `iat` freshness, `jti`
-  required. The `htu` is compared after RFC 3986 syntax- and scheme-based normalisation (RFC 9449 §4.3):
+- **`DpopProofValidator` / `DpopProof`** (in oidf-jose, `com.pingidentity.ps.oidf.jose.dpop`, since 0.6.0: F-0225) —
+  RFC 9449 proof validation, used here for combined mode: `dpop+jwt`,
+  self-signature under the `jwk` header, algorithm allowlist, `htm` compared exactly (RFC 9110 §9.1: F-0226),
+  `htu`, `iat` freshness, `jti` required. The `htu` is compared after RFC 3986 syntax- and scheme-based normalisation (RFC 9449 §4.3):
   scheme and host in lower case, a default or empty port dropped, percent-encoded unreserved characters
   decoded, dot-segments removed, query and fragment ignored; the user information, the path's case and a
   trailing slash still count, and an `htu` that is not an absolute http or https URI is refused. Given no

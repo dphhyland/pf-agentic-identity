@@ -158,6 +158,26 @@
                                         <include>com.pingidentity.ps.oidf.platform.component.ComponentRegistry.checkName(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.component.ComponentRegistry.clean(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.component.ComponentState.needsReason(*</include>
+                                        <!-- component (S-9, S9A): the supervisor, the enable switches and a part's start -->
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentRegistry.note(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.retry(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.schedule(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.run(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.backoff(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.ceiling(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.count(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.WebappScheduler.schedule(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.WebappScheduler.executor(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentSwitches.verdict(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentSwitches.value(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentSwitches.present(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.start(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.retry(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.attempt(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.notConfigured(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.componentState(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.componentRefused(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.verdict(*</include>
                                         <!-- json (F-1): add gate includes below this line -->
                                         <include>com.pingidentity.ps.oidf.platform.json.Json.parse(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.json.Json.readValue(*</include>
@@ -486,6 +506,21 @@
                                         <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.every(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.after(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.startDaemon(*</include>
+                                        <!-- auth (S8a): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.introspect(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.formEncode(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.ask(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.string(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.object(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.audience(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.seconds(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.cached(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.remember(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.cacheUntil(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.Builder.cacheFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.ClientAuthentication.clientSecretBasic(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.ClientAuthentication.privateKeyJwt(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

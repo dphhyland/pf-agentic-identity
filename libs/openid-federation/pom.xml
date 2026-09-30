@@ -91,7 +91,7 @@
               exercises every branch of them.
 
               Nested classes are named with a DOT here, not a '$' - jacoco's check goal matches
-              METHOD elements on the readable name (TrustChainValidator.FetchBudget.spend), and a
+              METHOD elements on the readable name (TrustChainValidator.Run.fetchConfiguration), and a
               '$' spelling silently matches nothing, which is a gate that looks green because it
               gates nothing. The list grows as tests close a method, never by lowering a limit.
             -->
@@ -135,8 +135,19 @@
                                         <include>com.pingidentity.ps.oidf.federation.TrustControllerGateway.fetchEntityConfigurationOf(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.fetchEntityConfiguration(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.fetchEntityConfigurationOf(*</include>
-                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.FetchBudget.spend(*</include>
-                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.FetchBudget.trySpend(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.ResolutionBudget.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.ResolutionBudget.child(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.ResolutionBudget.spend(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.ResolutionBudget.trySpend(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.ResolutionBudget.exhaustion(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.ResolutionBudget.exhausted(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.ResolutionBudget.used(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.ValidatorOptions.defaults(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.ValidatorOptions.fromSettings(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.refuseIfExhausted(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.payFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.configurationOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.binding(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.validate(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.refusal(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.execute(*</include>

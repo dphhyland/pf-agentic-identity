@@ -1,0 +1,18 @@
+id: F-0272
+title: ComponentGate takes the ComponentParts monitor on every request through a gated filter or servlet
+severity: low
+area: platform, platform-pf
+source: pr-review
+status: open
+plan_items: [S9b]
+prs: [72]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found in the review of package S9A (2026-09-30). ComponentGate.action reads Part.status() and Part.componentRefused(),
+  and both synchronise on the one ComponentParts monitor, so every request through the four filters over /as/* and
+  through the gated servlets takes that JVM-wide lock up to twice, and componentRefused streams over the component's
+  parts under it. It is correct - the monitor gives the happens-before the supervisor thread's writes rely on - but
+  it is a shared lock on PingFederate's token and authorization path, and nothing has measured it. Who and when:
+  S9b (Phase 3, wave 4), which rewrites the gate per surface, publishes each part's state and its component's
+  refusal as an immutable snapshot in a volatile field for the gate to read, and keeps the monitor for transitions.

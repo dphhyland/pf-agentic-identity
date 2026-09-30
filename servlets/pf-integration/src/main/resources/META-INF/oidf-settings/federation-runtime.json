@@ -92,22 +92,6 @@
       "file": false
     },
     {
-      "name": "OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY",
-      "kind": "env",
-      "type": "bool",
-      "default": true,
-      "description": "Whether the attestation filter refuses to start without bridge signing configured",
-      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false: PingFederate does not start"},
-      "profile": "forbidden-in-production",
-      "security": true,
-      "sources": [
-        {"from": "system-property", "name": "oidf.attestation.require.bridge.key"},
-        {"from": "env", "name": "OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY"}
-      ],
-      "aliases": [],
-      "file": false
-    },
-    {
       "name": "OIDF_ATTESTATION_REQUIRE_ATTESTER_BINDING",
       "kind": "env",
       "type": "bool",

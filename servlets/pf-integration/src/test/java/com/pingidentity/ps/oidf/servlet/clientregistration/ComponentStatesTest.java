@@ -1,6 +1,6 @@
 /*
  * Automatic registration and attestation authentication register their parts at init, as today's configuration
- * decides, without changing whether init throws.
+ * decides, and init returns whatever it found (S-9): a failure is the part's state, never an exception.
  */
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
@@ -93,25 +93,27 @@ class ComponentStatesTest {
     }
 
     @Test
-    void anInitThatThrowsStillThrowsAndIsRecorded() {
-        // No trust controller at all: the token endpoint's filter refuses to start, as before.
-        ServletException e = assertThrows(ServletException.class,
-                () -> new TokenEndpointAutoRegistrationFilter().init(mock(FilterConfig.class)));
+    void anInitThatFailsReturnsAndIsRecorded() {
+        // No trust controller at all: the token endpoint's filter does not start - and its init returns (S-9).
+        assertDoesNotThrow(() -> new TokenEndpointAutoRegistrationFilter().init(mock(FilterConfig.class)));
         assertEquals(ComponentState.FAILED_CONFIG, part("TokenEndpointAutoRegistrationFilter").state());
-        assertTrue(part("TokenEndpointAutoRegistrationFilter").reason().startsWith(e.getMessage().substring(0, 40)),
+        assertTrue(part("TokenEndpointAutoRegistrationFilter").reason().startsWith("OpenID Federation automatic registration: "),
+                part("TokenEndpointAutoRegistrationFilter").reason());
+        assertTrue(part("TokenEndpointAutoRegistrationFilter").reason().contains(FederationRuntimeConfig.HOST_ENV),
                 part("TokenEndpointAutoRegistrationFilter").reason());
     }
 
     // ---- FEDERATION (explicit registration) ----------------------------------------------------------
 
     @Test
-    void aRegistrationInitThatThrowsStillThrowsAndIsAFailedConfiguration() {
+    void aRegistrationInitThatFailsReturnsAndIsAFailedConfiguration() {
         jakarta.servlet.ServletConfig config = mock(jakarta.servlet.ServletConfig.class);
         org.mockito.Mockito.when(config.getInitParameter(RegistrationConfiguration.SUBORDINATE_CACHE_MAX_ENTRIES_PARAM)).thenReturn("lots");
-        ServletException e = assertThrows(ServletException.class, () -> new OpenIdRegistrationServlet().init(config));
+        assertDoesNotThrow(() -> new OpenIdRegistrationServlet().init(config));
         assertEquals(ComponentState.FAILED_CONFIG, part("OpenIdRegistrationServlet").state());
         assertEquals(Startup.FEDERATION, part("OpenIdRegistrationServlet").component());
-        assertTrue(part("OpenIdRegistrationServlet").reason().startsWith(e.getMessage()), part("OpenIdRegistrationServlet").reason());
+        assertTrue(part("OpenIdRegistrationServlet").reason().startsWith("Failed to initialize OpenID Registration servlet"),
+                part("OpenIdRegistrationServlet").reason());
     }
 
     // ---- ATTESTATION_AUTH ----------------------------------------------------------------------------
@@ -126,7 +128,7 @@ class ComponentStatesTest {
 
     @Test
     void attestationAuthenticationRequiredAndUnconfiguredIsAFailedConfiguration() {
-        assertThrows(ServletException.class, () -> new ClientAttestationAuthFilter().init(null));
+        assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
         assertEquals(ComponentState.FAILED_CONFIG, part("ClientAttestationAuthFilter").state());
         assertTrue(part("ClientAttestationAuthFilter").reason().contains("no bridge signing configured"),
                 part("ClientAttestationAuthFilter").reason());

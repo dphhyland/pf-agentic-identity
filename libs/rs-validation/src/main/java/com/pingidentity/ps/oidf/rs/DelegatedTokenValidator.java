@@ -3,9 +3,13 @@
  */
 package com.pingidentity.ps.oidf.rs;
 
-import com.pingidentity.ps.oidf.clientattestation.DpopProof;
-import com.pingidentity.ps.oidf.clientattestation.DpopProofValidator;
 import com.pingidentity.ps.oidf.jose.Jwks;
+import com.pingidentity.ps.oidf.jose.dpop.DpopProof;
+import com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator;
+import com.pingidentity.ps.oidf.platform.auth.Introspection;
+import com.pingidentity.ps.oidf.platform.auth.IntrospectionException;
+import com.pingidentity.ps.oidf.platform.auth.TokenIntrospector;
+import com.pingidentity.ps.oidf.platform.json.Json;
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -36,12 +40,15 @@ import org.jose4j.jwt.NumericDate;
  *   <li>The access token is a JWS from the authorisation server: its {@code typ} is what {@link AccessTokenType}
  *       says, its {@code alg} is permitted, its {@code kid} names exactly one of the server's keys (no fallback to
  *       trying every key), the signature verifies, {@code iss} is the issuer, {@code aud} contains this resource,
- *       {@code exp} has not passed and {@code nbf}, when present, has.</li>
+ *       {@code exp} has not passed and {@code nbf}, when present, has. Or, with {@link Builder#introspection}, the
+ *       authorisation server says the token is active (RFC 7662) and its answer passes the same claim checks - see
+ *       {@link #introspected}.</li>
  *   <li>The token is sender-constrained, and the sender proves it: {@code cnf.jkt} with a DPoP proof (RFC 9449)
  *       whose key has that thumbprint, whose {@code ath} is this token's hash, whose {@code htm} and {@code htu} are
  *       this request's, and - with {@link DpopNonces} on - whose {@code nonce} this server issued; and
  *       {@code cnf.x5t#S256} against the client certificate of the TLS connection (RFC 8705 §3). A token with
- *       neither is refused: there is no bearer mode.</li>
+ *       neither is refused: there is no bearer mode, except {@link Builder#allowUnbound()} under the development
+ *       profile.</li>
  *   <li>The RFC 8693 {@code act} claim is a JSON object chain ({@link ActChain}); a malformed one is refused, and
  *       so is the legacy string form unless a development deployment switched it on.</li>
  *   <li>The DPoP proof has not been seen before: the {@link ReplayStore} is asked last, once everything else has
@@ -62,6 +69,16 @@ public final class DelegatedTokenValidator {
     public static final String INVALID_TOKEN = "invalid_token";
     public static final String INVALID_DPOP_PROOF = "invalid_dpop_proof";
     public static final String USE_DPOP_NONCE = "use_dpop_nonce";
+
+    /** What the token was bound to, and how the sender proved it. */
+    public enum Binding {
+        /** {@code cnf.jkt}, proved with a DPoP proof (RFC 9449). */
+        DPOP,
+        /** {@code cnf.x5t#S256} only, proved by the TLS client certificate (RFC 8705). */
+        MTLS,
+        /** Nothing: a bearer token, accepted only under {@link Builder#allowUnbound()} in development. */
+        NONE
+    }
 
     /** How the access token arrived: the {@code Authorization} scheme. */
     public enum Scheme {
@@ -101,6 +118,7 @@ public final class DelegatedTokenValidator {
     }
 
     private final JwksSource keys;
+    private final TokenIntrospector introspector;
     private final String expectedIssuer;
     private final String expectedAudience;
     private final Set<String> tokenAlgorithms;
@@ -114,9 +132,11 @@ public final class DelegatedTokenValidator {
     private final boolean acceptDpop;
     private final boolean acceptMtls;
     private final boolean allowLegacyStringAct;
+    private final boolean allowUnbound;
 
     private DelegatedTokenValidator(Builder b) {
         this.keys = b.keys;
+        this.introspector = b.introspector;
         this.expectedIssuer = b.expectedIssuer;
         this.expectedAudience = b.expectedAudience;
         this.tokenAlgorithms = b.tokenAlgorithms;
@@ -130,6 +150,7 @@ public final class DelegatedTokenValidator {
         this.acceptDpop = b.acceptDpop;
         this.acceptMtls = b.acceptMtls;
         this.allowLegacyStringAct = b.legacyStringActProfile != null;
+        this.allowUnbound = b.unboundProfile != null;
     }
 
     /** A builder for a validator that expects tokens from {@code expectedIssuer} for {@code expectedAudience}. */
@@ -150,6 +171,16 @@ public final class DelegatedTokenValidator {
     /** Whether the Bearer scheme is accepted for certificate-bound tokens. */
     public boolean acceptsMtls() {
         return this.acceptMtls;
+    }
+
+    /** Whether a token bound to nothing is accepted under the Bearer scheme: development only. */
+    public boolean acceptsUnbound() {
+        return this.allowUnbound;
+    }
+
+    /** Whether the Bearer scheme is accepted at all: for a certificate-bound token, or an unbound one. */
+    public boolean acceptsBearer() {
+        return this.acceptMtls || this.allowUnbound;
     }
 
     /** The current DPoP nonce, when nonces are on. */
@@ -174,14 +205,15 @@ public final class DelegatedTokenValidator {
         if (p.accessToken() == null || p.accessToken().isBlank()) {
             throw new RsException(INVALID_TOKEN, 401, "no access token presented");
         }
-        if (p.scheme() == Scheme.DPOP ? !this.acceptDpop : !this.acceptMtls) {
+        if (p.scheme() == Scheme.DPOP ? !this.acceptDpop : !this.acceptsBearer()) {
             // RFC 6750 §3.1: a request "attempted using an unsupported authentication method" carries no error.
             throw new RsException(null, 401, "this resource does not accept the " + p.scheme() + " scheme");
         }
-        JwtClaims claims = this.verifyAccessToken(p.accessToken());
+        JwtClaims claims = this.introspector == null ? this.verifyAccessToken(p.accessToken())
+                : this.introspected(p.accessToken());
         Map<String, Object> claimMap = claims.getClaimsMap();
         ActChain.Parsed act = this.checkAct(ActChain.parse(claimMap));
-        Confirmation cnf = confirmation(claims);
+        Confirmation cnf = confirmation(claims, this.allowUnbound && p.scheme() == Scheme.BEARER);
 
         String jti = null;
         String nextNonce = null;
@@ -206,7 +238,8 @@ public final class DelegatedTokenValidator {
         if (proof != null) {
             this.checkReplay(proof, cnf.jkt());
         }
-        return new Result(claims.getClaimValueAsString("sub"), act, jti, scopes(claims), claimMap, nextNonce);
+        Binding binding = proof != null ? Binding.DPOP : cnf.x5tS256() != null ? Binding.MTLS : Binding.NONE;
+        return new Result(claims.getClaimValueAsString("sub"), act, jti, scopes(claims), claimMap, nextNonce, binding);
     }
 
     // ---- the access token ---------------------------------------------------------------------------------------
@@ -249,7 +282,55 @@ public final class DelegatedTokenValidator {
         } catch (Exception e) {
             throw new RsException(INVALID_TOKEN, 401, "access token payload is not valid JWT claims");
         }
-        this.checkClaims(claims);
+        this.checkClaims(claims, false);
+        return claims;
+    }
+
+    /**
+     * The token's claims as the authorisation server's introspection endpoint gives them (RFC 7662), in place of a
+     * JWS this server verifies. RFC 7662 §2.2: {@code active} is "Boolean indicator of whether or not the presented
+     * token is currently active"; a token that is not is refused, and an endpoint that gives no usable answer is a
+     * 503. The answer then goes through the same checks as a JWT's claims ({@link #checkClaims}), with two
+     * differences that follow from where it came from:
+     *
+     * <ul>
+     *   <li>{@code iss} is compared when the answer carries it, and may be absent: RFC 7662 §2.2 makes it OPTIONAL,
+     *       and PingFederate 13.1.3 leaves it out for a reference token (seen on the rig on 2026-09-29, U-0030). The
+     *       answer is the configured authorisation server's own, over a connection this server opened, and an
+     *       active answer "will generally indicate that a given token has been issued by this authorization
+     *       server" (RFC 7662 §2.2).</li>
+     *   <li>{@code exp} may be absent for the same reason; when present it is checked.</li>
+     * </ul>
+     *
+     * <p>The binding is read from the answer's {@code cnf}. RFC 9449 §6.2: "For a DPoP-bound access token, the hash
+     * of the public key to which the token is bound is conveyed to the protected resource as metainformation in a
+     * token introspection response", and "If the token_type member is included in the introspection response, it
+     * MUST contain the value DPoP": an answer with {@code cnf.jkt} and another {@code token_type} contradicts itself,
+     * and is refused. RFC 6749 §5.1 makes a token type's value case-insensitive.
+     */
+    private JwtClaims introspected(String accessToken) throws RsException {
+        Introspection answer;
+        try {
+            answer = this.introspector.introspect(accessToken);
+        } catch (IntrospectionException e) {
+            throw new RsException(null, 503, "the authorisation server's introspection endpoint is unavailable: "
+                    + e.getMessage());
+        }
+        if (!answer.active()) {
+            throw new RsException(INVALID_TOKEN, 401, "the authorisation server says the access token is not active");
+        }
+        if (answer.jkt() != null && answer.tokenType() != null
+                && !"DPoP".equalsIgnoreCase(answer.tokenType())) {
+            throw new RsException(INVALID_TOKEN, 401, "the introspection answer binds the token to a DPoP key but"
+                    + " gives its token_type as " + answer.tokenType());
+        }
+        JwtClaims claims;
+        try {
+            claims = JwtClaims.parse(Json.write(answer.members()));
+        } catch (Exception e) {
+            throw new RsException(INVALID_TOKEN, 401, "the introspection answer's members are not valid JWT claims");
+        }
+        this.checkClaims(claims, true);
         return claims;
     }
 
@@ -283,9 +364,10 @@ public final class DelegatedTokenValidator {
         return key;
     }
 
-    private void checkClaims(JwtClaims claims) throws RsException {
+    private void checkClaims(JwtClaims claims, boolean introspected) throws RsException {
         try {
-            if (!this.expectedIssuer.equals(claims.getIssuer())) {
+            boolean issuerOptional = introspected && !claims.hasClaim("iss");
+            if (!issuerOptional && !this.expectedIssuer.equals(claims.getIssuer())) {
                 throw new RsException(INVALID_TOKEN, 401, "access token issuer is not the expected AS");
             }
             // jose4j reads an absent aud as an empty list; were it ever null, the catch below refuses the token.
@@ -294,7 +376,7 @@ public final class DelegatedTokenValidator {
             }
             long now = NumericDate.now().getValue();
             NumericDate exp = claims.getExpirationTime();
-            if (exp == null || exp.getValue() + this.clockSkewSeconds < now) {
+            if (exp == null ? !introspected : exp.getValue() + this.clockSkewSeconds < now) {
                 throw new RsException(INVALID_TOKEN, 401, "access token has expired");
             }
             NumericDate nbf = claims.getNotBefore();
@@ -327,8 +409,16 @@ public final class DelegatedTokenValidator {
     record Confirmation(String jkt, String x5tS256) {
     }
 
-    static Confirmation confirmation(JwtClaims claims) throws RsException {
+    /**
+     * The token's {@code cnf}. With {@code unboundAllowed} - {@link Builder#allowUnbound()}, and the token sent as a
+     * bearer token - a token with no {@code cnf} at all has an empty confirmation; one whose {@code cnf} is there but
+     * names nothing this server checks is refused either way.
+     */
+    static Confirmation confirmation(JwtClaims claims, boolean unboundAllowed) throws RsException {
         Object cnf = claims.getClaimValue("cnf");
+        if (cnf == null && unboundAllowed) {
+            return new Confirmation(null, null);
+        }
         if (!(cnf instanceof Map<?, ?> members)) {
             throw new RsException(INVALID_TOKEN, 401, "access token carries no cnf, so it is not sender-constrained");
         }
@@ -537,6 +627,7 @@ public final class DelegatedTokenValidator {
         private final String expectedIssuer;
         private final String expectedAudience;
         private JwksSource keys;
+        private TokenIntrospector introspector;
         private ReplayStore replayStore;
         private Set<String> tokenAlgorithms = DEFAULT_ALGORITHMS;
         private Set<String> proofAlgorithms = DEFAULT_ALGORITHMS;
@@ -547,6 +638,7 @@ public final class DelegatedTokenValidator {
         private boolean acceptDpop = true;
         private boolean acceptMtls;
         private DeploymentProfile legacyStringActProfile;
+        private DeploymentProfile unboundProfile;
 
         private Builder(String expectedIssuer, String expectedAudience) {
             this.expectedIssuer = Objects.requireNonNull(expectedIssuer, "expectedIssuer");
@@ -562,6 +654,15 @@ public final class DelegatedTokenValidator {
         /** A fixed set of the authorisation server's public keys. */
         public Builder keys(Collection<? extends JsonWebKey> fixed) {
             return this.keys(new StaticJwks(fixed));
+        }
+
+        /**
+         * Asks the authorisation server about each token (RFC 7662) instead of verifying it as a JWT: for reference
+         * tokens, or where the server's keys are not to be fetched. One of this and {@link #keys} is required.
+         */
+        public Builder introspection(TokenIntrospector value) {
+            this.introspector = Objects.requireNonNull(value, "introspector");
+            return this;
         }
 
         /** Required: where accepted DPoP proofs are remembered. */
@@ -646,12 +747,29 @@ public final class DelegatedTokenValidator {
         }
 
         /**
+         * Accepts a token bound to nothing - no {@code cnf} - sent under the Bearer scheme, and reports it as
+         * {@link Binding#NONE}. Development only, like {@link #allowLegacyStringAct()}: the profile is this process's
+         * own, and {@link #build()} throws unless it is development. A DPoP-bound token sent as a bearer token is still
+         * refused (RFC 9449 §7.2), and so is a certificate-bound one without its certificate.
+         */
+        public Builder allowUnbound() {
+            return this.allowUnbound(DeploymentProfile.current());
+        }
+
+        /** {@link #allowUnbound()} under a given profile. */
+        public Builder allowUnbound(DeploymentProfile profile) {
+            this.unboundProfile = Objects.requireNonNull(profile, "profile");
+            return this;
+        }
+
+        /**
          * @throws IllegalStateException without keys or a replay store, with neither scheme accepted, or with
          *                               {@link #allowLegacyStringAct()} outside the development profile
          */
         public DelegatedTokenValidator build() {
-            if (this.keys == null) {
-                throw new IllegalStateException("the authorisation server's keys are required");
+            if ((this.keys == null) == (this.introspector == null)) {
+                throw new IllegalStateException("the authorisation server's keys or its introspection endpoint are"
+                        + " required, and not both");
             }
             if (this.replayStore == null) {
                 throw new IllegalStateException("a replay store is required: RFC 9449 section 11.1 proofs are"
@@ -663,6 +781,10 @@ public final class DelegatedTokenValidator {
             if (this.legacyStringActProfile != null && !this.legacyStringActProfile.isDevelopment()) {
                 throw new IllegalStateException("the legacy string form of act is accepted only under "
                         + DeploymentProfile.SETTING + "=development; production requires the RFC 8693 JSON object");
+            }
+            if (this.unboundProfile != null && !this.unboundProfile.isDevelopment()) {
+                throw new IllegalStateException("a token bound to nothing is accepted only under "
+                        + DeploymentProfile.SETTING + "=development; production requires DPoP or mTLS");
             }
             return new DelegatedTokenValidator(this);
         }
@@ -690,9 +812,10 @@ public final class DelegatedTokenValidator {
      *                      mTLS-bound token
      * @param nextDpopNonce the nonce the response should carry in {@code DPoP-Nonce}, or null when the client's is
      *                      current
+     * @param binding       what the token was bound to, and so how the sender proved it
      */
     public record Result(String subject, ActChain.Parsed act, String dpopJti, List<String> scopes,
-                         Map<String, Object> claims, String nextDpopNonce) {
+                         Map<String, Object> claims, String nextDpopNonce, Binding binding) {
 
         /** Whether an agent is acting here at all, as opposed to a human calling directly. */
         public boolean isDelegated() {

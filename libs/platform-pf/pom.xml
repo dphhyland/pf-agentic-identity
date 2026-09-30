@@ -49,11 +49,19 @@
          under their own anchors and never edit this list. -->
     <dependencies>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId></dependency>
+        <!-- rs-validation (plan item S8a): the operator authenticator verifies PingFederate's access tokens, their DPoP
+             proofs and their certificate binding through DelegatedTokenValidator, so DPoP is checked in one place
+             (Phase 3 decision 8). Optional, so a war that bundles platform-pf (gm-api) does not take rs-validation and
+             oidf-jose with it until it uses the authenticator; stage-modules.sh stages its jar into PingFederate
+             beside this one, and a consumer that copies jars copies it too. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rs-validation</artifactId><optional>true</optional></dependency>
         <dependency><groupId>com.pingidentity.pingfederate</groupId><artifactId>pingfederate-sdk</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>pingfederate</groupId><artifactId>pf-protocolengine</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-api</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><scope>provided</scope></dependency>
+        <!-- The @Requirement annotation only: SOURCE retention. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><scope>test</scope></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><scope>test</scope></dependency>
@@ -110,6 +118,15 @@
                                         <include>com.pingidentity.ps.oidf.platform.pf.ognl.CriterionGuard.evaluate(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.ognl.CriterionGuard.describe(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.ognl.CriterionGuard.oneLine(*</include>
+                                        <!-- component (S-9): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.action(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.servlet(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.filter(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.attestationTraffic(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.federationClientTraffic(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.entityIdentifier(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.jwtPart(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.write(*</include>
                                         <!-- settings (ST-1, ST-2): add gate includes below this line -->
                                         <include>com.pingidentity.ps.oidf.platform.pf.settings.InitParams.of(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.settings.InitParams.sources(*</include>
@@ -156,6 +173,31 @@
                                         <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.getClients(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.isBackendDatabase(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.discoveryHandler(*</include>
+                                        <!-- auth (S8a): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.authenticate(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.authorise(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.decide(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.validator(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.accessTokenType(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.actorOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.refusedToken(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.checkFailureLimit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.checkMutationLimit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.retryAfter(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.failureKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.scheme(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.challenges(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.headerSafe(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.claimedLabel(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthConfig.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthConfig.problem(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthConfig.baseUrlProblem(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorRoutes.match(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorRoutes.Builder.route(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.InMemoryWindowCounter.hit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.InMemoryWindowCounter.peek(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.RedisWindowCounter.peek(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
