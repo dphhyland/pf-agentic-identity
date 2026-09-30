@@ -163,7 +163,7 @@ class CriterionEndpointTest {
     private static boolean criterion(HttpServletRequest request) {
         return ClientAttestationUtils.validateClientAttestationInner(inParams(request), false,
                 "https://trust-controller.example.com", "https://trust-controller.example.com", CONFIGURED_ISSUER,
-                () -> null);
+                () -> null, CriterionTesting.NO_CLIENTS, CriterionTesting.NO_SUBJECT_TOKENS);
     }
 
     @Test
@@ -203,9 +203,9 @@ class CriterionEndpointTest {
 
         assertTrue(ClientAttestationUtils.validateClientAttestationInner(inParams(atBase), false,
                 "https://trust-controller.example.com", "https://trust-controller.example.com", CONFIGURED_ISSUER,
-                () -> base));
+                () -> base, CriterionTesting.NO_CLIENTS, CriterionTesting.NO_SUBJECT_TOKENS));
         assertFalse(ClientAttestationUtils.validateClientAttestationInner(inParams(atIssuer), false,
                 "https://trust-controller.example.com", "https://trust-controller.example.com", CONFIGURED_ISSUER,
-                () -> base));
+                () -> base, CriterionTesting.NO_CLIENTS, CriterionTesting.NO_SUBJECT_TOKENS));
     }
 }
