@@ -20,6 +20,7 @@ import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.jose.Claims;
 import com.pingidentity.ps.oidf.jose.dpop.DpopProof;
 import com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator;
+import com.pingidentity.ps.oidf.rar.model.Omission;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
 
 /**
@@ -121,6 +122,25 @@ public final class ClientAttestationVerifier {
                                           String requestMethod, String requestUri, String requestedClientId,
                                           String requestedAuthorizationDetailsJson)
             throws ClientAttestationException {
+        return this.verify(attestationHeader, popHeader, dpopHeader, requestMethod, requestUri, requestedClientId,
+                requestedAuthorizationDetailsJson, Omission.STRICT);
+    }
+
+    /**
+     * As {@link #verify(String, String, String, String, String, String, String)}, with the reading of a field the
+     * attestation constrains and the request leaves out ({@link Omission}). {@link Omission#STRICT} is the check of
+     * details that reach PingFederate as the client sent them: the omission is not within. {@link Omission#INHERIT}
+     * is for a caller that forwards the granted details in place of the request's (the token-endpoint filter at PAR,
+     * CIBA, the device authorization endpoint and the token endpoint, plan item S4d): the granted detail carries the
+     * attestation's value for the field, and is within the attestation's details by the model's own post-condition.
+     *
+     * @param omission how an omitted constrained field is read; never null
+     */
+    public ClientAttestationResult verify(String attestationHeader, String popHeader, String dpopHeader,
+                                          String requestMethod, String requestUri, String requestedClientId,
+                                          String requestedAuthorizationDetailsJson, Omission omission)
+            throws ClientAttestationException {
+        Objects.requireNonNull(omission, "omission");
         try {
             if (attestationHeader == null || attestationHeader.isBlank()) {
                 throw ClientAttestationException.invalidClient("Missing OAuth-Client-Attestation header");
@@ -164,7 +184,7 @@ public final class ClientAttestationVerifier {
 
             // ... then check the requested access against the attestation's own (CAS §7.1).
             List<Map<String, Object>> granted = AuthorizationDetailsGate.check(this.rarModels,
-                    requestedAuthorizationDetailsJson, attestationHeader);
+                    requestedAuthorizationDetailsJson, attestationHeader, omission);
             return new ClientAttestationResult(authenticated.clientId(), authenticated.cnfJwk(),
                     authenticated.mode(), authenticated.attesterIssuer(), authenticated.proofJti(),
                     attestation.authorizationDetails(), granted, attestation.workload(), attestation.agentId(),

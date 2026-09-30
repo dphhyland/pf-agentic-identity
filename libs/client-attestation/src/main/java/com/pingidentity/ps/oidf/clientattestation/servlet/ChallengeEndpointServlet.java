@@ -8,6 +8,12 @@ import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
 import com.pingidentity.ps.oidf.clientattestation.ChallengeRateLimiter;
 import com.pingidentity.ps.oidf.clientattestation.StoreNamespace;
 import com.pingidentity.ps.oidf.clientattestation.StoreUnavailableException;
+import com.pingidentity.ps.oidf.platform.events.Events;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
+import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
+import com.pingidentity.ps.oidf.platform.pf.settings.InitParams;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.LinkedHashMap;
@@ -43,18 +49,37 @@ import org.jose4j.json.JsonUtil;
  * method most likely has the wrong endpoint. (PingFederate 13.1.3 answers every OPTIONS 403 itself, so there an
  * OPTIONS never reaches this servlet; seen on the rig, 2026-09-27.)
  *
- * <p>Init-params, each read by the endpoint for its own namespace: {@code challengeCacheMaxEntries} and
- * {@code challengeTtlSeconds} (the size and lifetime of its challenges; with Redis only the lifetime applies), and
- * {@code challengeRateLimitPerWindow}, {@code challengeRateLimitWindowSeconds} and
- * {@code challengeRateLimitMaxCallers} (its per-caller cap). A value that is not an integer is ignored with a
- * warning and the default used.
+ * <p>Init-params, each read by the endpoint for its own namespace through the {@value #SETTINGS} settings catalogue:
+ * {@code challengeCacheMaxEntries} and {@code challengeTtlSeconds} (the size and lifetime of its challenges; with Redis
+ * only the lifetime applies), and {@code challengeRateLimitPerWindow}, {@code challengeRateLimitWindowSeconds} and
+ * {@code challengeRateLimitMaxCallers} (its per-caller cap). They are read strictly (plan item ST-5): a value that is
+ * not a whole number in the entry's range leaves the endpoint's part {@code FAILED_CONFIG}, naming the setting, and
+ * the endpoint answers 503.
+ *
+ * <p>Each endpoint is a part of the component that consumes its challenges (plan item S-9): the authorization server's
+ * of {@code ATTESTATION_AUTH}, the attester's of {@code ATTESTATION_ISSUER}, registered at deploy. Its start asks
+ * {@link AttestationSupport#requireSharedState} first, so under the production profile, with no Redis URL and the
+ * {@code in-memory-state} risk not accepted, the part is {@code REFUSED} and so is its component. Every challenge
+ * issued or refused is an event of the {@value #EVENTS} catalogue - {@value #ISSUED} or {@value #REFUSED}, with the
+ * surface and the reason, never the challenge - and so counted in {@code oidf_events_total}.
  */
 public abstract class ChallengeEndpointServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
     private static final Log log = LogFactory.getLog(ChallengeEndpointServlet.class);
 
+    /** The settings catalogue the endpoints' init-params are read through. */
+    public static final String SETTINGS = "attestation-challenge";
+    /** The event catalogue the endpoints' events are in. */
+    public static final String EVENTS = "challenge";
+    /** A challenge issued and recorded. */
+    public static final String ISSUED = "attestation.challenge.issued";
+    /** No challenge issued: {@code rate_limited}, {@code store_unavailable} or {@code method_not_allowed}. */
+    public static final String REFUSED = "attestation.challenge.refused";
+
     private final StoreNamespace namespace;
     private final String method;
+    /** This endpoint's part, from init; null when a test's constructor made it and init never ran. */
+    private transient volatile ComponentParts.Part part;
 
     /**
      * Per-caller cap. The endpoint is unauthenticated by necessity - a client needs a challenge before it can
@@ -87,22 +112,36 @@ public abstract class ChallengeEndpointServlet extends HttpServlet {
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        Integer challengeMax = parseInt(config.getInitParameter("challengeCacheMaxEntries"));
-        Long challengeTtl = parseLong(config.getInitParameter("challengeTtlSeconds"));
-        if (challengeMax != null || challengeTtl != null) {
-            AttestationSupport.configureChallengeService(this.namespace,
-                    challengeMax != null ? challengeMax : AttestationChallengeService.DEFAULT_MAX_ENTRIES,
-                    challengeTtl != null ? challengeTtl : AttestationChallengeService.DEFAULT_TTL_SECONDS);
-        }
-        Integer rateMax = parseInt(config.getInitParameter("challengeRateLimitPerWindow"));
-        Long rateWindow = parseLong(config.getInitParameter("challengeRateLimitWindowSeconds"));
-        Integer rateCallers = parseInt(config.getInitParameter("challengeRateLimitMaxCallers"));
-        if (rateMax != null || rateWindow != null || rateCallers != null) {
-            this.rateLimiter = new ChallengeRateLimiter(
-                    rateMax != null ? rateMax : ChallengeRateLimiter.DEFAULT_MAX_PER_WINDOW,
-                    rateWindow != null ? rateWindow : ChallengeRateLimiter.DEFAULT_WINDOW_SECONDS,
-                    rateCallers != null ? rateCallers : ChallengeRateLimiter.DEFAULT_MAX_CALLERS);
-        }
+        ComponentParts.Part begun = Startup.begin(AttestationSupport.componentOf(this.namespace), this.partName());
+        this.part = begun;
+        begun.start(() -> this.start(Settings.of(SETTINGS).with(InitParams.sources(config))));
+    }
+
+    /**
+     * The start function: the in-memory rule, then the settings, strictly, then the store and the cap. What it throws is
+     * the part's state ({@code REFUSED} for the profile, {@code FAILED_CONFIG} for a setting, naming it), and nothing is
+     * configured until every setting has been read.
+     */
+    void start(Settings settings) {
+        AttestationSupport.requireSharedState(this.namespace);
+        int challengeMax = settings.integer("challengeCacheMaxEntries");
+        long challengeTtl = settings.duration("challengeTtlSeconds").getSeconds();
+        int rateMax = settings.integer("challengeRateLimitPerWindow");
+        long rateWindow = settings.duration("challengeRateLimitWindowSeconds").getSeconds();
+        int rateCallers = settings.integer("challengeRateLimitMaxCallers");
+        this.configure(settings);
+        AttestationSupport.configureChallengeService(this.namespace, challengeMax, challengeTtl);
+        this.rateLimiter = new ChallengeRateLimiter(rateMax, rateWindow, rateCallers);
+    }
+
+    /** The part's name: the servlet's class's simple name, or this class's for a class that has none. */
+    String partName() {
+        String name = this.getClass().getSimpleName();
+        return name.isEmpty() ? ChallengeEndpointServlet.class.getSimpleName() : name;
+    }
+
+    /** A subclass's own settings, read in the start function after the endpoint's; nothing by default. */
+    protected void configure(Settings settings) {
     }
 
     /** Test seam: drive the limiter directly rather than through servlet init parameters. */
@@ -113,6 +152,9 @@ public abstract class ChallengeEndpointServlet extends HttpServlet {
     /** The endpoint's one method issues a challenge; any other is refused before the cap or the store is touched. */
     @Override
     protected void service(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (ComponentGate.servlet(this.part, resp)) {
+            return;
+        }
         if (this.method.equals(req.getMethod())) {
             this.issue(req, resp);
         } else {
@@ -130,6 +172,7 @@ public abstract class ChallengeEndpointServlet extends HttpServlet {
                     "error", "slow_down",
                     "error_description", "too many challenge requests; retry in " + retryAfter + "s"));
             log.warn((Object) ("challenge endpoint " + this.namespace.prefix() + " rate cap hit by " + caller));
+            this.refused("rate_limited");
             return;
         }
         AttestationChallengeService service = AttestationSupport.challengeService(this.namespace);
@@ -142,6 +185,7 @@ public abstract class ChallengeEndpointServlet extends HttpServlet {
             write(resp, 503, Map.of(
                     "error", "temporarily_unavailable",
                     "error_description", "the attestation challenge store is unavailable"));
+            this.refused("store_unavailable");
             return;
         }
         resp.setHeader("Pragma", "no-cache");
@@ -149,6 +193,16 @@ public abstract class ChallengeEndpointServlet extends HttpServlet {
         body.put("attestation_challenge", challenge);
         body.put("expires_in", service.ttlSeconds());
         write(resp, 200, body);
+        Events.event(EVENTS, ISSUED).success().field("surface", this.surface()).emit();
+    }
+
+    /** The surface an event names: {@code AS} or {@code CAS}, the namespace's own name. */
+    String surface() {
+        return this.namespace.name();
+    }
+
+    private void refused(String reason) {
+        Events.event(EVENTS, REFUSED).failure(reason).field("surface", this.surface()).emit();
     }
 
     private void refuseMethod(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -156,6 +210,7 @@ public abstract class ChallengeEndpointServlet extends HttpServlet {
         write(resp, 405, Map.of(
                 "error", "invalid_request",
                 "error_description", "this challenge endpoint takes " + this.method + ", not " + req.getMethod()));
+        this.refused("method_not_allowed");
     }
 
     private static void write(HttpServletResponse resp, int status, Map<String, Object> body) throws IOException {
@@ -164,30 +219,6 @@ public abstract class ChallengeEndpointServlet extends HttpServlet {
         resp.setHeader("Cache-Control", "no-store");
         try (PrintWriter out = resp.getWriter()) {
             out.write(JsonUtil.toJson(body));
-        }
-    }
-
-    private static Integer parseInt(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
-        try {
-            return Integer.valueOf(raw.trim());
-        } catch (NumberFormatException e) {
-            log.warn((Object) ("Ignoring non-integer servlet parameter value: " + raw));
-            return null;
-        }
-    }
-
-    private static Long parseLong(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
-        try {
-            return Long.valueOf(raw.trim());
-        } catch (NumberFormatException e) {
-            log.warn((Object) ("Ignoring non-integer servlet parameter value: " + raw));
-            return null;
         }
     }
 }

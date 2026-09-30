@@ -4,7 +4,7 @@ area: rar-paz-plugin
 source: pr-review
 status: open
 plan_items: [S2b]
-prs: []
+prs: [81]
 recorded_in: 'plugins/rar-paz-plugin/README.md, Who the decision is about, the CIBA row'
 verify_by: >
   On the rig, send the backchannel authentication request to /as/bc-auth.ciba;x, /as/bc-auth%2Eciba and
@@ -19,3 +19,12 @@ notes: >
   empty and dot segments resolved; PrincipalResolverTest), so any spelling the container maps to
   /as/bc-auth.ciba reads as CIBA, and reading more paths as CIBA only lowers the label. Which spellings
   PingFederate itself accepts at that endpoint, and whether it serves CIBA at any other path, was not driven.
+
+  S4D1 drove the spellings on the rig on 2026-09-30 (pfai-p3-s4d1, PingFederate 13.1.3), authenticated with the
+  bridge assertion: /as/bc-auth.ciba, /as/bc-auth.ciba;x, /as/bc-auth%2Eciba, /as/./bc-auth.ciba and
+  /as/x/../bc-auth.ciba were served by the CIBA handler (200, auth_req_id); /as/bc-auth.ciba/, /as/BC-AUTH.ciba,
+  /as/bc-auth.CIBA, /as/bc-auth.ciba%3Bx, /as/other.ciba and /x/bc-auth.ciba were 404, and //as/bc-auth.ciba 400
+  "Ambiguous URI empty segment". With ClientAttestationAuth mapped over the exact /as/bc-auth.ciba, an attested
+  request to /as/bc-auth.ciba;x over the ceiling was refused by the filter (400 invalid_authorization_details): the
+  container maps the served spellings to the pattern. The principal_source the stub PDP recorded per spelling was not
+  read, which is what is left for this finding.

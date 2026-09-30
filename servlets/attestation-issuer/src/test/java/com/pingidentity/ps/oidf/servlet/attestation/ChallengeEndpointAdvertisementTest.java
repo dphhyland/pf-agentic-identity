@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
  * server's OP metadata in the Entity Configuration names {@code POST /federation/attestation-challenge}. The paths
  * are read off the servlets' {@code @WebServlet} mappings, so a moved servlet fails here rather than in a client.
  */
+@org.junit.jupiter.api.extension.ExtendWith(InMemoryStateAccepted.class)
 class ChallengeEndpointAdvertisementTest {
     private static final String ISSUER = "https://pf.example.com";
 

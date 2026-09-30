@@ -3,7 +3,11 @@
  */
 package com.pingidentity.ps.oidf.clientattestation;
 
+import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.platform.lifecycle.Lifecycle;
+import com.pingidentity.ps.oidf.platform.profile.AcceptedRisk;
+import com.pingidentity.ps.oidf.platform.profile.AcceptedRisks;
+import com.pingidentity.ps.oidf.platform.profile.ProfileRefusals;
 import com.pingidentity.ps.oidf.platform.redis.RedisClient;
 import com.pingidentity.ps.oidf.platform.redis.RedisConfig;
 import java.time.Clock;
@@ -32,6 +36,14 @@ import org.apache.commons.logging.LogFactory;
  * whose value is wrong by its catalogue entry; the refusal is logged once and every store accessor throws it, so
  * no surface silently falls back to per-node state. The client is registered with platform's {@link Lifecycle},
  * so the webapp's shutdown closes its pool.
+ *
+ * <p>In-memory state under the production profile (Phase 3 plan, decisions 9 and 15): every node keeps its own
+ * replay, challenge and evidence state, lost on restart and invisible to the other nodes, so a replayed proof or a
+ * challenge redeemed twice passes on a second node. {@link #requireSharedState} is how the component that would use
+ * a namespace's in-memory stores says so at start: with no Redis URL set, it needs the {@code in-memory-state}
+ * accepted risk ({@code OIDF_ACCEPTED_RISKS}), or {@link ProfileRefusals#refuse} refuses the component. The
+ * development profile allows it with a WARN. The challenge rate limit's counters are not state in this sense
+ * (decision 9): a per-node limit is weaker, not unsafe.
  */
 public final class AttestationSupport {
     private static final Log LOGGER = LogFactory.getLog(AttestationSupport.class);
@@ -46,8 +58,80 @@ public final class AttestationSupport {
     private static final Map<StoreNamespace, Long> CHALLENGE_TTLS = new EnumMap<>(StoreNamespace.class);
     private static final Map<StoreNamespace, Integer> CHALLENGE_MAX_ENTRIES = new EnumMap<>(StoreNamespace.class);
     private static int replayMaxEntries = AttestationReplayCache.DEFAULT_MAX_ENTRIES;
+    /** The accepted risks {@link #requireSharedState} reads: null for this process's ({@link AcceptedRisks#current()}). */
+    private static volatile AcceptedRisks risksForTests;
 
     private AttestationSupport() {
+    }
+
+    /**
+     * The S-9 component that would use {@code namespace}'s stores: the authorization server's token-endpoint check
+     * ({@link Startup#ATTESTATION_AUTH}) for {@link StoreNamespace#AS}, the attester ({@link Startup#ATTESTATION_ISSUER})
+     * for {@link StoreNamespace#CAS}, the federation endpoints ({@link Startup#FEDERATION}) for
+     * {@link StoreNamespace#FED_ENDPOINT}, and the operator API ({@link Startup#OPERATOR_API}) for
+     * {@link StoreNamespace#ADMIN_DPOP}.
+     */
+    public static String componentOf(StoreNamespace namespace) {
+        switch (namespace) {
+            case AS:
+                return Startup.ATTESTATION_AUTH;
+            case CAS:
+                return Startup.ATTESTATION_ISSUER;
+            case FED_ENDPOINT:
+                return Startup.FEDERATION;
+            default:
+                return Startup.OPERATOR_API;
+        }
+    }
+
+    /**
+     * What {@code namespace} keeps in memory when no Redis URL is set, as a refusal names it: the challenge store and
+     * the replay cache, and for {@link StoreNamespace#CAS} the evidence bindings too.
+     */
+    static String inMemoryStores(StoreNamespace namespace) {
+        switch (namespace) {
+            case AS:
+                return "the authorization server's attestation challenges and spent proof jtis (" + namespace.prefix() + ":*)";
+            case CAS:
+                return "the attester's challenges, spent proof jtis and evidence bindings (" + namespace.prefix() + ":*)";
+            default:
+                return "the spent assertion jtis of " + namespace.prefix() + ":*";
+        }
+    }
+
+    /**
+     * Called from the start function of a part that will use {@code namespace}'s stores. Nothing happens when a
+     * Redis URL is set (the stores are shared) or the {@code in-memory-state} risk is accepted. Otherwise the stores
+     * would be this node's memory, and {@link ProfileRefusals#refuse} decides: under production it refuses the
+     * namespace's component ({@link #componentOf}) and throws, so the part is {@code REFUSED} and every part of the
+     * component with it; under development it logs a WARN once and returns.
+     *
+     * @throws com.pingidentity.ps.oidf.platform.settings.ProfileRefused under production, with no Redis URL and the
+     *                                                                   risk not accepted
+     */
+    public static void requireSharedState(StoreNamespace namespace) {
+        AcceptedRisks risks = risksForTests;
+        requireSharedState(namespace, redisConfigured(), risks != null ? risks : AcceptedRisks.current());
+    }
+
+    /** {@link #requireSharedState(StoreNamespace)} with whether Redis is set and the accepted risks given. */
+    static void requireSharedState(StoreNamespace namespace, boolean redis, AcceptedRisks risks) {
+        if (redis || risks.accepts(AcceptedRisk.IN_MEMORY_STATE)) {
+            return;
+        }
+        AcceptedRisk risk = AcceptedRisk.IN_MEMORY_STATE;
+        ProfileRefusals.refuse(componentOf(namespace), inMemoryStores(namespace) + " would be kept in this node's memory,"
+                + " because " + RedisConfig.URL_SETTING + " is unset. The production profile allows that only with the risk '"
+                + risk.id() + "' accepted (" + risk.description() + "): set " + RedisConfig.URL_SETTING + ", or add " + risk.id()
+                + " to " + AcceptedRisks.SETTING + " on a standalone node; a cluster must use Redis");
+    }
+
+    /**
+     * Tests only: the accepted risks {@link #requireSharedState(StoreNamespace)} reads, in place of this process's;
+     * null goes back to the process's.
+     */
+    public static void acceptedRisksForTests(AcceptedRisks risks) {
+        risksForTests = risks;
     }
 
     /** The authorization server's challenge store ({@code oidf:as:challenge:*}). */
@@ -189,6 +273,7 @@ public final class AttestationSupport {
             CHALLENGE_TTLS.clear();
             CHALLENGE_MAX_ENTRIES.clear();
             replayMaxEntries = AttestationReplayCache.DEFAULT_MAX_ENTRIES;
+            risksForTests = null;
         }
     }
 

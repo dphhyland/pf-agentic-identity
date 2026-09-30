@@ -31,7 +31,9 @@ import java.util.Map;
  *
  * <p>A request with no {@code authorization_details} is not checked here. What PingFederate issues from details
  * stored at PAR or at the authorization endpoint is plan item S4d (Phase 3; the plan's "Found while designing"
- * item 3, F-0032).
+ * item 3, F-0032): the token-endpoint filter forwards, in place of the request's details, those granted by
+ * {@link Omission#INHERIT} ({@link #check(RarModels, String, String, Omission)}), so what PingFederate stores at PAR
+ * and at CIBA's backchannel endpoint is within the attestation's details.
  *
  * <p>Two names this repository writes into a request's details are taken off before the model is asked, because
  * they are bookkeeping, not authority, and the model refuses both as {@code forbidden}:
@@ -104,6 +106,22 @@ final class AuthorizationDetailsGate {
      */
     static List<Map<String, Object>> check(RarModels models, String requested, String attestationJwt)
             throws ClientAttestationException {
+        return check(models, requested, attestationJwt, Omission.STRICT);
+    }
+
+    /**
+     * As {@link #check(RarModels, String, String)}, with {@code omission} deciding what a field the attestation
+     * constrains and the request leaves out means. {@link Omission#STRICT} is the check above: the request's own
+     * details, which must be within the attestation's as sent. {@link Omission#INHERIT} grants
+     * {@link RarModels#authorize}{@code (request, attestation, INHERIT)}: each detail with the attestation's value
+     * for every constrained field it left out, within the attestation's details by the model's post-condition. Only
+     * a caller that forwards the granted details in place of the request's may ask for it - a request forwarded as
+     * sent and checked under {@code INHERIT} would reach the token without the field, wider than the attestation.
+     *
+     * @return under {@code INHERIT}, the granted details in the request's order, one per requested detail
+     */
+    static List<Map<String, Object>> check(RarModels models, String requested, String attestationJwt, Omission omission)
+            throws ClientAttestationException {
         List<Map<String, Object>> candidate;
         try {
             candidate = withoutMarkers(RarModels.parseDetails(requested));
@@ -118,6 +136,13 @@ final class AuthorizationDetailsGate {
             ceiling = models.validate(ceilingOf(attestationJwt), "attestation");
         } catch (RarModelException e) {
             throw new ClientAttestationException(ClientAttestationException.INVALID_CLIENT, CEILING_UNUSABLE, e);
+        }
+        if (omission == Omission.INHERIT) {
+            try {
+                return models.authorize(candidate, ceiling, Omission.INHERIT);
+            } catch (RarModelException e) {
+                throw refused(e);
+            }
         }
         boolean within;
         try {

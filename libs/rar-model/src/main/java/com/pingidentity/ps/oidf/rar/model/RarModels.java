@@ -4,6 +4,10 @@
 package com.pingidentity.ps.oidf.rar.model;
 
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
+import com.pingidentity.ps.oidf.platform.settings.Catalogue;
+import com.pingidentity.ps.oidf.platform.settings.SettingRefused;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -57,9 +61,9 @@ public final class RarModels {
     /** The models document inline. Setting both this and the file is refused. */
     public static final String ENV_MODELS = "OIDF_RAR_MODELS";
     /**
-     * The deployment profile, read through platform's {@code DeploymentProfile} (plan item PR-1): unset means
-     * production, and only the exact value {@value #DEVELOPMENT_PROFILE}, trimmed, enables the common-fields
-     * fallback - stricter than the profile rule, which takes any case (finding F-0160).
+     * The deployment profile, read through platform's {@code DeploymentProfile} as every other module reads it (plan
+     * items PR-1 and PR-2): unset means production, and {@value #DEVELOPMENT_PROFILE}, trimmed, in any case, enables
+     * the common-fields fallback. Before 0.6.0 only the exact lower-case value did (finding F-0160).
      */
     public static final String ENV_PROFILE = DeploymentProfile.SETTING;
     /** The profile value that enables the common-fields fallback. */
@@ -128,10 +132,20 @@ public final class RarModels {
     /**
      * The models the environment describes: {@value #ENV_MODELS_FILE} or {@value #ENV_MODELS} (not
      * both; either blank counts as unset), with the fallback on only when {@value #ENV_PROFILE} is
-     * {@value #DEVELOPMENT_PROFILE}.
+     * {@value #DEVELOPMENT_PROFILE}. Both are read through the {@value #SETTINGS} settings catalogue (plan item ST-5): a
+     * value its entry refuses - a file name that is not a path, an inline document that is not a JSON object - is
+     * {@code MODEL_INVALID}, naming the setting, as a document the schema refuses is.
      */
     public static RarModels fromEnvironment(Map<String, String> env) throws RarModelException {
-        String file = blankToNull(env.get(ENV_MODELS_FILE));
+        Settings settings = Settings.of(CatalogueHolder.CATALOGUE, Sources.of(env::get, name -> null, null));
+        Path file;
+        try {
+            file = settings.path(ENV_MODELS_FILE);
+            settings.jsonObject(ENV_MODELS);
+        } catch (SettingRefused e) {
+            throw RarModelException.modelInvalid(e.getMessage());
+        }
+        // The inline document as written: the schema parses it (the catalogue's reading has only checked its shape).
         String inline = blankToNull(env.get(ENV_MODELS));
         if (file != null && inline != null) {
             throw RarModelException.modelInvalid(ENV_MODELS_FILE + " and " + ENV_MODELS + " are both set; set one");
@@ -139,13 +153,21 @@ public final class RarModels {
         String json = inline;
         if (file != null) {
             try {
-                json = Files.readString(Path.of(file), StandardCharsets.UTF_8);
+                json = Files.readString(file, StandardCharsets.UTF_8);
             } catch (IOException | RuntimeException e) {
                 throw RarModelException.modelInvalid(ENV_MODELS_FILE + " could not be read: " + e.getMessage());
             }
         }
-        boolean development = DeploymentProfile.isExactlyDevelopment(env::get);
+        boolean development = DeploymentProfile.of(env::get).isDevelopment();
         return load(json, development);
+    }
+
+    /** The settings catalogue this class's environment variables are read through. */
+    public static final String SETTINGS = "rar-models";
+
+    /** The catalogue, loaded once from this class's loader (the plugin's relocated copy loads the one in its jar). */
+    private static final class CatalogueHolder {
+        static final Catalogue CATALOGUE = Catalogue.load(RarModels.class.getClassLoader(), SETTINGS);
     }
 
     /**

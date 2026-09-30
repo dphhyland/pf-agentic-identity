@@ -3,6 +3,8 @@
  */
 package com.pingidentity.ps.oidf.servlet.ssf;
 
+import com.pingidentity.ps.oidf.platform.settings.SettingRefused;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
 import com.pingidentity.ps.oidf.ssf.SsfEventBridge;
 import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.io.IOException;
@@ -162,12 +164,30 @@ public final class LogoutEventFilter implements Filter {
 
     static final String ALLOW_SUB_PARAM_ENV = "OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM";
 
-    private static boolean allowSubParameter() {
-        String value = System.getProperty("oidf.ssf.logout.allow.sub.param");
-        if (value == null || value.isBlank()) {
-            value = System.getenv(ALLOW_SUB_PARAM_ENV);
+    /** The filter's catalogue, {@code META-INF/oidf-settings/ssf-logout-signal.json}. */
+    static final String CATALOGUE = "ssf-logout-signal";
+
+    /** Its settings, read from this process (the system property, then the environment); loaded on the first logout. */
+    private static final class Holder {
+        static final Settings SETTINGS = Settings.load(LogoutEventFilter.class.getClassLoader(), CATALOGUE);
+    }
+
+    /**
+     * Whether the unverified {@code sub} parameter is taken ({@value #ALLOW_SUB_PARAM_ENV}, strict: {@code true} or
+     * {@code false}; the development profile reads a legacy spelling as {@code false} with a warning). A value that
+     * does not parse is an ERROR and reads as {@code false}: the logout proceeds and no one can aim a signal with it.
+     */
+    static boolean allowSubParameter() {
+        return allowSubParameter(Holder.SETTINGS);
+    }
+
+    static boolean allowSubParameter(Settings settings) {
+        try {
+            return settings.bool(ALLOW_SUB_PARAM_ENV);
+        } catch (SettingRefused e) {
+            LOGGER.error((Object) ("SSF logout signal: " + e.getMessage() + "; the sub parameter is not taken"));
+            return false;
         }
-        return Boolean.parseBoolean(value);
     }
 
     /** How a logout token is turned into a subject. Separated so it can be tested without PF. */

@@ -42,6 +42,7 @@ import org.junit.jupiter.params.provider.ValueSource;
  * accepted by the other". The path is this deployment's, discovered from {@code challenge_endpoint} (CAS §5.1).
  * Refusing every other method with 405 is this repository's decision (plan item S4b), and carries no tag.
  */
+@org.junit.jupiter.api.extension.ExtendWith(InMemoryStateAccepted.class)
 class AttestationIssuanceChallengeServletTest {
 
     private static final class Resp {

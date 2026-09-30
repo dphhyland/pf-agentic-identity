@@ -1,10 +1,12 @@
 package com.pingidentity.ps.oidf.issuer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwk.JsonWebKeySet;
@@ -299,5 +301,50 @@ class AttestationIssuanceConfigTest {
         } finally {
             reset.invoke(null, (Object) null);
         }
+    }
+    // ---- each property through its catalogue entry (plan item ST-5) -------------------------------------------------
+
+    @Test
+    void eachPropertyIsParsedAsItsCatalogueEntrySaysAndARefusalNamesThePropertyNeverTheValue() throws Exception {
+        Map<String, String> props = baseProps();
+        props.put(AttestationIssuanceConfig.P_TTL, " 60 ");
+        props.put(AttestationIssuanceConfig.P_EVIDENCE, "SPIFFE-JWT");
+        AttestationIssuanceConfig config = AttestationIssuanceConfig.fromProperties(props);
+        assertEquals(60L, config.ttlSeconds(), "a padded number is trimmed");
+        assertEquals(AttestationIssuanceConfig.EVIDENCE_SPIFFE_JWT, config.evidenceType(), "a choice in any case, spelt as the entry spells it");
+
+        Map<String, String[]> refused = Map.of(
+                AttestationIssuanceConfig.P_TTL, new String[] {"sixty", "a whole number of seconds from 1 to 64800"},
+                AttestationIssuanceConfig.P_EVIDENCE, new String[] {"tpm-quote", "one of spiffe-jwt, "},
+                AttestationIssuanceConfig.P_BUNDLE_URL, new String[] {"ftp://bundles.example/b.json", "an http or https URL"},
+                AttestationIssuanceConfig.P_BUNDLE, new String[] {"[1]", "a JSON object"});
+        for (Map.Entry<String, String[]> entry : refused.entrySet()) {
+            Map<String, String> bad = baseProps();
+            bad.put(entry.getKey(), entry.getValue()[0]);
+            IssuanceException e = assertThrows(IssuanceException.class, () -> AttestationIssuanceConfig.fromProperties(bad), entry.getKey());
+            assertEquals("invalid_client", e.error());
+            assertTrue(e.getMessage().startsWith(entry.getKey() + " is not " + entry.getValue()[1]), e.getMessage());
+            assertFalse(e.getMessage().contains(entry.getValue()[0]), "never the value: " + e.getMessage());
+        }
+        Map<String, String> url = baseProps();
+        url.put(AttestationIssuanceConfig.P_BUNDLE_URL, " https://bundles.example/b.json ");
+        assertEquals("https://bundles.example/b.json", AttestationIssuanceConfig.fromProperties(url).bundleUrl());
+    }
+
+    @Test
+    void theEvidenceChoicesAreTheValidatorsOwnIds() throws Exception {
+        try (java.io.InputStream in = AttestationIssuanceConfigTest.class
+                .getResourceAsStream("/META-INF/oidf-settings/" + AttestationIssuanceConfig.SETTINGS + ".json")) {
+            Map<String, Object> doc = org.jose4j.json.JsonUtil.parseJson(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            for (Object entry : (List<?>) doc.get("settings")) {
+                Map<?, ?> setting = (Map<?, ?>) entry;
+                if (AttestationIssuanceConfig.P_EVIDENCE.equals(setting.get("name"))) {
+                    assertEquals(new java.util.TreeSet<>(InstanceAttestationValidators.defaults().ids()),
+                            new java.util.TreeSet<>((List<?>) setting.get("choices")));
+                    return;
+                }
+            }
+        }
+        throw new AssertionError(AttestationIssuanceConfig.P_EVIDENCE + " is not catalogued");
     }
 }
