@@ -66,6 +66,8 @@ class SsfConfigurationTest {
             p.put("defaultSubjects", bad);
             assertThrows(SettingRefused.class, () -> SsfConfiguration.fromServletConfig(servletConfig(p)), bad);
         }
+        assertThrows(IllegalArgumentException.class, () -> SsfConfiguration.parseDefaultSubjects("all"),
+                "the builder takes SSF's spelling only; the catalogue's choice normalises it first");
         assertEquals("NONE", SsfConfiguration.parseDefaultSubjects(null));
         assertEquals("NONE", SsfConfiguration.parseDefaultSubjects("  "));
     }

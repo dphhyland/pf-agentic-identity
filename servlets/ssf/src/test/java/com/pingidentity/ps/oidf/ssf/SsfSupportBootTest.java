@@ -235,6 +235,28 @@ class SsfSupportBootTest {
         assertTrue(SsfSupport.receiverService() != null);
     }
 
+    /** The receiver's optional parts: the instance registry needs the ldm store, and a poll URL builds the poll client. */
+    @Test
+    void theReceiversPollClientIsBuiltAndTheRegistryNeedsTheLdmStore() {
+        SsfConfiguration receiver = new SsfConfiguration.Builder().issuer("https://op.example.com")
+                .receiverExpectedIssuer("https://transmitter.example.com").receiverAudience("https://op.example.com")
+                .receiverEndpointAuthToken("t0ken").receiverInstanceRegistry(true)
+                .receiverPollUrl("https://transmitter.example.com/ssf/poll").receiverPollIntervalSeconds(3600).build();
+
+        assertTrue(SsfSupport.configure(receiver, true));
+        SsfSupport.startReceiverPolling();
+
+        assertTrue(SsfSupport.receiverService() != null, "the receiver runs; the registry handler is refused on the in-memory store");
+    }
+
+    @Test
+    void aTransmitterWithNoReceiverConfiguredBuildsNone() {
+        SsfSupport.configure(new SsfConfiguration.Builder().issuer("https://op.example.com").build(), false);
+
+        assertNull(SsfSupport.receiverService());
+        SsfSupport.startReceiverPolling(); // nothing to poll
+    }
+
     /** A test's authenticator wins over the one configure built, and goes with a reset. */
     @Test
     void anInstalledAuthenticatorWinsOverTheBuiltOne() {

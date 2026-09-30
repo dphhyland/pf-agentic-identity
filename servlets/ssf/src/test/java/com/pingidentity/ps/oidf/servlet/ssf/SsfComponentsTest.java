@@ -349,10 +349,57 @@ class SsfComponentsTest {
         assertTrue(SsfComponents.dependency(new java.io.UncheckedIOException(new IOException("down"))));
         assertTrue(SsfComponents.dependency(new IllegalStateException(new java.util.concurrent.TimeoutException())));
         assertTrue(SsfComponents.dependency(new IllegalStateException(new NoClassDefFoundError("org/postgresql/Driver"))));
+        assertTrue(SsfComponents.dependency(new IOException("down")));
         assertFalse(SsfComponents.dependency(new IllegalArgumentException("h2")));
+        Throwable deep = new SQLException("at the bottom");
+        for (int i = 0; i < 20; i++) {
+            deep = new IllegalStateException("level " + i, deep);
+        }
+        assertFalse(SsfComponents.dependency(deep), "sixteen causes are followed, no more");
         RuntimeException loop = new RuntimeException("a");
         loop.initCause(new RuntimeException("b", loop));
         assertFalse(SsfComponents.dependency(loop), "a loop is cut");
+    }
+
+    @Test
+    void noIssuerInProductionIsDisabledWithoutALine() {
+        ComponentParts.Part part = transmitter(Map.of(), context(DeploymentProfile.PRODUCTION, config -> new InMemorySsfStore()));
+
+        assertEquals(ComponentState.DISABLED, part.status().state());
+        assertEquals(List.of(), this.errors);
+    }
+
+    /** PR-5's read-time refusal: a governed value from an init-param, which the start-up sweep cannot see. */
+    @Test
+    void aGovernedInitParamIsRefusedInProduction() {
+        profile(DeploymentProfile.PRODUCTION);
+        ComponentParts.Part part = this.parts.begin(Startup.SSF, "SsfConfigurationServlet");
+        Settings settings = Settings.of(Catalogue.load(SsfComponentsTest.class.getClassLoader(), "ssf-transmitter"),
+                Sources.of(ISSUER::get, name -> null, Map.of("receiverInsecureTls", "true")::get));
+        SsfComponents.Context context = context(DeploymentProfile.PRODUCTION,
+                AcceptedRisks.parse("in-memory-state", LocalDate.now(ZoneOffset.UTC)), config -> new InMemorySsfStore());
+
+        part.start(() -> SsfComponents.transmitter(part, settings, context));
+
+        assertEquals(ComponentState.REFUSED, part.status().state());
+        assertTrue(part.status().reason().contains("OIDF_SSF_RECEIVER_INSECURE_TLS"), part.status().reason());
+    }
+
+    /** A data store the factory finds is not PostgreSQL, under production: refused, not retried. */
+    @Test
+    void aStoreTheFactoryRefusesIsRefused() {
+        profile(DeploymentProfile.PRODUCTION);
+        Map<String, String> env = new HashMap<>(ISSUER);
+        env.put("OIDF_SSF_DATA_STORE_ID", "pf-ds");
+
+        ComponentParts.Part part = transmitter(env, context(DeploymentProfile.PRODUCTION, config -> {
+            ProfileRefusals.refuse(Startup.SSF, "the SSF store's database (PingFederate data store 'pf-ds') is MySQL, not PostgreSQL");
+            return new InMemorySsfStore();
+        }));
+
+        assertEquals(ComponentState.REFUSED, part.status().state());
+        assertTrue(this.retries.isEmpty());
+        assertFalse(SsfSupport.isConfigured());
     }
 
     // ---- the receiver ----
@@ -451,8 +498,16 @@ class SsfComponentsTest {
     }
 
     @Test
-    void theReceiverMayRunUnlessItsSwitchSaysNo() {
+    void theReceiverMayRunUnlessItsSwitchSaysNoOrProductionRefusesIt() {
         assertTrue(SsfComponents.receiverAllowed(this.parts));
+        this.switches.put(Startup.SSF_RECEIVER, ComponentSwitches.Kind.ENABLED);
+        assertTrue(SsfComponents.receiverAllowed(this.parts));
+        this.switches.remove(Startup.SSF_RECEIVER);
+        ProfileRefusals.publish(new ProfileAudit.Result(DeploymentProfile.PRODUCTION, List.of(new ProfileAudit.Violation(
+                ProfileAudit.Kind.FORBIDDEN, "OIDF_SSF_RECEIVER_INSECURE_TLS", "OIDF_SSF_RECEIVER_INSECURE_TLS=true", "unset it",
+                List.of(Startup.SSF_RECEIVER))), List.of()));
+        assertFalse(SsfComponents.receiverAllowed(this.parts), "refused by the production profile");
+        ProfileRefusals.resetForTests();
         this.switches.put(Startup.SSF_RECEIVER, ComponentSwitches.Kind.DISABLED);
         assertFalse(SsfComponents.receiverAllowed(this.parts));
         this.switches.put(Startup.SSF_RECEIVER, ComponentSwitches.Kind.FAILED_CONFIG);
