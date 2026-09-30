@@ -4,7 +4,7 @@ area: ssf
 source: design
 status: open
 plan_items: [PR-2, ST-5]
-prs: []
+prs: [82]
 recorded_in: servlets/ssf/README.md, Start-up; docs/releases/unreleased/ST5C.md
 verify_by: >
   Boot a PingFederate built from 0.6.0 with OIDF_DEPLOYMENT_PROFILE=production, an encrypted archive (data.zip.age),

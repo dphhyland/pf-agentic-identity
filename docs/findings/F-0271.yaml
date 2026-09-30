@@ -5,7 +5,7 @@ area: platform, ssf
 source: design
 status: closed
 plan_items: [ST-5]
-prs: [72]
+prs: [72, 82]
 verification: >
   2026-09-30, package ST5C. The SSF servlets start through their parts, so the switches apply: on the rig (slot
   3, PingFederate 13.1.3.0, the branch at 2d952243) OIDF_SSF_ENABLED=false gave SSF and SSF_RECEIVER DISABLED and 404 on

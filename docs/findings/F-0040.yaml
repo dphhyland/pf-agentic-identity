@@ -5,7 +5,7 @@ area: ssf
 source: design
 status: closed
 plan_items: [S-9, S9a, ST-5]
-prs: []
+prs: [82]
 verification: >
   2026-09-30, package ST5C (branch prod/p3-ssf-settings). SsfConfigurationServlet.init hands the transmitter's
   start to Part.start, which never throws; SsfSupport builds the whole state (configuration, store, minter, services,

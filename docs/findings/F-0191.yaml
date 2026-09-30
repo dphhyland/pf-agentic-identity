@@ -5,7 +5,7 @@ area: ssf, platform
 source: design
 status: closed
 plan_items: [S9a, ST-5]
-prs: [53]
+prs: [53, 82]
 verification: >
   2026-09-30, package ST5C. OIDF_SSF_ENABLED applies (the part's switch), and a setting that does not parse is
   FAILED_CONFIG with an ERROR naming it, never "not configured": SsfComponentsTest.aValueThatDoesNotParseIsAFailedConfigurationNamingTheSetting,

@@ -4,7 +4,7 @@ area: platform
 source: design
 status: closed
 plan_items: [S9a]
-prs: [72]
+prs: [72, 82]
 recorded_in: docs/operator/components.md, What a component does when it fails; libs/platform/README.md, component
 verify_by: >
   Boot the rig with a component whose start fails on a dependency that comes back - AUTO_REGISTRATION with the

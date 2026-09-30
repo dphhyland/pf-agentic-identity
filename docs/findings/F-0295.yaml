@@ -5,7 +5,7 @@ area: ssf, platform
 source: design
 status: closed
 plan_items: [PR-5, ST-5]
-prs: [77]
+prs: [77, 82]
 verification: >
   2026-09-30, package ST5C. SsfConfigurationServlet and SsfReceiverServlet start through Part.start, which runs
   nothing for a part Startup.begin refused, and every SSF servlet's request methods start with a gate (the receiver's

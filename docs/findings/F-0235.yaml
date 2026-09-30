@@ -5,7 +5,7 @@ area: ssf, platform
 source: design
 status: closed
 plan_items: [ST-5, ST-3]
-prs: [63]
+prs: [63, 82]
 verification: >
   2026-09-30, package ST5C. ssf-transmitter.json names all three sources of each of its 43 entries - the
   init-param, the system property oidf.ssf.<init-param> (the 42 camelCase ones included, which PR5's format allows)

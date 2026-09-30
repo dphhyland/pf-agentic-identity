@@ -5,7 +5,7 @@ area: ssf
 source: design
 status: closed
 plan_items: [ST-5]
-prs: [63]
+prs: [63, 82]
 verification: >
   2026-09-30, package ST5C. Every SSF setting is read through its catalogue entry: the seven switches are true or
   false (the development profile reads a legacy spelling as false with a WARN; production refuses it), the numbers
