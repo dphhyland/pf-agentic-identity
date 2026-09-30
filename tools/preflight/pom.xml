@@ -249,4 +249,14 @@
             </plugin>
         </plugins>
     </build>
+
+    <!-- Published to the monorepo's own package registry, as every module is; the release asset is the same jar. -->
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/dphhyland/pf-agentic-identity</url>
+        </repository>
+    </distributionManagement>
+
 </project>

@@ -336,6 +336,33 @@ jobs:
             servlets/attestation-issuer/target/attestation-issuer-*.jar
             servlets/ssf/target/ssf-*.jar
             services/gm-api/servlet/target/gm-api.war
+      - name: oidf-preflight.jar on java 17, java 21 and the PingFederate image's java
+        # The reactor build packed tools/preflight/target/oidf-preflight.jar, the release asset an operator runs before
+        # an upgrade (docs/operator/preflight.md), and its PreflightJarCheck ran it on this job's java. Here it runs on
+        # that java, on the runner image's Temurin 21 and on the java in PingFederate's image (pulled above) against
+        # the two fixtures: the clean file must exit 0, and the file with one line of each violation kind must exit 1
+        # with 8 lines refusing a component.
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          : "${JAVA_HOME_21_X64:?the runner image has no Temurin 21}"
+          check() {  # check LABEL ROOT COMMAND...: COMMAND runs java; ROOT is tools/preflight as COMMAND sees it.
+            label="$1" root="$2"; shift 2
+            status=0; "$@" -jar "$root/target/oidf-preflight.jar" --env-file "$root/src/test/resources/fixtures/clean.env" \
+              > "$RUNNER_TEMP/clean.out" 2>&1 || status=$?
+            cat "$RUNNER_TEMP/clean.out"
+            [ "$status" -eq 0 ] || fail "$label: the clean fixture exited $status, not 0"
+            status=0; "$@" -jar "$root/target/oidf-preflight.jar" --env-file "$root/src/test/resources/fixtures/violations.env" \
+              > "$RUNNER_TEMP/violations.out" 2>&1 || status=$?
+            cat "$RUNNER_TEMP/violations.out"
+            [ "$status" -eq 1 ] || fail "$label: the violations fixture exited $status, not 1"
+            refusing="$(grep -c '^REFUSED: ' "$RUNNER_TEMP/violations.out" || true)"
+            [ "$refusing" -eq 8 ] || fail "$label: the violations fixture printed $refusing REFUSED lines, not 8"
+            echo "$label: clean exit 0, violations exit 1 with $refusing REFUSED lines"
+          }
+          check "java 17 ($JAVA_HOME)" tools/preflight "$JAVA_HOME/bin/java"
+          check "java 21 ($JAVA_HOME_21_X64)" tools/preflight "$JAVA_HOME_21_X64/bin/java"
+          check "PingFederate's java (${PF_IMAGE})" /w docker run --rm -v "$PWD/tools/preflight:/w:ro" \
+            --entrypoint /opt/java/bin/java "${PF_IMAGE}@${PF_IMAGE_DIGEST}"
 
   # The PingFederate image (plan item R-CI6, part of F-0006): the Dockerfile's capability target - the image with no
   # configuration archive, which R-I3 (Phase 3) makes the image this repository ships - built for both staging profiles, its entrypoint
