@@ -142,15 +142,18 @@ class RegistrationCoordinatorTest {
     }
 
     @Test
-    void aRegistrationThatWaitedPastItsDeadlineIsTurnedAwayBusy() {
+    void aRegistrationThatWaitedToOrPastItsDeadlineIsTurnedAwayBusy() {
         AtomicLong now = new AtomicLong();
         RegistrationCoordinator coordinator = new RegistrationCoordinator(8, 2_000L, resolution(), Duration.ofSeconds(25), now::get);
-        now.addAndGet(Duration.ofSeconds(25).toNanos());
+        for (long waited : new long[] {25, 26}) {
+            now.set(Duration.ofSeconds(waited).toNanos());
 
-        RegistrationRejectedException e = assertThrows(RegistrationRejectedException.class, () -> coordinator.budget(0L));
+            RegistrationRejectedException e = assertThrows(RegistrationRejectedException.class, () -> coordinator.budget(0L));
 
-        assertEquals(RegistrationRejectedException.Kind.BUSY, e.kind());
-        assertEquals(503, e.status());
+            assertEquals(RegistrationRejectedException.Kind.BUSY, e.kind());
+            assertEquals(503, e.status());
+            assertTrue(e.getMessage().contains("deadline"), e.getMessage());
+        }
     }
 
     @Test

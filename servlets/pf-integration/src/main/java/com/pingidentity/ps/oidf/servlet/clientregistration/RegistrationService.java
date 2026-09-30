@@ -612,18 +612,22 @@ final class RegistrationService {
      * get a fresh resolution each time.
      */
     static String chainKey(String kind, List<String> chain, List<String> peerChain) {
-        try {
-            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
-            digest.update((kind + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            for (List<String> part : List.of(chain, peerChain)) {
-                digest.update((part.size() + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                for (String statement : part) {
-                    byte[] bytes = statement.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-                    digest.update((bytes.length + ":").getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                    digest.update(bytes);
-                }
+        java.security.MessageDigest digest = sha256();
+        digest.update((kind + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        for (List<String> part : List.of(chain, peerChain)) {
+            digest.update((part.size() + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            for (String statement : part) {
+                byte[] bytes = statement.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                digest.update((bytes.length + ":").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                digest.update(bytes);
             }
-            return java.util.HexFormat.of().formatHex(digest.digest());
+        }
+        return java.util.HexFormat.of().formatHex(digest.digest());
+    }
+
+    private static java.security.MessageDigest sha256() {
+        try {
+            return java.security.MessageDigest.getInstance("SHA-256");
         } catch (java.security.NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is unavailable", e);
         }

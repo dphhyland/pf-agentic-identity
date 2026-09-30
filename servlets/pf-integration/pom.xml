@@ -141,7 +141,7 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.disableExpired(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.renewedRecently(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.recentFailure(*</include>
-                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.failureKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.chainKey(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.presentsChange(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.predatesRegistration(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.entityConfiguration(*</include>
@@ -191,6 +191,17 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.bypassApprovalPage(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.strings(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationCoordinator.register(*</include>
+                                        <!-- S5c: explicit registration bounded as automatic is - the budget each registration spends, the failure
+                                             memory's keys, and the registration body's cap. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationCoordinator.budget(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.explicitChainKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.hintKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.remember(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.budgetSpent(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.PresentedMarks.budgetSpent(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.OpenIdRegistrationServlet.readRequestBody(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.OpenIdRegistrationServlet.maxBodyBytes(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.OpenIdRegistrationServlet.tooLarge(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.FrontChannel.precheck(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.FrontChannel.entityType(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.FrontChannel.beforeStore(*</include>
