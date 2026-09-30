@@ -49,7 +49,8 @@ class LoggingUtilAuditWriterTest {
 
     private static Event revoked() {
         return Event.builder("federation", "federation.hosted_entity.revoked").failure("revoked")
-                .subject("https://pf.example/federation/agents/a").role("TA").requestJti("j-1").audit().build();
+                .subject("https://pf.example/federation/agents/a").partner("https://pf.example").role("TA").requestJti("j-1")
+                .audit().build();
     }
 
     @BeforeAll
@@ -90,7 +91,7 @@ class LoggingUtilAuditWriterTest {
         assertEquals("TA", record.get("role"));
         assertEquals("tid:sxuK51AA1JLzKJqXBYKcmz3Eax4", record.get("trackingid"), "our line sits beside PingFederate's");
         assertEquals("vNfglCSjEdXqJn6k29yCj21Fh", record.get("transactionid"));
-        assertNull(record.get("connectionid"), "PingFederate's client is not our record's partner");
+        assertEquals("https://pf.example", record.get("connectionid"), "our partner, not PingFederate's client");
         assertNull(record.get("granttype"));
         assertNull(record.get("requeststarttime"));
     }
@@ -126,6 +127,7 @@ class LoggingUtilAuditWriterTest {
 
         assertEquals("federation.key.retired", SdkAuditLoggerForTests.LAST_RECORD.get("event"));
         assertNull(SdkAuditLoggerForTests.LAST_RECORD.get("ip"));
+        assertNull(SdkAuditLoggerForTests.LAST_RECORD.get("connectionid"), "an event with no partner names none");
         assertTrue(ThreadContext.isEmpty(), "as the SDK's cleanup left it");
     }
 }
