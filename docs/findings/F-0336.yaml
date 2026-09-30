@@ -5,7 +5,7 @@ area: attestation-issuer
 source: design
 status: open
 plan_items: [O-2]
-prs: []
+prs: [80]
 verification: ''
 target_release: 0.6.0
 notes: >

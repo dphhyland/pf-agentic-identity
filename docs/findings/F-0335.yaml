@@ -5,7 +5,7 @@ area: pf-integration, client-attestation
 source: design
 status: open
 plan_items: [PR-2]
-prs: []
+prs: [80]
 verification: ''
 target_release: 0.6.0
 notes: >

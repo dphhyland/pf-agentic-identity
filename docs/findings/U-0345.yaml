@@ -4,7 +4,7 @@ area: client-attestation, attestation-issuer
 source: design
 status: open
 plan_items: [PR-2]
-prs: []
+prs: [80]
 recorded_in: docs/releases/unreleased/ST5A.md, Notes
 verify_by: >
   On a rig built from this repository with OIDF_DEPLOYMENT_PROFILE unset, OIDF_REDIS_URL unset, attestation
