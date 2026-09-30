@@ -313,7 +313,7 @@ class PdpDecisionsTest {
     @Test
     void theFirstAskOfARequestSendsEveryDetailInOneCallAndTheMemoAnswersTheRest() throws Exception {
         Recording transport = new Recording().answer(new HttpTransport.Response(200, decisions(
-                "{\"decision\":true,\"context\":{\"access\":{\"limits\":\"a\"}}}",
+                "{\"decision\":true,\"context\":{\"sales_regions\":[\"EMEA\"]}}",
                 "{\"decision\":false}",
                 "{\"decision\":true}")));
         PdpDecisions decisions = new PdpDecisions(authzen(transport, "https://pdp.example/access/v1/evaluations"), null, "", MEMO);
@@ -330,7 +330,7 @@ class PdpDecisionsTest {
         long pdpBefore = PdpMetrics.answers(PdpMetrics.SOURCE_PDP);
         DecisionResponse first = decisions.decide(request, a, all);
         assertTrue(first.isPermit());
-        assertEquals("access", first.getStatements().get(0).getName());
+        assertEquals("sales_regions", first.getStatements().get(0).getName(), "a member sales_agent's model declares");
         assertFalse(decisions.decide(request, b, all).isPermit());
         assertTrue(decisions.decide(request, c, all).isPermit());
         assertTrue(decisions.decide(request, a, all).isPermit());

@@ -140,6 +140,16 @@ class ProcessorConfigurationTest {
         } finally {
             pdp.stop(0);
         }
+        // F-0231: the catalogue records it as a removed plugin field, so the scan and the generated page show it, and the
+        // processor still ignores a stored value rather than refusing it - a 0.3.0 archive imports and decides, in
+        // production as in development.
+        com.pingidentity.ps.oidf.platform.settings.Catalogue catalogue = com.pingidentity.ps.oidf.platform.settings.Catalogue
+                .load(ProcessorConfigurationTest.class.getClassLoader(), ProfileRules.CATALOGUE);
+        assertEquals(List.of(new com.pingidentity.ps.oidf.platform.settings.Removed(AttestationAwareRarProcessor.DENY_ON_NON_PERMIT_REMOVED,
+                com.pingidentity.ps.oidf.platform.settings.EntryKind.PLUGIN_FIELD, null, "0.4.0")), catalogue.removed());
+        AttestationAwareRarProcessor imported = new AttestationAwareRarProcessor();
+        imported.configure(stored("PDP URL", PDP_URL, AttestationAwareRarProcessor.DENY_ON_NON_PERMIT_REMOVED, "false"), "production");
+        assertNotNull(imported.decisions(), "a stored value under the removed name is ignored, never refused");
     }
 
     /** Through configure and enrich, as PingFederate calls them: a PDP's DENY is refused with every switch missing. */
@@ -179,8 +189,9 @@ class ProcessorConfigurationTest {
         } finally {
             pdp.stop(0);
         }
-        AttestationAwareRarProcessor warned = new AttestationAwareRarProcessor();
-        warned.configure(stored("PDP URL", PDP_URL, "Trust a client-asserted principal", "true"), "production");
+        IllegalStateException refused = assertThrows(IllegalStateException.class, () -> new AttestationAwareRarProcessor()
+                .configure(stored("PDP URL", PDP_URL, "Trust a client-asserted principal", "true"), "production"));
+        assertTrue(refused.getMessage().contains("Trust a client-asserted principal"), refused.getMessage());
     }
 
     // ---- the PDP URL: https, or development ------------------------------------------------------------
@@ -296,8 +307,9 @@ class ProcessorConfigurationTest {
     @Test
     void configureTrustsAnyCertificateOnlyInDevelopment() {
         AttestationAwareRarProcessor production = new AttestationAwareRarProcessor();
-        production.configure(stored("PDP URL", PDP_URL, "Skip TLS verification (dev only)", "true"), "production");
-        assertEquals(PdpTls.JVM_DEFAULT, production.pdpTransport().tls().mode(), "production checks the certificate");
+        assertThrows(IllegalStateException.class, () -> production.configure(
+                stored("PDP URL", PDP_URL, "Skip TLS verification (dev only)", "true"), "production"), "production refuses it");
+        assertNull(production.pdpTransport(), "and builds no transport at all");
 
         AttestationAwareRarProcessor development = new AttestationAwareRarProcessor();
         development.configure(stored("PDP URL", PDP_URL, "Skip TLS verification (dev only)", "true"), "development");
@@ -330,33 +342,6 @@ class ProcessorConfigurationTest {
             governance.configure(stored("PDP URL", pdp.url("/decide"), "Fail open on engine error", "true"), "development");
             assertThrows(AuthorizationDetailProcessingException.class, () -> governance.enrich(payment(), context(), Map.of()));
         }
-    }
-
-    /** Each development-only switch left on in production is named at configure, once, at WARNING. */
-    @Test
-    void configureSaysWhichSwitchesItIgnores() {
-        java.util.List<java.util.logging.LogRecord> records = new java.util.ArrayList<>();
-        java.util.logging.Handler capture = new java.util.logging.Handler() {
-            @Override public void publish(java.util.logging.LogRecord record) { records.add(record); }
-            @Override public void flush() { }
-            @Override public void close() { }
-        };
-        java.util.logging.Logger log = java.util.logging.Logger.getLogger(AttestationAwareRarProcessor.class.getName());
-        log.addHandler(capture);
-        try {
-            new AttestationAwareRarProcessor().configure(stored("PDP URL", PDP_URL,
-                    "Trust a client-asserted principal", "true", "Skip TLS verification (dev only)", "true"), "production");
-            new AttestationAwareRarProcessor().configure(stored("PDP URL", PDP_URL,
-                    "Trust a client-asserted principal", "true", "Skip TLS verification (dev only)", "true"), "development");
-        } finally {
-            log.removeHandler(capture);
-        }
-        List<String> warnings = records.stream().filter(r -> r.getLevel() == java.util.logging.Level.WARNING)
-                .map(java.util.logging.LogRecord::getMessage).toList();
-        assertEquals(2, warnings.size(), warnings.toString());
-        assertTrue(warnings.get(0).contains("Trust a client-asserted principal"), warnings.get(0));
-        assertTrue(warnings.get(1).contains("Skip TLS verification") && warnings.get(1).contains("certificate is checked"),
-                warnings.get(1));
     }
 
     @Test

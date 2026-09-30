@@ -195,7 +195,20 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
 
     /** {@link #configure(Configuration)} under a named profile, so a test can be production or development at will. */
     void configure(Configuration configuration, String profile) {
+        configure(configuration, profile, System::getenv);
+    }
+
+    /**
+     * {@link #configure(Configuration)} under a named profile, with the rest of the environment - the accepted risks -
+     * read from {@code process}. The profile's rules for the switches come first ({@link ProfileRules}): in production a
+     * development-only switch on, or "Fail open on engine error" on without its risk accepted, fails the instance
+     * whether the value came from the admin console, the admin API or an imported archive.
+     */
+    void configure(Configuration configuration, String profile, java.util.function.Function<String, String> process) {
+        ProfileRules.check(configuration::getFieldValue,
+                name -> DeploymentProfile.SETTING.equals(name) ? profile : process.apply(name));
         GovernanceEngineConfig settings = settings(configuration, profile);
+        ContextAllowList allowList = ContextAllowList.of(configuration.getFieldValue(ContextAllowList.FIELD), gate::declaredMembers);
         Set<String> jwtBearer = JwtBearerTypes.of(configuration, settings.getAuthenticatedPrincipalTypes());
         String dialect = configuration.getFieldValue(PDP_DIALECT);
         boolean authzen = DIALECT_AUTHZEN.equalsIgnoreCase(dialect == null ? "" : dialect.trim());
@@ -204,7 +217,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         HttpTransport newTransport = new CircuitBreaker.Guarded(
                 new PdpTransport(tlsOf(settings, resilience), settings.getTimeoutMillis(), settings.isDevelopment()), newBreaker);
         PdpClient newClient = authzen
-                ? new AuthZenPdpClient(settings, newTransport, new AuthZenRequestBuilder(settings), mapper, resilience.batchUrl())
+                ? new AuthZenPdpClient(settings, newTransport, new AuthZenRequestBuilder(settings), mapper, resilience.batchUrl(), allowList)
                 : new GovernanceEngineClient(settings, newTransport, new GovernanceEngineRequestBuilder(settings, mapper), mapper);
         DecisionCache cache = resilience.cacheTypes().isEmpty() ? null
                 : new DecisionCache(resilience.cacheTypes(), resilience.cacheTtlSeconds());
@@ -217,14 +230,6 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         this.decisions = new PdpDecisions(newClient, cache,
                 settings.getPdpUrl() + "\n" + (gate.loaded() ? gate.fingerprint() : "-"), memoAttribute);
         PdpMetrics.track(newBreaker);
-        if (config.isAllowClientAssertedPrincipal() && !config.isDevelopment()) {
-            log.warning("'" + ALLOW_CLIENT_ASSERTED_PRINCIPAL + "' is on but " + PdpUrlPolicy.PROFILE_ENV
-                    + " is not development: login_hint and " + PRINCIPAL_DETAIL_KEY + " are ignored in this deployment.");
-        }
-        if (config.isInsecureTls() && !config.isDevelopment()) {
-            log.warning("'" + INSECURE_TLS + "' is on but " + PdpUrlPolicy.PROFILE_ENV
-                    + " is not development: the PDP's certificate is checked in this deployment.");
-        }
         if (!gate.loaded()) {
             log.severe("This instance refuses every authorization_details request: " + gate.loadFailure());
         }
@@ -237,6 +242,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                 + " tlsTrust=" + pdpTransport().tls().mode()
                 + " totalMillis=" + PdpTransport.totalMillisOf(config.getTimeoutMillis())
                 + " batch=" + (resilience.batchUrl() != null)
+                + (authzen ? " contextAllowList=" + describe(allowList) : "")
                 + " cacheTypes=" + resilience.cacheTypes()
                 + " breaker=" + resilience.breakerFailures() + "/" + resilience.breakerOpenSeconds() + "s");
     }
@@ -384,19 +390,20 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                 String.join(",", GovernanceEngineConfig.DEFAULT_AUTHENTICATED_PRINCIPAL_TYPES), false);
         addCheck(gui, FAIL_OPEN,
                 "Fail open when the PDP is unreachable (connection refused or reset, name unresolved, deadline, "
-                        + "HTTP 429/502/503/504) - any other answer, a malformed one and a TLS failure still deny",
+                        + "HTTP 429/502/503/504) - any other answer, a malformed one and a TLS failure still deny. In production"
+                        + " it saves only with pdp-fail-open in OIDF_ACCEPTED_RISKS",
                 FAIL_OPEN_DEFAULT);
         addCheck(gui, ALLOW_CLIENT_ASSERTED_PRINCIPAL,
                 "Use login_hint / _principal_sub as the decision subject when no principal is known - the caller "
-                        + "chooses who the decision is about; takes effect only with " + PdpUrlPolicy.PROFILE_ENV
-                        + "=development, and goes at 1.0",
+                        + "chooses who the decision is about; saves only with " + PdpUrlPolicy.PROFILE_ENV
+                        + "=development (refused in production), and goes at 1.0",
                 ALLOW_CLIENT_ASSERTED_PRINCIPAL_DEFAULT);
         addCheck(gui, TRUST_AGENT_MARKER,
                 "Where the attestation is not in the request (the authorisation endpoint), take the agent instance from the "
                         + AGENT_DETAIL_KEY + " the attestation filter put in each entry at PAR - only for clients that must use PAR",
                 TRUST_AGENT_MARKER_DEFAULT);
-        addCheck(gui, INSECURE_TLS, "Trust any PDP certificate - takes effect only with " + PdpUrlPolicy.PROFILE_ENV
-                + "=development; the hostname is still checked", INSECURE_TLS_DEFAULT);
+        addCheck(gui, INSECURE_TLS, "Trust any PDP certificate - saves only with " + PdpUrlPolicy.PROFILE_ENV
+                + "=development (refused in production); the hostname is still checked", INSECURE_TLS_DEFAULT);
         addText(gui, TIMEOUT_MS, "The PDP call's total deadline in milliseconds, connecting to the last byte of the answer ("
                 + PdpTransport.MIN_TOTAL_MILLIS + "-" + PdpTransport.MAX_TOTAL_MILLIS + "); past it the PDP counts as unreachable",
                 String.valueOf(PdpTransport.DEFAULT_TOTAL_MILLIS), false);
@@ -427,6 +434,17 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                 + " none). PingFederate never calls enrich on that grant, so a listed type passes validate's model check and is"
                 + " issued without a PDP decision. Never a type requiring an authenticated principal", "", false);
         gui.addValidator(new JwtBearerTypes.Validator());
+        TextAreaFieldDescriptor allowList = new TextAreaFieldDescriptor(ContextAllowList.FIELD,
+                "authzen only: the members of a decision's context a PDP may merge into a detail, per type - 'type: member,"
+                        + " member' entries separated by ';' or new lines; " + ContextAllowList.MODEL + " is every member the"
+                        + " type's model declares, '-' none. A type not named merges nothing; a member not named is dropped,"
+                        + " counted and logged. Blank is the default", 3, 64);
+        allowList.setDefaultValue(ContextAllowList.DEFAULT);
+        gui.addField(allowList);
+        gui.addValidator(new ContextAllowList.Validator());
+        // Last, so the field-level checks above speak first: in production a development-only switch on, or failing
+        // open without its accepted risk, is refused on save (plan item PR-3), as configure refuses it on import.
+        gui.addValidator(new ProfileRules.Validator(System::getenv));
 
         AuthorizationDetailProcessorDescriptor descriptor =
                 new AuthorizationDetailProcessorDescriptor(TYPE_NAME, this, gui, VERSION);
@@ -537,11 +555,15 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         Map<String, Object> detail = prepared.detail();
         PrincipalResolver.Principal principal = prepared.principal();
         String userKey = prepared.userKey();
+        String clientId = prepared.clientId();
 
+        // The decision step: every way out of it emits one rar.decision.* event (DecisionEvents), after the checks
+        // above, which refuse before any PDP call and are not decisions.
         try {
             DecisionResponse decision = decisions.decide(request, prepared.ask(type),
                     () -> batchCandidates(context, request, requestSubject, parameters));
             if (!decision.isPermit()) {
+                DecisionEvents.denied(DecisionEvents.REASON_DENY, type, principal.source(), principal.subject(), clientId);
                 throw new AuthorizationDetailProcessingException(
                         "governance engine denied authorization_details of type '" + type
                                 + "' (decision=" + decision.getDecision() + ")");
@@ -559,10 +581,12 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                         : "it is not within the request";
                 log.warning("RAR governance: refusing the PDP's answer for type '" + type + "': " + why
                         + " (principal=" + PrincipalResolver.hashForLog(principal.subject()) + ")");
+                DecisionEvents.denied(DecisionEvents.REASON_WIDENED, type, principal.source(), principal.subject(), clientId);
                 throw new AuthorizationDetailProcessingException("the PDP's answer for authorization_details of type '"
                         + type + "' is refused, because a PDP may narrow a request and never widen it: " + why);
             }
             authDetail.setDetail(enriched);
+            DecisionEvents.permitted(type, principal.source(), principal.subject(), clientId);
             return authDetail;
         } catch (AuthorizationDetailProcessingException e) {
             throw e;
@@ -573,8 +597,10 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                 // Grant the cleaned copy, not the original: the markers must be stripped on this path too, or
                 // failing open leaks them into the consent page and the issued token.
                 authDetail.setDetail(detail);
+                DecisionEvents.failOpen(type, principal.source(), principal.subject(), clientId);
                 return authDetail;
             }
+            DecisionEvents.denied(DecisionEvents.REASON_UNREACHABLE, type, principal.source(), principal.subject(), clientId);
             throw new AuthorizationDetailProcessingException("PDP unreachable for type '" + type + "'", e);
         } catch (Exception e) {
             // A PDP that answered and could not be believed, a body that did not parse, a TLS failure, a detail
@@ -585,6 +611,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
             String failure = PrincipalResolver.redact(describe(e), principal.subject(), userKey);
             log.warning("PDP call failed for type '" + type + "'; refusing (principal="
                     + PrincipalResolver.hashForLog(principal.subject()) + "): " + failure);
+            DecisionEvents.denied(DecisionEvents.REASON_FAILED, type, principal.source(), principal.subject(), clientId);
             throw new AuthorizationDetailProcessingException(
                     "governance engine call failed for type '" + type + "': " + failure);
         }
@@ -833,6 +860,15 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
             text.append(" <- ").append(cause);
         }
         return text.toString();
+    }
+
+    /** The allow-list for the configure line: each built-in type's members, expanded, and whether others are named. */
+    private static String describe(ContextAllowList allowList) {
+        StringBuilder text = new StringBuilder("{");
+        for (String type : SUPPORTED_TYPES) {
+            text.append(text.length() > 1 ? ", " : "").append(type).append('=').append(allowList.allowed(type));
+        }
+        return text.append('}').toString();
     }
 
     private static String describe(PrincipalResolver.Flow flow) {

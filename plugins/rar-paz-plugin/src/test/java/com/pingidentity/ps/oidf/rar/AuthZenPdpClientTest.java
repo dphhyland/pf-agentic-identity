@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -77,15 +78,23 @@ class AuthZenPdpClientTest {
     }
 
     @Test
-    void contextStatementsMapVerbatimIntoTheStatementPipeline() throws Exception {
+    void contextStatementsMapIntoTheStatementPipelineWhenTheAllowListNamesThem() throws Exception {
         String body = "{\"decision\":true,\"context\":{\"statements\":["
-                + "{\"name\":\"access.limits\",\"payload\":{\"max_amount\":100}}]}}";
+                + "{\"name\":\"access.limits\",\"payload\":{\"max_amount\":100}},"
+                + "{\"name\":\"sales_regions\",\"payload\":[\"EMEA\"]}]}}";
         DecisionResponse r = decide(new StubTransport(new HttpTransport.Response(200, body)));
 
-        assertEquals(1, r.getStatements().size());
-        assertEquals("access.limits", r.getStatements().get(0).getName());
+        assertEquals(1, r.getStatements().size(), "access is not a member sales_agent's model declares, so it is dropped");
+        assertEquals("sales_regions", r.getStatements().get(0).getName());
+
+        AuthZenPdpClient listed = new AuthZenPdpClient(config, new StubTransport(new HttpTransport.Response(200, body)),
+                new AuthZenRequestBuilder(config), mapper, null, ContextAllowList.of("sales_agent: access", type -> Set.of()));
+        DecisionResponse allowed = listed.decide("sales_agent", Map.of("type", "sales_agent"), AttestationSubject.empty(),
+                "alice", "client-1", "authenticated");
+        assertEquals(1, allowed.getStatements().size());
+        assertEquals("access.limits", allowed.getStatements().get(0).getName());
         Map<String, Object> detail = new HashMap<>();
-        StatementApplier.apply(r.getStatements(), detail, mapper);
+        StatementApplier.apply(allowed.getStatements(), detail, mapper);
         assertEquals(Map.of("limits", Map.of("max_amount", 100)), detail.get("access"));
     }
 
@@ -93,11 +102,11 @@ class AuthZenPdpClientTest {
     void bareContextMembersBecomeEnrichmentButReasonsDoNot() throws Exception {
         String body = "{\"decision\":true,\"context\":{"
                 + "\"id\":\"eval-1\",\"reason_admin\":{\"en\":\"policy X\"},\"reason_user\":{\"en\":\"ok\"},"
-                + "\"downscoped_regions\":[\"EMEA\"]}}";
+                + "\"sales_regions\":[\"EMEA\"],\"downscoped_regions\":[\"EMEA\"]}}";
         DecisionResponse r = decide(new StubTransport(new HttpTransport.Response(200, body)));
 
-        assertEquals(1, r.getStatements().size());
-        assertEquals("downscoped_regions", r.getStatements().get(0).getName());
+        assertEquals(1, r.getStatements().size(), "downscoped_regions is on no list, so it is dropped");
+        assertEquals("sales_regions", r.getStatements().get(0).getName());
         assertEquals(List.of("EMEA"), r.getStatements().get(0).getPayload());
     }
 

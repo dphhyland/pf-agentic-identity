@@ -1,0 +1,72 @@
+{
+  "component": "rar",
+  "module": "plugins/rar-paz-plugin",
+  "description": "The RAR processor's decisions, one per authorization_details entry its enrich decides: permitted by the PDP, denied (the PDP's deny, an answer that would widen the request, a PDP that failed or could not be reached) and granted without the PDP because it was unreachable and the instance fails open. Refusals before any PDP call (the model, a missing principal) are not decisions and emit nothing here. Never a detail value, a PDP message or a secret; the principal is hashed.",
+  "logger": "com.pingidentity.ps.oidf.rar.event",
+  "auditProtocol": "RAR",
+  "fields": {
+    "type": {
+      "pii": "OPERATIONAL",
+      "description": "The authorization_details type decided: sales_agent, payment_initiation, account_information or a deployment's extra type."
+    },
+    "principal_source": {
+      "pii": "OPERATIONAL",
+      "description": "How the decision's subject was established: authenticated, identity_hint, subject_token, client_asserted (development only), client or none."
+    },
+    "principal": {
+      "pii": "PSEUDONYMOUS_ID",
+      "description": "The first sixteen hex characters of the SHA-256 of the decision's subject, as sha256:<hex>, as the plugin's log lines give it; - when there is none. Never the subject itself."
+    },
+    "client_id": {
+      "pii": "PSEUDONYMOUS_ID",
+      "description": "The OAuth client PingFederate named in the processor's context."
+    }
+  },
+  "events": {
+    "rar.decision.permitted": {
+      "description": "The PDP permitted a detail and its answer, statements applied, is within the request: the detail is granted as the PDP narrowed it.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "type",
+        "principal_source",
+        "principal",
+        "client_id"
+      ],
+      "declaredOnly": false
+    },
+    "rar.decision.denied": {
+      "description": "A detail was refused at the decision step; the reason is the class: pdp_deny (the PDP answered and not with a permit), pdp_widened (its answer is not within the request), pdp_unreachable (unreachable and the instance does not fail open) or pdp_failed (an answer that could not be believed, a refused status, a TLS failure).",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "type",
+        "principal_source",
+        "principal",
+        "client_id"
+      ],
+      "declaredOnly": false
+    },
+    "rar.decision.failopen": {
+      "description": "The PDP was unreachable and the instance fails open (Fail open on engine error, with pdp-fail-open accepted in production): the detail is granted as requested, without the PDP's narrowing.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "type",
+        "principal_source",
+        "principal",
+        "client_id"
+      ],
+      "declaredOnly": false
+    }
+  }
+}
