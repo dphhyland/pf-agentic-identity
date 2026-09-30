@@ -634,11 +634,20 @@ as the bootstrap reads it (F-0191).
 
 **Readiness.** `Health.readiness` is `DOWN` when an enabled component is neither `READY` nor `DEGRADED` - starting,
 failed or refused - and `UP` otherwise, disabled components and no components at all included. `DEGRADED` counts
-as ready, per S-9: a dependency blip must not eject every node at once. Liveness is always `UP`. `Health.status`
-is the whole body of both, `{"status":"UP"}`; `Health.detail` is the document only an authorised caller sees:
-the status, the deployment profile, the versions and every component with its state, reason, the time it entered
-the state and its parts. A PingFederate that names a trust controller before its anchor's keys are pinned is
-therefore not ready (finding [F-0192](../../docs/findings/F-0192.yaml)).
+as ready, per S-9: a dependency blip must not eject every node at once. So does a component in the first
+`ComponentParts.GRACE` (15 s, the supervisor's first two ceilings) of a blip - it was `READY` or `DEGRADED`, failed on a
+dependency, and is being retried - which `ComponentParts.graced(component)` says and
+`Health.readiness(components, graced)` counts as `DEGRADED` (S9b); a component that fails at boot gets no grace.
+Liveness is always `UP`. `Health.status` is the whole body of both, `{"status":"UP"}`; `Health.detail` is the
+document only an authorised caller sees: the status, the deployment profile, the versions and every component with
+its state, reason, the time it entered the state, `"graced": true` while ready counts it through a blip, and its
+parts. A PingFederate that is its own trust anchor before its keys are pinned is ready with automatic registration
+switched off: explicit registration is then `DEGRADED` (finding [F-0192](../../docs/findings/F-0192.yaml)).
+
+**The gate's read.** `ComponentParts` publishes each part's state, and whether its component has a refused part, as
+an immutable `GateView` in a concurrent map on every change; `Part.gateView()` reads it without the parts' monitor,
+so platform-pf's `ComponentGate` takes no shared lock on PingFederate's token path (finding
+[F-0272](../../docs/findings/F-0272.yaml)).
 
 **Every event counts itself.** `Events.emit` counts each event it admits in `oidf_events_total{code,outcome}`
 (`EventMetrics`, the one class this package adds to platform.events) before any sink runs, as the metrics section

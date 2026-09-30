@@ -12,10 +12,12 @@ import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import com.pingidentity.ps.oidf.federation.FederationError;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
 import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.log.PlatformLog;
 import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.platform.settings.Settings;
 import com.pingidentity.ps.oidf.servlet.trustanchor.FederationErrors;
@@ -32,6 +34,7 @@ import com.pingidentity.ps.oidf.servlet.trustanchor.FederationErrors;
 public class OpenIdRegistrationServlet
 extends RequestScopedServlet {
     private static final long serialVersionUID = 1L;
+    private static final PlatformLog LOG = PlatformLog.get(OpenIdRegistrationServlet.class);
     private RegistrationService RegistrationService;
     /** This servlet's part of FEDERATION, from init; null when a test's constructor made it and init never ran. */
     private transient volatile ComponentParts.Part part;
@@ -75,8 +78,29 @@ extends RequestScopedServlet {
         if (injected) {
             return;
         }
+        // Its own settings first: an init-param that does not parse is a configuration no restart fixes.
+        RegistrationConfiguration registrationConfiguration;
         try {
-            RegistrationConfiguration registrationConfiguration = RegistrationConfiguration.fromServletConfig(config);
+            registrationConfiguration = RegistrationConfiguration.fromServletConfig(config);
+        }
+        catch (Exception e) {
+            throw new ServletException("Failed to initialize OpenID Registration servlet", e);
+        }
+        // Explicit registration validates the RP's chain against the trust controller's pinned keys. Without them it
+        // can register nobody, but the rest of FEDERATION - the Entity Configuration, fetch, list, resolve - serves,
+        // and a PingFederate that is its own trust anchor has to serve its Entity Configuration before anyone can
+        // capture the keys to pin (F-0192). So the part is DEGRADED, not failed: ready stays up, the reason is in the
+        // health detail, and every registration answers 503 until the keys are set and PingFederate restarts.
+        FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+        if (!runtime.isTrustControllerConfigured() || !runtime.hasTrustAnchors()) {
+            String missing = !runtime.isTrustControllerConfigured() ? FederationRuntimeConfig.HOST_ENV + " is unset"
+                    : FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV + " is unset (and no " + FederationRuntimeConfig.SELF_ANCHOR_ENV + ")";
+            LOG.warn("OpenIdRegistrationServlet: " + missing + " - explicit registration (OpenID Federation 1.0 §12.2)"
+                    + " answers 503 until the trust anchor's keys are configured; the federation endpoints serve");
+            part.degraded(missing + ": explicit registration answers 503 until the trust anchor's keys are configured");
+            return;
+        }
+        try {
             this.RegistrationService = new RegistrationService(registrationConfiguration);
         }
         catch (Exception e) {
@@ -86,7 +110,13 @@ extends RequestScopedServlet {
 
     @Override
     protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        if (ComponentGate.servlet(this.part, resp)) {
+        if (ComponentGate.federationEndpoint(this.part, resp)) {
+            return;
+        }
+        if (this.RegistrationService == null && this.part != null) {
+            // Started DEGRADED, with no trust anchor keys to validate a chain against (F-0192): nothing to register with.
+            FederationErrors.write(resp, FederationError.TEMPORARILY_UNAVAILABLE, "explicit registration is not available until"
+                    + " the trust anchor's keys are configured", null);
             return;
         }
         super.service(req, resp);

@@ -54,6 +54,16 @@ import java.util.regex.Pattern;
  * pull probe stays for them: a part that failed on a dependency another thread keeps retrying - the SSF
  * transmitter's boot retry - can pass a check that {@link #refresh()}, called by health before it reads the
  * states, runs; the part is ready once the check returns.
+ *
+ * <p><b>Readiness (S9b).</b> A component that was serving ({@code READY} or {@code DEGRADED}) and then failed on a
+ * dependency is in a blip: while the supervisor retries it, its state goes between {@code FAILED_DEPENDENCY} and
+ * {@code STARTING}. For the first {@link #GRACE} of the blip, {@link #graced} says so and readiness counts the component
+ * as {@code DEGRADED}, so a database that drops for a few seconds does not take every node out of rotation at once.
+ * A component that has never served - one failing at boot - gets no grace: it has nothing to fall back on.
+ *
+ * <p><b>The gate's read (S9b, F-0272).</b> Each part's state and whether its component is refused are published, on
+ * every change, as an immutable {@link GateView} in a concurrent map, which {@link Part#gateView()} reads without this
+ * object's monitor: the gates over PingFederate's token and authorization endpoints take no shared lock per request.
  */
 public final class ComponentParts {
 
@@ -67,6 +77,13 @@ public final class ComponentParts {
             ComponentState.FAILED_DEPENDENCY, ComponentState.STARTING, ComponentState.DEGRADED, ComponentState.READY);
 
     private static final PlatformLog LOG = PlatformLog.get(ComponentParts.class);
+
+    /**
+     * How long a blip - a component that was serving and failed on a dependency - still counts as ready: the
+     * supervisor's first two waits' ceilings ({@link Supervisor#ceiling} of 0 and 1 failures, 5 s and 10 s), so a
+     * dependency that is back by the second retry never takes the node out of rotation.
+     */
+    public static final java.time.Duration GRACE = Supervisor.ceiling(0).plus(Supervisor.ceiling(1));
 
     /** A part's start function: what its {@code init} did before S-9, run once at deploy and again by each retry. */
     @FunctionalInterface
@@ -88,6 +105,10 @@ public final class ComponentParts {
     private final Map<String, Published> published = new LinkedHashMap<>();
     /** Each component's note: how its switch was read, shown beside a state that needs no reason. */
     private final Map<String, String> notes = new LinkedHashMap<>();
+    /** Each component in a blip: when it stopped serving on a dependency failure. */
+    private final Map<String, Instant> blips = new LinkedHashMap<>();
+    /** What each part's gate reads, by {@link #key}: replaced whole on every change, read without the monitor. */
+    private final java.util.concurrent.ConcurrentHashMap<String, GateView> views = new java.util.concurrent.ConcurrentHashMap<>();
     private long generations;
 
     private static final class Entry {
@@ -103,7 +124,21 @@ public final class ComponentParts {
         }
     }
 
-    private record Published(ComponentRegistry.Component handle, boolean enabled) {
+    private record Published(ComponentRegistry.Component handle, boolean enabled, ComponentState state) {
+    }
+
+    /**
+     * What a surface's gate needs to know about its part, as one value: the part's own state and whether any part of
+     * its component is {@code REFUSED}.
+     *
+     * @param state            the part's state
+     * @param componentRefused whether a part of its component is refused by the deployment profile
+     */
+    public record GateView(ComponentState state, boolean componentRefused) {
+    }
+
+    private static String key(String component, String part) {
+        return component + '\u0000' + part;
     }
 
     /** Parts with no switches (every component inferred) and no supervisor (nothing retried). */
@@ -250,7 +285,12 @@ public final class ComponentParts {
         String note = this.notes.getOrDefault(component, "");
         ComponentRegistry.Component handle = was == null || was.enabled() != enabled
                 ? this.registry.register(component, enabled, note) : was.handle();
-        this.published.put(component, new Published(handle, enabled));
+        this.published.put(component, new Published(handle, enabled, worst));
+        this.blip(component, was == null ? null : was.state(), worst);
+        boolean refused = parts.values().stream().anyMatch(e -> e.state == ComponentState.REFUSED);
+        for (Map.Entry<String, Entry> p : parts.entrySet()) {
+            this.views.put(key(component, p.getKey()), new GateView(p.getValue().state, refused));
+        }
         if (!enabled) {
             return;
         }
@@ -263,6 +303,30 @@ public final class ComponentParts {
             case REFUSED -> handle.refused(reason);
             default -> handle.starting(note);
         }
+    }
+
+    /**
+     * Starts, keeps or ends {@code component}'s blip as its state moves from {@code was} to {@code now}: it starts when
+     * a serving component fails on a dependency, holds while it is retried (failed on the dependency, or starting
+     * again), and ends with anything else. Called holding this lock.
+     */
+    private void blip(String component, ComponentState was, ComponentState now) {
+        boolean retrying = now == ComponentState.FAILED_DEPENDENCY || now == ComponentState.STARTING;
+        if (!retrying) {
+            this.blips.remove(component);
+        } else if (now == ComponentState.FAILED_DEPENDENCY && Health.serving(was)) {
+            this.blips.put(component, this.clock.instant());
+        }
+    }
+
+    /**
+     * Whether readiness counts {@code component} as {@code DEGRADED} although it is not serving: it was serving, failed
+     * on a dependency less than {@link #GRACE} ago, and is still being retried - failed on the dependency, or starting
+     * again. Always {@code false} for a component that failed at boot, or on its configuration, or was refused.
+     */
+    public synchronized boolean graced(String component) {
+        Instant since = this.blips.get(component);
+        return since != null && this.clock.instant().isBefore(since.plus(GRACE));
     }
 
     /** The worst state among the enabled parts, by {@link #WORST_FIRST}; {@code DISABLED} when none is enabled. */
@@ -379,6 +443,14 @@ public final class ComponentParts {
 
         public String part() {
             return this.part;
+        }
+
+        /**
+         * What its gate reads: its state and whether its component is refused, as last published, read without the
+         * parts' monitor (F-0272). A part is published when it registers, so there is always one.
+         */
+        public GateView gateView() {
+            return ComponentParts.this.views.get(key(this.component, this.part));
         }
 
         /** Its state now. */

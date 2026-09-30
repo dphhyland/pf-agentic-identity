@@ -35,7 +35,8 @@ throwing criterion denies with the criterion's Error Result (`invalid_grant` on 
 verified on the rig with 13.1.3.0 on 2026-09-26, finding [U-0015](../../docs/findings/U-0015.yaml)), but the
 log would not say why. `ClientAttestationUtils.validateClientAttestation` in `servlets/pf-integration` is the
 same boundary written out by hand; nothing calls the guard yet. S-9's rule that a disabled or failed component's
-criteria answer `false` (S9b, Phase 3) is where it gets its first callers.
+criteria answer `false` is `component.CriterionGate` ([component](#component)), the first statement of each OGNL
+entry point.
 
 ## Future owners' sections
 
@@ -121,26 +122,34 @@ to start reads DOWN. The detail and info take the same bearer: the token is JVM-
 <!-- component (S9a): this package's section -->
 ## component
 
-`ComponentGate` is the fail-closed floor of plan item S-9 (S9a, Phase 3): the first statement of every request
-method of a component's servlets and filters, so a surface whose `init` no longer throws does not serve
-half-configured. It reads the surface's own part ([libs/platform, health](../platform/README.md#health)), and the
-component only when a part of it is `REFUSED` (the programme's decision 4).
+`ComponentGate` is plan item S-9's per-surface rule (S9a's fail-closed floor, replaced by S9b): the first statement
+of every request method of a component's servlets and filters, so a surface whose `init` no longer throws does not
+serve half-configured, and one whose component is off or failed does what S-9's table says. It reads the surface's
+own part ([libs/platform, health](../platform/README.md#health)) through `Part.gateView()`, without a lock, and the
+component only when a part of it is `REFUSED` (the programme's decision 4). A part is serving when `READY` or
+`DEGRADED` with no part of its component refused; failed when `STARTING`, `FAILED_CONFIG`, `FAILED_DEPENDENCY`,
+`REFUSED` or a sibling refused; no part (`init` never ran) is serving. Each method answers `true` when the gate
+answered or passed the request on, and the caller returns.
 
-| The part | `ComponentGate.servlet(part, response)` | `ComponentGate.filter(part, request, response, chain, traffic)` |
-|---|---|---|
-| `READY`, `DEGRADED`, no part of the component `REFUSED` | `false`: the servlet serves | `false`: the filter runs |
-| `STARTING`, `FAILED_CONFIG`, `FAILED_DEPENDENCY`, `REFUSED`, or a part of the component `REFUSED` | 503 `{"error":"temporarily_unavailable","error_description":"<COMPONENT> is not available"}`, `true` | the same 503 when `traffic` says the request is the component's; otherwise the request goes on down `chain`; `true` either way |
-| `DISABLED` | 404 `{"error":"not_found",...}`, `true` | the request goes on down `chain`, `true` |
-| none (`init` never ran) | `false` | `false` |
+| Method | Serving | Disabled | Failed |
+|---|---|---|---|
+| `federationEndpoint(part, response)` | `false` | 404 `{"error":"not_found",...}` | 503 `{"error":"temporarily_unavailable","error_description":"<COMPONENT> is not available"}` |
+| `oauthEndpoint(part, response)` (SSF, the attester, the challenge endpoints) | `false` | 404, no body | the same 503 |
+| `autoRegistration(part, request, response, chain, clients)` | `false` | a request naming a federation client: 401 `invalid_client`; the rest down `chain` | a request naming a federation client: 503; the rest down `chain` |
+| `attestation(part, request, response, chain, rules)` | `false` | where `rules` authenticates: attestation headers 401 `invalid_client`, a client `rules` refuses without an attestation refused by it; the rest down `chain` | the same, with 503 for attestation headers |
+| `filter(part, request, response, chain, traffic)` (FAPI, with its client list) | `false` | down `chain` | `traffic`: 503; the rest down `chain` |
+| `emits(part)` (the logout filter) | `true` | `false` | `false` |
 
-A filter's `traffic` is its own trigger read from the request alone: `federationClientTraffic` (a `client_id`, or a
-`client_assertion` whose `sub` is, an https URL with a host, an assertion with a `trust_chain` header, or an
-assertion it cannot read, so that the floor fails closed),
-`attestationTraffic` (`OAuth-Client-Attestation` or its PoP) or `everyRequest` (FAPI, which cannot tell its clients
-from the rest without the list it failed to read). The body is OpenID Federation 1.0 §8.9's and RFC 6749 §5.2's
-error shape, with `Cache-Control: no-store`. What operators see is in
-[docs/operator/components.md](../../docs/operator/components.md). S9b (Phase 3, wave 4) replaces the floor with each
-surface's own rule.
+A request names a federation client (`namesFederationClient`) when its `client_assertion` carries a `trust_chain`
+header or cannot be read, or when a client it names - the assertion's `sub`, `client_id`, or the
+`OAuth-Client-Attestation`'s `sub` - is an Entity Identifier that `clients` (pf-integration's `FederationClientLookup`,
+over PingFederate's client store) reports as unknown or registered through the federation; a store that cannot answer
+makes it 503. The bodies are JSON with `Cache-Control: no-store`.
+
+`CriterionGate.serves(component, criterion)` is the OGNL entry points' first statement. In a loader whose registry has
+the component it answers from the registry; in the engine's copy, whose registry is empty, from the enable switch and
+`ProfileRefusals.refused`, once per component, and it logs why a criterion answers `false` once per component at WARN.
+What operators see is in [docs/operator/components.md](../../docs/operator/components.md#each-surfaces-rule).
 
 <!-- lifecycle (F-2): add this package's section below this line -->
 ## lifecycle

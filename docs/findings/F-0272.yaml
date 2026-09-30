@@ -3,10 +3,15 @@ title: ComponentGate takes the ComponentParts monitor on every request through a
 severity: low
 area: platform, platform-pf
 source: pr-review
-status: open
+status: closed
 plan_items: [S9b]
-prs: [72]
-verification: ''
+prs: [72, 86]
+verification: >
+  2026-09-30, PR #86 (package S9B): ComponentParts publishes each part's state and whether its component is refused
+  as an immutable GateView in a ConcurrentHashMap on every change, under its monitor, and Part.gateView() reads it
+  without the monitor; ComponentGate.action reads that one value. The monitor is kept for transitions. Tested by
+  ComponentPartsTest.theGateViewIsPublishedOnEveryChangeWithTheComponentsRefusal and
+  ComponentGateTest.theGateReadsThePublishedViewOfTheLatestRegistration, on JDK 17 and 21.
 target_release: 0.6.0
 notes: >
   Found in the review of package S9A (2026-09-30). ComponentGate.action reads Part.status() and Part.componentRefused(),

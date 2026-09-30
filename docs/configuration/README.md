@@ -30,7 +30,7 @@ written by hand is this page, outside its generated list.
 | [hosted-entity-signing](hosted-entity-signing.md) | `libs/openid-federation` | `com.pingidentity.ps.oidf.authority` | 2 |
 | [operator-auth](operator-auth.md) | `libs/platform-pf` | `com.pingidentity.ps.oidf.platform.pf.auth` | 11 |
 | [pf-audit](pf-audit.md) | `libs/platform-pf` | `com.pingidentity.ps.oidf.platform.pf.audit` | 2 |
-| [attestation-token-endpoint](attestation-token-endpoint.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.clientregistration` | 3 |
+| [attestation-token-endpoint](attestation-token-endpoint.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.clientregistration` | 4 |
 | [client-properties](client-properties.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.clientregistration` | 22 |
 | [fapi2-profile](fapi2-profile.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.fapi2` | 1 |
 | [federation-runtime](federation-runtime.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.pf` | 54 |

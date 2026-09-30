@@ -3,6 +3,8 @@
  */
 package com.pingidentity.ps.oidf.servlet.clientregistration.utils;
 
+import com.pingidentity.ps.oidf.platform.pf.component.CriterionGate;
+import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.clientattestation.AttestationRarModels;
@@ -101,6 +103,10 @@ public final class ClientAttestationUtils {
     }
 
     public static boolean validateClientAttestation(Object inObj) {
+        // S9b: false, never a throw, while ATTESTATION_AUTH is not serving here (CriterionGate says how the engine knows).
+        if (!CriterionGate.serves(Startup.ATTESTATION_AUTH, "validateClientAttestation")) {
+            return false;
+        }
         // Deployment-wide settings, resolved once and identical for every reader. These used to be
         // statics on RegistrationConfiguration, mirrored from its constructor, so this call site
         // needed its own env fallback for the case where nothing had constructed one yet -- see
@@ -119,6 +125,10 @@ public final class ClientAttestationUtils {
      *     {@code knownTrustAnchor} matching)
      */
     public static boolean validateClientAttestation(Object inObj, Boolean ignoreSslErrors, String trustControllerHost) {
+        // S9b: false, never a throw, while ATTESTATION_AUTH is not serving here (CriterionGate says how the engine knows).
+        if (!CriterionGate.serves(Startup.ATTESTATION_AUTH, "validateClientAttestation")) {
+            return false;
+        }
         return ClientAttestationUtils.validateClientAttestation(inObj, ignoreSslErrors, trustControllerHost, trustControllerHost);
     }
 
@@ -129,6 +139,10 @@ public final class ClientAttestationUtils {
      *     {@code HttpTrustControllerGateway}'s {@code selfIssuer} javadoc).
      */
     public static boolean validateClientAttestation(Object inObj, Boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
+        // S9b: false, never a throw, while ATTESTATION_AUTH is not serving here (CriterionGate says how the engine knows).
+        if (!CriterionGate.serves(Startup.ATTESTATION_AUTH, "validateClientAttestation")) {
+            return false;
+        }
         return ClientAttestationUtils.validateClientAttestation(inObj, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl,
                 ClientAttestationUtils::pingFederateIssuer);
     }
@@ -769,6 +783,10 @@ public final class ClientAttestationUtils {
      * otherwise an unpleasant thing to diagnose.
      */
     public static String attestationClaim(Object inObj, String claimName) {
+        // S9b: nothing - the omitted attribute, never a throw - while ATTESTATION_AUTH is not serving here.
+        if (!CriterionGate.serves(Startup.ATTESTATION_AUTH, "attestationClaim")) {
+            return "";
+        }
         try {
             if (!(inObj instanceof Map)) {
                 return "";
@@ -846,6 +864,9 @@ public final class ClientAttestationUtils {
      * decoding the presented header.
      */
     public static String delegationActChain(Object inObj) {
+        // S9b: no component gate of its own. The acting party's agent_id and attester come through attestationClaim,
+        // which answers nothing while ATTESTATION_AUTH is not serving; the rest - context.ClientId and a subject token
+        // this PingFederate signed - needs no component, so a token exchange keeps its act chain with the client as actor.
         return ClientAttestationUtils.delegationActChain(inObj, ClientAttestationUtils::pingFederateIssuer,
                 SubjectTokenVerifier.pingFederate());
     }
