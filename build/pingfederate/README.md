@@ -297,7 +297,11 @@ Count the digest lines instead: `grep -cE '^[0-9a-f]{64}  ' MANIFEST`.
 4. If `PF_ARCHIVE_SHA256` is set, checks the archive against it - before it is decrypted or imported.
 5. Decrypts an encrypted archive with the identity from `PF_ARCHIVE_AGE_KEY_FILE`, or, only when that is
    unset, from `PF_ARCHIVE_AGE_KEY`. The inline identity reaches `age` on a pipe, never a temporary file
-   or an argument; the file is the operator's, read and left alone.
+   or an argument; the file is the operator's, read and left alone. The ciphertext is left where it is, so
+   every start of the container decrypts it again, a restart included, and every start needs the identity
+   (F-0313: until 0.6.0 the first start removed a ciphertext baked into the drop-in directory - one mounted
+   through `PF_ARCHIVE_FILE` was always kept - and a restart in production then refused the plaintext the first
+   start had written).
 6. Refuses a plaintext archive unless `OIDF_DEPLOYMENT_PROFILE=development`. Production is the default
    when the variable is unset, and what any other value counts as.
 7. Extracts `pf.jwk` and `pingfederate-system-keys.xml` from inside the archive, on either path.
@@ -307,7 +311,7 @@ Count the digest lines instead: `grep -cE '^[0-9a-f]{64}  ' MANIFEST`.
 | Variable | Default | What it does | When it's wrong |
 |---|---|---|---|
 | `PF_ARCHIVE_FILE` | `data.zip.age`, else `data.zip`, in the drop-in directory | The archive to boot from - a mounted secret, usually. It wins over an archive baked into the image, which is left where it is | Not a file: `FATAL: PF_ARCHIVE_FILE=... is not a file`, no boot |
-| `PF_ARCHIVE_AGE_KEY_FILE` | unset | Path to the age identity, as a mounted secret file. **Preferred**: it is never in the container's metadata | Set but missing: `FATAL: ... does not exist` - no fall-through to the inline key. Wrong identity: `FATAL: could not decrypt the config archive`, and no plaintext is left behind |
+| `PF_ARCHIVE_AGE_KEY_FILE` | unset | Path to the age identity, as a mounted secret file. **Preferred**: it is never in the container's metadata. Read at every start, restarts included, so keep it mounted | Set but missing: `FATAL: ... does not exist` - no fall-through to the inline key. Wrong identity: `FATAL: could not decrypt the config archive`, and no plaintext is left behind |
 | `PF_ARCHIVE_AGE_KEY` | unset | The identity itself, read only when `_FILE` is unset. Gone from the process environment before PingFederate starts, but still in `docker inspect` - the reason to prefer the file | Wrong: as above. Neither set for an encrypted archive: `FATAL: ... neither PF_ARCHIVE_AGE_KEY_FILE nor PF_ARCHIVE_AGE_KEY is set` |
 | `PF_ARCHIVE_SHA256` | unset (no check) | The archive's SHA-256 in hex, any case, of the file as shipped - the ciphertext for an encrypted archive | Mismatch: `FATAL: ... does not match PF_ARCHIVE_SHA256`, before anything is decrypted. Not 64 hex digits: `FATAL: PF_ARCHIVE_SHA256 is not a hex SHA-256` |
 | `PING_IDENTITY_ACCEPT_EULA` | the base image's `NO` | `YES` or `Y`, in any case, accepts Ping Identity's licence agreement. Until 0.6.0 the image set `YES` for everyone who ran it | Anything else: `FATAL: PING_IDENTITY_ACCEPT_EULA is '...': set PING_IDENTITY_ACCEPT_EULA=YES at run time`, before anything else |
@@ -347,6 +351,21 @@ on the rig 2026-09-27, where the drop-in deployer had also renamed its copy unde
 holds: none of them is in an image layer, and the identity that unlocked them is in none of those places
 either.
 
+**Every start decrypts.** The entrypoint keeps the ciphertext, and each start - the first, and every restart
+that keeps the container's writable layer: `docker restart`, a restart policy, a node reboot - decrypts it
+again over the plaintext the last start wrote. The plaintext is therefore never what a later start boots from:
+while the ciphertext is there it is chosen, and a plaintext archive is chosen only when no ciphertext is, which
+production refuses whoever wrote it. So no marker file tells the entrypoint's plaintext from an operator's, and
+there is none to forge. The base image's bootstrap copies the kept `data.zip.age` to `/opt/staging` and
+`/opt/out` beside the plaintext; PingFederate's drop-in deployer ignores it, deploying `data.zip` only (read
+from the 13.1.3 `DataDeployer`, which asks for one zipped data file, and seen on the rig on 2026-10-01). On a
+restart the bootstrap's run plan is `RESTART` and it copies nothing into `/opt/out`, so PingFederate starts on
+the configuration it imported the first time and the fresh plaintext is not imported again. The plaintext
+copies outlive the start that needed them, as they did before; that adds nothing a reader of the writable layer
+lacks, because `/opt/out/instance/server/default/data` holds, for as long as PingFederate runs, the same
+`pf.jwk` in the clear, the same system keys and the configuration the archive was exported from, at the same
+`0600`.
+
 To keep them off the node's disk as well, mount a tmpfs over `/opt/out`, the runtime instance the
 bootstrap builds there from `/opt/server` (519 MB on 13.1.3) and where PingFederate also writes its logs -
 so size it:
@@ -354,6 +373,10 @@ so size it:
 ```sh
 docker run ... --tmpfs /opt/out:rw,exec,size=2g,uid=9031,gid=0,mode=0770 ...
 ```
+
+A restart empties that tmpfs, and the bootstrap then treats it as a first start: it copies the instance into
+`/opt/out` again and PingFederate imports the archive again, which only works because the ciphertext is still
+there to decrypt (seen on the rig on 2026-10-01).
 
 Pass `exec` explicitly. On 2026-09-27, with it left out of the mount options, the runtime's `run.sh` failed
 with `Permission denied` before PingFederate started (exit 126, after the licence had been fetched); with it
@@ -390,6 +413,15 @@ refusals, the plain-listener refusals and the healthcheck's decisions among them
 its `vars.env` accepting the agreement and turning the listener on) booted, imported its archive with
 `ForceUnsupportedImport` false, answered discovery on 9031 and the heartbeat on the plain listener, printed the
 commit in its start-up banner, and was healthy by the image's own healthcheck.
+
+**Verified, F-0313.** 2026-10-01 on 13.1.3, on the conformance rig's image rebuilt with `data.zip.age` in the
+drop-in directory, `OIDF_DEPLOYMENT_PROFILE=production` and the identity from `PF_ARCHIVE_AGE_KEY_FILE`: with the
+entrypoint as main had it at e377dbae the first start served and `docker restart` stopped at once with `FATAL: a
+plaintext archive (/opt/in/instance/server/default/data/drop-in-deployer/data.zip) is refused when
+OIDF_DEPLOYMENT_PROFILE is production`; with this one the restart decrypted again, answered 200 on
+`/pf/heartbeat.ping` and `/agentic-identity/health/live` and was healthy by the image's healthcheck, and a restart
+with `/opt/out` on the tmpfs above imported the archive again and served the same. `test-entrypoint.sh --image` has
+restart cases for both profiles: ten of its checks fail against that entrypoint.
 
 **The layer trap.** Staging the key and deleting it in a later `RUN` does *not* remove it: the earlier
 layer still carries it and `docker save` yields it. The plaintext path demonstrably does this. Only

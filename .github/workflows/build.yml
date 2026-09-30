@@ -139,6 +139,19 @@ jobs:
         # shipped may be exempt, each with its reason, in tools/settings-scan-exemptions.txt (plan item ST-4 set its
         # refuse-shipped-exemptions flag). tools/tests/test_settings_scan.py holds the scan to its fixtures.
         run: python3 tools/settings-scan.py
+      - name: no direct setting read outside platform
+        # Plan item ST-6: System.getenv, System.getProperty, getInitParameter and the rest, called or handed on as a
+        # method reference, appear in shipped main code only in libs/platform and platform-pf's settings package, or
+        # where tools/direct-read-allow.txt admits them by class with a finding or a reason. --check-allow-list also
+        # fails a line that admits nothing, so the list shrinks as reads are converted.
+        # tools/tests/test_direct_read_scan.py holds it to its fixtures.
+        run: python3 tools/direct-read-scan.py --check-allow-list
+      - name: no outbound client outside platform.http
+        # Plan item ST-6: java.net.http, HttpURLConnection, URL.openConnection and openStream, raw sockets and the
+        # third-party clients the scan names appear in shipped main code only in libs/platform's http package, or
+        # where tools/outbound-allow.txt admits them with a reason (class-path reads, Redis, Kafka).
+        # tools/tests/test_outbound_scan.py holds it to its fixtures.
+        run: python3 tools/outbound-scan.py --check-allow-list
       - name: the configuration reference and docs/extended-properties.json are what the catalogues generate
         # Plan item ST-4: docs/configuration/<component>.md, the README's list of components and the extended-
         # property contract a consumer's Terraform is diffed against are generated from the same catalogues, and

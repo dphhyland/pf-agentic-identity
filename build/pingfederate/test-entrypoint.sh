@@ -87,6 +87,9 @@ bare() {
 }
 # run VAR=value ... : the same, with the licence agreement accepted, as every deployment must now do itself.
 run() { bare PING_IDENTITY_ACCEPT_EULA=YES "$@"; }
+# restart VAR=value ... : the container starting again - the same data directory, as the writable layer keeps
+# it across docker restart, a restart policy or a node reboot - with only the last start's results cleared.
+restart() { rm -rf "$OUT"; mkdir -p "$OUT"; run "$@"; }
 
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS + 1)); echo "  ok   $1"; }
@@ -98,14 +101,15 @@ logged()  { case "$LOG" in *"$1"*) return 0 ;; esac; return 1; }
 env_lacks() { ! grep -q "^$1=" "$OUT/env"; }
 env_has()   { grep -q "^$1=" "$OUT/env"; }
 env_is()    { grep -qx "$1=$2" "$OUT/env"; }
-# identity_on_disk MARKER: is the inline identity in any file a run could have written - anything under the
-# work directory, or a regular file newer than MARKER under a temp directory: the script's own TMPDIR, and
+# identity_on_disk MARKER [DIR]: is the inline identity in any file a run could have written - anything under
+# DIR (default the work directory; a case that runs after one given an identity file names its own), or a
+# regular file newer than MARKER under a temp directory: the script's own TMPDIR, and
 # /tmp, where a `mktemp` in the entrypoint would land (`run` gives it no TMPDIR)? The fixtures are skipped;
 # they hold the identity by design. Only options busybox grep and find have, because the image's are
 # busybox: a `--include` here once made busybox grep exit 2, and the negated check pass whatever the
 # entrypoint had written. The control checks below plant the identity to prove the sweep can fail.
 identity_on_disk() {
-  grep -rqsF "$IDENTITY" "$WORK" && return 0
+  grep -rqsF "$IDENTITY" "${2:-$WORK}" && return 0
   for sweep_dir in "${TMPDIR:-/tmp}" /tmp; do
     sweep_dir="$(physical "$sweep_dir")" || continue
     sweep_found="$(find "$sweep_dir" -type f -newer "$1" ! -path "$FIX_P/*" ! -path "$WORK_P/*" \
@@ -238,7 +242,7 @@ MARK="$WORK/$CASE/marker"; touch "$MARK"; sleep 1
 run PF_ARCHIVE_AGE_KEY="$IDENTITY"
 check "an inline identity decrypts the archive, on the default profile" 'booted && logged "config archive ready"'
 check "the decrypted archive and the keys are in place and private" '[ -f "$DROP/data.zip" ] && [ "$(mode_of "$DROP/data.zip")" = 600 ] && [ "$(mode_of "$DATA/pf.jwk")" = 600 ] && [ -f "$DATA/pingfederate-system-keys.xml" ]'
-check "the ciphertext the image carried is gone" '[ ! -f "$DROP/data.zip.age" ]'
+check "the ciphertext the image carried stays, for the next start to decrypt again (F-0313)" '[ -f "$DROP/data.zip.age" ] && cmp -s "$DROP/data.zip.age" "$FIX/data.zip.age"'
 check "PingFederate does not see the identity" 'env_lacks PF_ARCHIVE_AGE_KEY && env_lacks PF_ARCHIVE_AGE_KEY_FILE'
 check "the identity is in no file: not under the work directory, not written to a temp directory" '! identity_on_disk "$MARK"'
 
@@ -337,6 +341,72 @@ prepare not-a-config-archive
 age -r "$(age-keygen -y "$FIX/identity.txt")" -o "$DROP/data.zip.age" "$FIX/stripped.zip"
 run PF_ARCHIVE_AGE_KEY="$IDENTITY"
 check "an archive without pf.jwk is refused" 'refused && logged "pf.jwk is not in the archive"'
+
+# --- a restart: the same container starting again, its writable layer kept (F-0313) ---
+# Until 0.6.0 the first start removed the ciphertext, and the next found only the plaintext it had written,
+# which production refuses: `docker restart` of a production container stopped with that FATAL.
+prepare restart-production
+cp "$FIX/data.zip.age" "$DROP/"
+MARK="$WORK/$CASE/marker"; touch "$MARK"; sleep 1
+run PF_ARCHIVE_AGE_KEY="$IDENTITY" PF_ARCHIVE_SHA256="$SUM_AGE"
+check "production: the first start decrypts and boots" 'booted && logged "config archive ready"'
+restart PF_ARCHIVE_AGE_KEY="$IDENTITY" PF_ARCHIVE_SHA256="$SUM_AGE"
+check "production: a restart decrypts the kept ciphertext again and boots" 'booted && logged "decrypting $DROP/data.zip.age" && logged "config archive ready" && ! logged "PLAINTEXT"'
+check "production: PF_ARCHIVE_SHA256 still matches on the restart - it names the ciphertext, which is unchanged" 'logged "archive integrity"'
+check "production: after the restart the archive, the keys and the ciphertext are in place, the first two private" '[ -f "$DROP/data.zip" ] && [ "$(mode_of "$DROP/data.zip")" = 600 ] && [ "$(mode_of "$DATA/pf.jwk")" = 600 ] && [ -f "$DROP/data.zip.age" ]'
+check "production: the restart handed over without the identity" 'env_lacks PF_ARCHIVE_AGE_KEY && env_lacks PF_ARCHIVE_AGE_KEY_FILE'
+check "production: two starts wrote the identity to no file" '! identity_on_disk "$MARK" "$WORK/$CASE"'
+restart PF_ARCHIVE_AGE_KEY="$IDENTITY"
+check "production: and a third start boots as the second did" 'booted && logged "config archive ready"'
+
+prepare restart-production-key-file
+cp "$FIX/data.zip.age" "$DROP/"
+cp "$FIX/identity.txt" "$WORK/$CASE/identity.txt"
+run PF_ARCHIVE_AGE_KEY_FILE="$WORK/$CASE/identity.txt" OIDF_DEPLOYMENT_PROFILE=production
+restart PF_ARCHIVE_AGE_KEY_FILE="$WORK/$CASE/identity.txt" OIDF_DEPLOYMENT_PROFILE=production
+check "production, identity file: a restart boots" 'booted && logged "config archive ready" && [ -f "$DROP/data.zip" ]'
+
+prepare restart-production-no-identity
+cp "$FIX/data.zip.age" "$DROP/"
+run PF_ARCHIVE_AGE_KEY="$IDENTITY"
+restart
+check "production: a restart without the identity is refused - every start needs it" 'refused && logged "neither PF_ARCHIVE_AGE_KEY_FILE nor PF_ARCHIVE_AGE_KEY is set"'
+check "and the plaintext the first start wrote is removed, not booted from" '[ ! -f "$DROP/data.zip" ] && [ -f "$DROP/data.zip.age" ]'
+
+prepare restart-production-wrong-identity
+cp "$FIX/data.zip.age" "$DROP/"
+run PF_ARCHIVE_AGE_KEY="$IDENTITY"
+restart PF_ARCHIVE_AGE_KEY="$OTHER_IDENTITY"
+check "production: a restart with a wrong identity is refused, and leaves no plaintext" 'refused && logged "could not decrypt" && [ ! -f "$DROP/data.zip" ]'
+
+# The plaintext a start wrote gets no exemption: once the ciphertext is not there, it is an archive like any
+# other, and production refuses it - there is no marker to forge.
+prepare restart-production-ciphertext-removed
+cp "$FIX/data.zip.age" "$DROP/"
+run PF_ARCHIVE_AGE_KEY="$IDENTITY"
+rm -f "$DROP/data.zip.age"
+restart PF_ARCHIVE_AGE_KEY="$IDENTITY"
+check "production: the decrypted archive alone, the ciphertext gone, is refused as a plaintext archive" 'refused && logged "a plaintext archive ($DROP/data.zip) is refused"'
+
+prepare restart-development-encrypted
+cp "$FIX/data.zip.age" "$DROP/"
+run PF_ARCHIVE_AGE_KEY="$IDENTITY" OIDF_DEPLOYMENT_PROFILE=development
+restart PF_ARCHIVE_AGE_KEY="$IDENTITY" OIDF_DEPLOYMENT_PROFILE=development
+check "development, encrypted: a restart decrypts again, and does not boot from the plaintext with a warning" 'booted && logged "config archive ready" && ! logged "PLAINTEXT" && [ -f "$DROP/data.zip.age" ]'
+
+prepare restart-development-plaintext
+cp "$FIX/data.zip" "$DROP/"
+run OIDF_DEPLOYMENT_PROFILE=development
+restart OIDF_DEPLOYMENT_PROFILE=development
+check "development, plaintext: a restart boots, with the warning" 'booted && logged "WARNING: booting from a PLAINTEXT archive" && cmp -s "$DROP/data.zip" "$FIX/data.zip"'
+restart
+check "and the same data directory is refused once the profile is production" 'refused && logged "refused when OIDF_DEPLOYMENT_PROFILE is production"'
+
+prepare restart-archive-file
+cp "$FIX/data.zip.age" "$WORK/$CASE/mounted.age"
+run PF_ARCHIVE_FILE="$WORK/$CASE/mounted.age" PF_ARCHIVE_AGE_KEY="$IDENTITY"
+restart PF_ARCHIVE_FILE="$WORK/$CASE/mounted.age" PF_ARCHIVE_AGE_KEY="$IDENTITY"
+check "production, PF_ARCHIVE_FILE: a restart decrypts the mounted file again" 'booted && logged "decrypting $WORK/$CASE/mounted.age" && [ -f "$WORK/$CASE/mounted.age" ]'
 
 # --- pf-healthcheck.sh, with the base image's liveness check and curl stubbed ---
 # The stub curl answers each path with the code in $STUB_CODES/<last path segment> (000, as curl prints for no

@@ -1,0 +1,20 @@
+id: F-0424
+title: Four servlets hand config::getInitParameter on where platform-pf's InitParams.of exists
+severity: low
+area: gm-api, pf-integration
+source: pr-review
+status: open
+plan_items: [ST-5]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found on 2026-10-01 by ST6's direct-read scan on main e377dbae. gm-api's McpServlet.ServletConfigs.of and
+  MetadataServlet.init, and pf-integration's HostedEntityServlet.init and FederationAdminServlet.init, pass
+  config::getInitParameter to code that builds platform.settings Sources from it, so each value is still read through
+  its catalogue entry; but the lookup is written by hand where platform-pf's InitParams.of(config) is the one adapter
+  (it also answers nothing for a null config, which a method reference does not). Both modules depend on platform-pf.
+  The exit check of the Phase 3 plan asks for no getInitParameter in main code outside platform. The fix is
+  InitParams.of(config) at each site, and deleting the four lines of tools/direct-read-allow.txt that name this
+  finding (McpServlet's and MetadataServlet's lines also carry a System::getenv, which then needs a "handed to
+  platform" line).
