@@ -35,6 +35,8 @@ class ProfileAuditTest {
                     + " \"components\": [\"HOSTING\"]") + ","
             + entry("OIDF_AUDIT_REDIS_URL", "env", "\"type\": \"secret\", \"default\": null, \"profile\": \"forbidden-in-production\","
                     + " \"governed\": {\"schemes\": [\"redis\"]}") + ","
+            + entry("OIDF_AUDIT_FALLBACK_URL", "env", "\"type\": \"secret\", \"default\": null, \"profile\": \"forbidden-in-production\","
+                    + " \"governed\": {\"schemes\": [\"redis\"], \"unless_set\": [\"OIDF_AUDIT_REDIS_URL\", \"oidf.audit.note\"]}") + ","
             + entry("OIDF_AUDIT_MODE", "env", "\"type\": \"choice\", \"default\": \"a\", \"choices\": [\"a\", \"b\"], \"profile\": \"any\"") + ","
             + entry("OIDF_AUDIT_UNKNOWN_RISK", "env", "\"type\": \"bool\", \"default\": false, \"profile\": \"accepted-risk:no-such-risk\"") + ","
             + entry("oidf.audit.flag", "system-property", "\"type\": \"string\", \"default\": null, \"profile\": \"forbidden-in-production\"") + ","
@@ -171,12 +173,42 @@ class ProfileAuditTest {
             ProfileAudit.Result dev = evaluate(DEV, env("OIDF_AUDIT_PKCE", spelling), Map.of());
             ProfileAudit.Violation read = only(dev);
             assertEquals(ProfileAudit.Kind.ACCEPTED_RISK, read.kind(), spelling + " is read as false, which the risk governs");
-            assertEquals("OIDF_AUDIT_PKCE is '" + spelling + "', a legacy spelling read as false under the development profile;"
-                    + " write false", dev.warnings().get(0));
+            assertEquals("OIDF_AUDIT_PKCE is '" + spelling + "', a legacy spelling this check takes as false under the"
+                    + " development profile (what the setting's own reader makes of it is in docs/development/"
+                    + "settings-catalogue.md, \"Legacy spellings\"); write true or false", dev.warnings().get(0));
             ProfileAudit.Result insecure = evaluate(DEV, env("OIDF_AUDIT_INSECURE", spelling), Map.of());
             assertEquals(List.of(), insecure.violations(), spelling + " never turned a switch on");
             assertEquals(1, insecure.warnings().size());
         }
+    }
+
+    @Test
+    void aFallbackTheReaderDoesNotReachIsNotJudged() {
+        // REDIS_URL's shape: read only while OIDF_REDIS_URL and its property are unset (RedisConfig.url).
+        assertEquals("OIDF_AUDIT_FALLBACK_URL", only(evaluate(PROD, env("OIDF_AUDIT_FALLBACK_URL", "redis://cache:6379"),
+                Map.of())).setting(), "judged when nothing shadows it");
+        assertEquals(List.of(), evaluate(PROD, env("OIDF_AUDIT_FALLBACK_URL", "redis://cache:6379", "OIDF_AUDIT_REDIS_URL",
+                "rediss://cache:6380"), Map.of()).violations(), "the reader takes OIDF_AUDIT_REDIS_URL and never reads it");
+        assertEquals(List.of(), evaluate(PROD, env("OIDF_AUDIT_FALLBACK_URL", "redis://cache:6379"),
+                Map.of("oidf.audit.note", "set")).violations(), "any entry unless_set names shadows it");
+        assertEquals("OIDF_AUDIT_FALLBACK_URL", only(evaluate(PROD, env("OIDF_AUDIT_FALLBACK_URL", "redis://cache:6379",
+                "OIDF_AUDIT_REDIS_URL", " "), Map.of())).setting(), "a blank one is unset, and the reader goes on to it");
+        assertEquals("OIDF_AUDIT_REDIS_URL", only(evaluate(PROD, env("OIDF_AUDIT_FALLBACK_URL", "rediss://cache:6380",
+                "OIDF_AUDIT_REDIS_URL", "redis://cache:6379"), Map.of())).setting(), "the one read is still judged");
+    }
+
+    @Test
+    void anEntrySetToWhatItsResolverRefusesStillShadows() {
+        Catalogue c = Catalogue.parse("{\"format\": 1, \"component\": \"shadow\", \"module\": \"libs/platform\","
+                + " \"package\": \"com.pingidentity.ps.oidf.platform.settings\", \"families\": [], \"settings\": ["
+                + entry("OIDF_SHADOW_PORT", "env", "\"type\": \"int\", \"min\": 1, \"max\": 9, \"default\": null, \"profile\": \"any\"")
+                + "," + entry("OIDF_SHADOW_URL", "env", "\"type\": \"secret\", \"default\": null, \"profile\": \"forbidden-in-production\","
+                        + " \"governed\": {\"schemes\": [\"redis\"], \"unless_set\": [\"OIDF_SHADOW_PORT\"]}")
+                + "], \"removed\": []}", "shadow.json");
+        Setting url = c.setting("OIDF_SHADOW_URL");
+        assertTrue(ProfileAudit.shadowed(url, c, Sources.of(Map.of("OIDF_SHADOW_PORT", "not a number"), Map.of())));
+        assertFalse(ProfileAudit.shadowed(url, c, Sources.of(Map.of(), Map.of())));
+        assertFalse(ProfileAudit.shadowed(c.setting("OIDF_SHADOW_PORT"), c, Sources.of(Map.of(), Map.of())), "governs nothing");
     }
 
     @Test

@@ -29,7 +29,7 @@ refuses are named at the top of the page.
 | `OIDF_OPERATOR_INSECURE_TLS` | `true` | `OPERATOR_API` |
 | `OIDF_ATTESTER_CIMD_URL` | set | `ATTESTATION_ISSUER` |
 | `oidf.mock.attesters` (system property) | set | `ATTESTATION_AUTH` |
-| `OIDF_REDIS_URL`, `REDIS_URL` | a `redis://` URL (plaintext; `rediss://` is allowed) | `ATTESTATION_AUTH`, `ATTESTATION_ISSUER`, `OPERATOR_API` |
+| `OIDF_REDIS_URL`, `REDIS_URL` | a `redis://` URL (plaintext; `rediss://` is allowed); `REDIS_URL` only while `OIDF_REDIS_URL` and `oidf.redis.url` are unset, since the client reads it only then | `ATTESTATION_AUTH`, `ATTESTATION_ISSUER`, `OPERATOR_API` |
 | `jdk.internal.httpclient.disableHostnameVerification` (system property) | set, with any value | every component |
 | `OIDF_CIBA_SIM_ENABLED` | `true` | `CIBA_SIMULATOR` (the simulator already refuses to run outside development) |
 
@@ -119,8 +119,12 @@ java -cp '<the release's jars>/*' com.pingidentity.ps.oidf.platform.settings.Pre
 
 It reads `NAME=value` lines (blank lines and `#` comments skipped, `export ` allowed, one pair of quotes around a
 value removed) and the `-D` words of a `JAVA_OPTS` line, judges them against every catalogue on the class path -
-point `-cp` at the jars of the release you are about to deploy - and prints what the server would log. It exits 0
-when nothing would be refused, 1 when something would, and 2 when it cannot read its arguments or the file. The
+point `-cp` at the jars of the release you are about to deploy - and prints what the server would log, each line
+labelled as server.log labels it. It judges each violation as the server does, from the `OIDF_<COMPONENT>_ENABLED`
+switches in the file: a component switched off is never refused, and a required setting left unset refuses only a
+component switched on. A switch that does not parse is listed too, since it refuses its component in either
+profile. It exits 0 when nothing would be refused, 1 when a component would be, and 2 when it cannot read its
+arguments or the file. The
 profile is the file's `OIDF_DEPLOYMENT_PROFILE` unless `--profile` names one. A later 0.6.0 package ships it as
 `oidf-preflight.jar` with every catalogue in it.
 
@@ -128,6 +132,7 @@ profile is the file's `OIDF_DEPLOYMENT_PROFILE` unless `--profile` names one. A 
 
 Under `OIDF_DEPLOYMENT_PROFILE=development` nothing is refused. The sweep's list is logged once at WARN, each line
 `not refused (development):`, and the start-up audit shows it. A value only the reader before 0.6.0 took - for a
-switch `yes`, `no`, `1`, `0`, `on` or `off` - is read as that reader read it, which is `false` for every one of them,
-with a WARN naming the strict spelling; production refuses it. That escape goes at 1.0
+switch `yes`, `no`, `1`, `0`, `on` or `off` - is read as `false`, which is what most of those readers made of it,
+with a WARN naming the strict spelling; production refuses it. `OIDF_EVENTS_AUDIT` is the exception: its reader takes
+anything but `false` as true, so auditing stays on, and it keeps that rule. That escape goes at 1.0
 ([settings-catalogue.md](../development/settings-catalogue.md#legacy-spellings)).

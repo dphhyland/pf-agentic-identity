@@ -8,6 +8,7 @@ import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
 import com.pingidentity.ps.oidf.platform.profile.AcceptedRisk;
 import com.pingidentity.ps.oidf.platform.profile.AcceptedRisks;
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
+import com.pingidentity.ps.oidf.platform.profile.ProfileRefusals;
 import com.pingidentity.ps.oidf.platform.settings.ProfileAudit;
 import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import java.time.LocalDate;
@@ -130,13 +131,9 @@ final class StartupAudit {
         return out;
     }
 
-    /**
-     * How a violation is labelled: {@code REFUSED: } when it refuses something, {@code not refused (development): } under
-     * development, and {@code not refused (not switched on): } for a required setting of a component not switched on.
-     */
+    /** How a violation is labelled ({@link ProfileRefusals#label}): {@code REFUSED: } when it refuses something. */
     static String label(ProfileAudit.Violation v, ProfileAudit.Result audit, Predicate<ProfileAudit.Violation> refusing) {
-        return refusing.test(v) ? "REFUSED: " : audit.profile().isDevelopment() ? "not refused (development): "
-                : "not refused (not switched on): ";
+        return ProfileRefusals.label(v, audit.profile(), refusing.test(v));
     }
 
     static List<String> refusedInCode(List<ProfileAudit.Violation> refusals) {

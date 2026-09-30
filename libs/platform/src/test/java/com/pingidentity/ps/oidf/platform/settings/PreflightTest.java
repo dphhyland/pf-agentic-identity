@@ -13,6 +13,8 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import com.pingidentity.ps.oidf.platform.component.ComponentSwitches;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -55,7 +57,8 @@ class PreflightTest {
         String printed = out();
         assertTrue(printed.startsWith("REFUSED: OIDF_REDIS_URL is a redis:// URL, which the production profile forbids"), printed);
         assertTrue(printed.contains("[ATTESTATION_AUTH, ATTESTATION_ISSUER, OPERATOR_API]"), printed);
-        assertTrue(printed.contains("1 violation(s) under the production profile: the components named would be refused"), printed);
+        assertTrue(printed.contains("1 line(s) under the production profile refuse the components named; each answers 503 until it"
+                + " is fixed"), printed);
         assertTrue(!printed.contains(":pw@"), "never the URL");
     }
 
@@ -74,14 +77,56 @@ class PreflightTest {
         String file = file("OIDF_DEPLOYMENT_PROFILE=development", "OIDF_REDIS_URL=redis://cache", "OIDF_EXAMPLE_TYPO=1",
                 "OIDF_EXAMPLE_TOKEN=t");
         assertEquals(Preflight.CLEAN, run("--env-file", file));
-        assertTrue(out().contains("warning: OIDF_REDIS_URL is a redis:// URL"), out());
-        assertTrue(out().contains("warning: OIDF_EXAMPLE_TYPO is set, under the OIDF_EXAMPLE_ family"), out());
-        assertTrue(out().contains("clean under the development profile: nothing would be refused (2 violation(s) the production"
-                + " profile would refuse)"), out());
+        assertTrue(out().contains("not refused (development): OIDF_REDIS_URL is a redis:// URL"), out());
+        assertTrue(out().contains("not refused (development): OIDF_EXAMPLE_TYPO is set, under the OIDF_EXAMPLE_ family"), out());
+        assertTrue(out().contains("clean under the development profile: nothing would be refused (2 violation(s) listed that"
+                + " refuse nothing here; the production profile would judge them)"), out());
         this.out.reset();
         assertEquals(Preflight.REFUSED, run("--env-file", file, "--profile", "production"), "--profile wins over the file");
         this.out.reset();
         assertEquals(Preflight.CLEAN, run("--profile", "development", "--env-file", file("OIDF_REDIS_URL=redis://cache")));
+    }
+
+    private static final ProfileAudit.Violation REQUIRED = new ProfileAudit.Violation(ProfileAudit.Kind.REQUIRED,
+            "OIDF_OPERATOR_AUDIENCE", "OIDF_OPERATOR_AUDIENCE is unset", "Set it", List.of("OPERATOR_API"));
+    private static final ProfileAudit.Violation FORBIDDEN = new ProfileAudit.Violation(ProfileAudit.Kind.FORBIDDEN,
+            "OIDF_FEDERATION_X", "OIDF_FEDERATION_X=true, which the production profile forbids", "Unset it", List.of("FEDERATION"));
+
+    /** report() on {@code violations} under production, with the switches {@code env} sets. */
+    private int report(Map<String, String> env, ProfileAudit.Violation... violations) {
+        this.out.reset();
+        return Preflight.report(new ProfileAudit.Result(DeploymentProfile.PRODUCTION, List.of(violations), List.of()),
+                ComponentSwitches.of(env::get, name -> null), new PrintStream(this.out, true, StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void aRequiredSettingRefusesOnlyAComponentSwitchedOnAsTheServerDoes() {
+        assertEquals(Preflight.CLEAN, report(Map.of(), REQUIRED), "the operator API not switched on");
+        assertTrue(out().startsWith("not refused (not switched on): OIDF_OPERATOR_AUDIENCE is unset. Set it [OPERATOR_API]"), out());
+        assertTrue(out().contains("clean under the production profile: nothing would be refused (1 violation(s) listed that"
+                + " refuse nothing here)"), out());
+        assertEquals(Preflight.CLEAN, report(Map.of("OIDF_OPERATOR_API_ENABLED", "false"), REQUIRED), "switched off");
+        assertEquals(Preflight.REFUSED, report(Map.of("OIDF_OPERATOR_API_ENABLED", "true"), REQUIRED), "switched on");
+        assertTrue(out().startsWith("REFUSED: OIDF_OPERATOR_AUDIENCE is unset"), out());
+    }
+
+    @Test
+    void aComponentSwitchedOffIsNeverRefused() {
+        assertEquals(Preflight.REFUSED, report(Map.of(), FORBIDDEN), "inferred, as the server's Startup.begin refuses it");
+        assertEquals(Preflight.CLEAN, report(Map.of("OIDF_FEDERATION_ENABLED", "false"), FORBIDDEN));
+        assertTrue(out().startsWith("not refused (switched off): OIDF_FEDERATION_X=true"), out());
+        assertEquals(Preflight.CLEAN, report(Map.of(), new ProfileAudit.Violation(ProfileAudit.Kind.CATALOGUE, "x", "x cannot be"
+                + " loaded", "Deploy one copy", List.of())));
+        assertTrue(out().startsWith("not refused (names no component): x cannot be loaded"), out());
+    }
+
+    @Test
+    void aSwitchThatDoesNotParseRefusesItsComponentInEitherProfile() throws IOException {
+        assertEquals(Preflight.REFUSED, report(Map.of("OIDF_FEDERATION_ENABLED", "maybe")));
+        assertTrue(out().startsWith("REFUSED: "), out());
+        assertTrue(out().contains("[FEDERATION]"), out());
+        this.out.reset();
+        assertEquals(Preflight.REFUSED, run("--env-file", file("OIDF_DEPLOYMENT_PROFILE=development", "OIDF_FEDERATION_ENABLED=maybe")));
     }
 
     @Test

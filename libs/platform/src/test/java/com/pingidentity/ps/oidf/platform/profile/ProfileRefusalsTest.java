@@ -90,6 +90,23 @@ class ProfileRefusalsTest {
     }
 
     @Test
+    void refusedByIsStartupsRuleForEachComponentAViolationNames() {
+        ProfileAudit.Violation forbidden = violation(ProfileAudit.Kind.FORBIDDEN, "OIDF_A", "FEDERATION", "HOSTING");
+        assertEquals(List.of("FEDERATION", "HOSTING"), ProfileRefusals.refusedBy(forbidden, c -> false, c -> false), "inferred");
+        assertEquals(List.of("HOSTING"), ProfileRefusals.refusedBy(forbidden, c -> false, "FEDERATION"::equals),
+                "a component switched off is never refused");
+        ProfileAudit.Violation required = violation(ProfileAudit.Kind.REQUIRED, "OIDF_B", "OPERATOR_API");
+        assertEquals(List.of(), ProfileRefusals.refusedBy(required, c -> false, c -> false), "not switched on");
+        assertEquals(List.of("OPERATOR_API"), ProfileRefusals.refusedBy(required, c -> true, c -> false));
+        assertEquals("REFUSED: ", ProfileRefusals.label(required, DeploymentProfile.PRODUCTION, true));
+        assertEquals("not refused (development): ", ProfileRefusals.label(forbidden, DeploymentProfile.DEVELOPMENT, false));
+        assertEquals("not refused (not switched on): ", ProfileRefusals.label(required, DeploymentProfile.PRODUCTION, false));
+        assertEquals("not refused (switched off): ", ProfileRefusals.label(forbidden, DeploymentProfile.PRODUCTION, false));
+        assertEquals("not refused (names no component): ", ProfileRefusals.label(violation(ProfileAudit.Kind.CATALOGUE, "c"),
+                DeploymentProfile.PRODUCTION, false));
+    }
+
+    @Test
     void withNothingPublishedARefusalInCodeFollowsThisProcesssProfile() {
         ProfileRefusals.reset(() -> {
             throw new AssertionError("a refusal in code needs the profile, not the sweep");

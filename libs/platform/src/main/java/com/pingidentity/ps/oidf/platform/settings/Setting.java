@@ -203,7 +203,8 @@ public final class Setting {
             }
             List<String> warnings = new ArrayList<>(raw.warnings());
             warnings.add(this.name + " is '" + raw.value() + "', a spelling only the reader before 0.6.0 took; it is read as "
-                    + old + ", as that reader read it. Write " + old + " (or the value you meant): the production profile"
+                    + old + " (docs/development/settings-catalogue.md, \"Legacy spellings\", names what each reader before 0.6.0"
+                    + " made of it). Write " + old + " (or the value you meant): the production profile"
                     + " refuses this spelling, and development stops taking it at 1.0");
             return new Resolved(this, old, raw.provenance(), warnings, raw.value());
         }

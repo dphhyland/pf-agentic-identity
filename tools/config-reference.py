@@ -281,7 +281,10 @@ def governed_text(entry):
     if form == "values":
         return " or ".join(code(v) for v in values)
     if form == "schemes":
-        return "a " + " or ".join(code(v + "://") for v in values) + " URL"
+        unless = scan.unless_set_of(entry)
+        return "a " + " or ".join(code(v + "://") for v in values) + " URL" + (
+            " while " + " and ".join(code(u) for u in unless) + " " + ("is" if len(unless) == 1 else "are") + " unset"
+            if unless else "")
     return "any value"
 
 

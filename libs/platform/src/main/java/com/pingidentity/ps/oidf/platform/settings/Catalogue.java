@@ -61,6 +61,7 @@ public final class Catalogue {
     private static final Set<String> TOP_OPTIONAL = Set.of("components");
     private static final Set<String> ENTRY_OPTIONAL = Set.of("governed", "components");
     private static final Set<String> SCHEMES = Set.of("schemes");
+    private static final Set<String> UNLESS_SET = Set.of("unless_set");
     private static final Set<String> ENTRY = Set.of("name", "kind", "type", "default", "description", "when_wrong", "profile",
             "security", "sources", "aliases", "file");
     private static final Set<String> RANGE = Set.of("min", "max");
@@ -300,6 +301,14 @@ public final class Catalogue {
                 throw r.refuse("settings[" + i + "]", setting.name() + " is catalogued twice");
             }
         }
+        for (Setting setting : settings.values()) {
+            for (String other : setting.governed() == null ? List.<String>of() : setting.governed().unlessSet()) {
+                if (!settings.containsKey(other)) {
+                    throw r.refuse(setting.name(), "governed unless_set names " + other + ", which is not a setting of this"
+                            + " catalogue");
+                }
+            }
+        }
         List<Removed> removed = new ArrayList<>();
         List<Object> gone = r.list(top, "removed", "the document");
         for (int i = 0; i < gone.size(); i++) {
@@ -446,7 +455,7 @@ public final class Catalogue {
             }
             Object value = entry.get("governed");
             if (value instanceof Map<?, ?>) {
-                Map<String, Object> form = object(value, at + ".governed", SCHEMES, Set.of());
+                Map<String, Object> form = object(value, at + ".governed", SCHEMES, UNLESS_SET);
                 if (type != SettingType.STRING && type != SettingType.SECRET && type != SettingType.URL
                         && type != SettingType.HTTPS_URL) {
                     throw refuse(at, "governed schemes go with a string, secret, url or https-url, not a " + type.id());
@@ -461,7 +470,20 @@ public final class Catalogue {
                 if (schemes.isEmpty()) {
                     throw refuse(at, "governed schemes lists at least one scheme");
                 }
-                return Governed.schemes(schemes);
+                List<String> unlessSet = new ArrayList<>();
+                if (form.containsKey("unless_set")) {
+                    for (Object other : list(form, "unless_set", at + ".governed")) {
+                        if (!(other instanceof String o) || o.equals(setting.name()) || unlessSet.contains(o)) {
+                            throw refuse(at, "governed unless_set names other entries of this catalogue, each once, not "
+                                    + describe(other));
+                        }
+                        unlessSet.add(o);
+                    }
+                    if (unlessSet.isEmpty()) {
+                        throw refuse(at, "governed unless_set names at least one entry; leave it out for an entry read on its own");
+                    }
+                }
+                return Governed.schemes(schemes, unlessSet);
             }
             if (!(value instanceof List<?> items) || items.isEmpty()) {
                 throw refuse(at, "governed is a list of values or {\"schemes\": [...]}, not " + describe(value));

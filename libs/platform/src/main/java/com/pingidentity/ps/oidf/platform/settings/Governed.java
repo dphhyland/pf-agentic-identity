@@ -20,7 +20,10 @@ import java.util.regex.Pattern;
  *       type, and the default may not be one of them (unset would then be the insecure case, and nothing could see
  *       it).</li>
  *   <li>{@code {"schemes": ["redis"]}} - a URL of one of these schemes, compared in any case as the text before
- *       {@code ://}; for a {@code string}, {@code secret}, {@code url} or {@code https-url} only.</li>
+ *       {@code ://}; for a {@code string}, {@code secret}, {@code url} or {@code https-url} only. It may add
+ *       {@code "unless_set": ["OIDF_REDIS_URL"]}: entries of the same catalogue that the reader takes first, so that
+ *       while any of them is set this entry is not read and the profile does not judge it ({@code REDIS_URL}, read
+ *       only when {@code OIDF_REDIS_URL} and its property are unset).</li>
  *   <li>absent - the default rule: a {@code bool} governs every value but its default; a {@code choice} of exactly
  *       two with a default governs the other one; a type with no default governs any value set. Any other entry (a
  *       {@code choice} of more than two, a number or text with a default) must say.</li>
@@ -46,26 +49,33 @@ public final class Governed {
     private final Form form;
     private final List<String> values;
     private final boolean explicit;
+    private final List<String> unlessSet;
 
-    private Governed(Form form, List<String> values, boolean explicit) {
+    private Governed(Form form, List<String> values, boolean explicit, List<String> unlessSet) {
         this.form = form;
         this.values = List.copyOf(values);
         this.explicit = explicit;
+        this.unlessSet = List.copyOf(unlessSet);
     }
 
     /** Any value set. */
     static Governed anyValue(boolean explicit) {
-        return new Governed(Form.ANY_VALUE, List.of(), explicit);
+        return new Governed(Form.ANY_VALUE, List.of(), explicit, List.of());
     }
 
     /** These values, as the type spells them. */
     static Governed values(List<String> values, boolean explicit) {
-        return new Governed(Form.VALUES, values, explicit);
+        return new Governed(Form.VALUES, values, explicit, List.of());
     }
 
     /** URLs of these schemes, lower case. */
     static Governed schemes(List<String> schemes) {
-        return new Governed(Form.SCHEMES, schemes, true);
+        return schemes(schemes, List.of());
+    }
+
+    /** URLs of these schemes, lower case, judged only while none of the entries {@code unlessSet} names is set. */
+    static Governed schemes(List<String> schemes, List<String> unlessSet) {
+        return new Governed(Form.SCHEMES, schemes, true, unlessSet);
     }
 
     public Form form() {
@@ -75,6 +85,14 @@ public final class Governed {
     /** The values, as the type spells them, for {@link Form#VALUES}; the schemes for {@link Form#SCHEMES}; else empty. */
     public List<String> values() {
         return this.values;
+    }
+
+    /**
+     * The entries of the same catalogue the reader takes before this one: while any of them is set, this entry is not
+     * read, so the profile does not judge it. Empty for an entry read on its own.
+     */
+    public List<String> unlessSet() {
+        return this.unlessSet;
     }
 
     /** Whether the catalogue said it, rather than the default rule. */
@@ -133,12 +151,13 @@ public final class Governed {
 
     @Override
     public boolean equals(Object other) {
-        return other instanceof Governed g && g.form == this.form && g.values.equals(this.values) && g.explicit == this.explicit;
+        return other instanceof Governed g && g.form == this.form && g.values.equals(this.values) && g.explicit == this.explicit
+                && g.unlessSet.equals(this.unlessSet);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(this.form, this.values, this.explicit);
+        return Objects.hash(this.form, this.values, this.explicit, this.unlessSet);
     }
 
     @Override

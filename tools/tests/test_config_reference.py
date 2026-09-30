@@ -81,6 +81,8 @@ PDP = catalogue("pdp", "libs/a", [
           profile="accepted-risk:weak-thing"),
     entry("OIDF_PDP_REDIS", type="secret", security=True, profile="forbidden-in-production",
           governed={"schemes": ["redis"]}, components=["SSF"]),
+    entry("OIDF_PDP_REDIS_FALLBACK", type="secret", security=True, profile="forbidden-in-production",
+          governed={"schemes": ["redis"], "unless_set": ["OIDF_PDP_REDIS"]}),
     entry("Request timeout (ms)", kind="plugin-field", type="long", default=5000, min=-2 ** 63, max=2 ** 63 - 1),
     entry("status", kind="extended-property"),
 ], removed=[{"name": "OIDF_PDP_STRICT", "from": "env", "replacement": "OIDF_PDP_MODE", "release": "0.4.0"},
@@ -109,7 +111,7 @@ class PageTest(unittest.TestCase):
     def test_rows_come_in_the_catalogue_order(self):
         names = [line.split("`")[1] for line in self.page.splitlines() if line.startswith("| `")]
         self.assertEqual(["OIDF_PDP_MODE", "OIDF_PDP_TOKEN", "OIDF_PDP_TIMEOUT_MS", "OIDF_PDP_CACHE", "signingAlgorithm",
-                          "OIDF_PDP_REDIS",
+                          "OIDF_PDP_REDIS", "OIDF_PDP_REDIS_FALLBACK",
                           "Request timeout (ms)", "status", "OIDF_PDP_STRICT", "OIDF_PDP_GONE"], names)
 
     def test_a_setting_read_from_several_places_names_them_in_order_with_its_superseded_names(self):
@@ -127,6 +129,7 @@ class PageTest(unittest.TestCase):
         self.assertIn("| `OIDF_PDP_CACHE` | Unset; a whole number, at least 0 | What it does | **Not checked**: Read as"
                       " given | Not in production: any value | No |", self.page)
         self.assertIn("| Not in production: a `redis://` URL; refuses `SSF` | Yes |", self.page)
+        self.assertIn("| Not in production: a `redis://` URL while `OIDF_PDP_REDIS` is unset | Yes |", self.page)
 
     def test_the_kinds_pingfederate_supplies_and_an_accepted_risk(self):
         self.assertIn("| `signingAlgorithm` (init-param) | `RS256`; one of `RS256`, `none` | What it does | **Not checked**: Read"
@@ -148,7 +151,7 @@ class PageTest(unittest.TestCase):
         self.assertTrue(readme.startswith("# Configuration reference\n\nBy hand.\n\n" + ref.BEGIN))
         self.assertTrue(readme.endswith(ref.END + "\n\nAfter.\n"))
         self.assertNotIn("old list", readme)
-        self.assertIn("| [pdp](pdp.md) | `libs/a` | `x.y` | 8 |\n| [later](later.md) | `libs/b` | `x.y` | 2 |", readme)
+        self.assertIn("| [pdp](pdp.md) | `libs/a` | `x.y` | 9 |\n| [later](later.md) | `libs/b` | `x.y` | 2 |", readme)
 
     def test_the_extended_properties_contract(self):
         doc = json.loads(self.tree.read(ref.EXTENDED))

@@ -178,12 +178,14 @@ public class LifecycleListener implements ServletContextListener {
     }
 
     /**
-     * Which of {@code result}'s violations refuse something: none under development, and under production each but a
-     * {@code required-in-production} one whose components are none of them switched on ({@link ProfileRefusals#refuses}).
+     * Which of {@code result}'s violations refuse something: none under development, and under production each that
+     * refuses a component by {@code Startup.begin}'s rule ({@link ProfileRefusals#refusedBy}) - not one whose components
+     * are all switched off, nor a {@code required-in-production} one whose components are none of them switched on.
      */
     static Predicate<ProfileAudit.Violation> refusing(ProfileAudit.Result result) {
-        return v -> result.refuses() && ProfileRefusals.refuses(v,
-                c -> Startup.parts().verdict(c).kind() == ComponentSwitches.Kind.ENABLED);
+        return v -> result.refuses() && !ProfileRefusals.refusedBy(v,
+                c -> Startup.parts().verdict(c).kind() == ComponentSwitches.Kind.ENABLED,
+                c -> Startup.parts().verdict(c).kind() == ComponentSwitches.Kind.DISABLED).isEmpty();
     }
 
     /** The sweep's one log entry: a heading and a line per violation and per warning; null when there is nothing. */

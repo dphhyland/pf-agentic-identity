@@ -13,7 +13,8 @@
   `platform.profile.refused` event per refusal. Under development nothing is refused and the list is a warning.
 - `jdk.internal.httpclient.disableHostnameVerification` is catalogued (F-0195) and forbidden in production with any
   value, refusing every component (F-0035). `OIDF_REDIS_URL` and `REDIS_URL` are refused at start-up when they are
-  `redis://` URLs.
+  `redis://` URLs; `REDIS_URL` only when it is the one read, with `OIDF_REDIS_URL` and `oidf.redis.url` unset. The
+  catalogue format's `governed` schemes form gains `unless_set` to say so.
 - A value read from an init-param, a plugin's field or a client's extended property is refused when its reader reads
   it through the catalogue, once the 0.6.0 package that converts that reader lands.
 - `ProfileRefusals.refuse` and `requireRisk` let a package refuse a component for a condition that is not a setting,
@@ -25,8 +26,9 @@
   as a list or as URL schemes - and `components`, per catalogue and per entry; system-property names may carry
   upper-case letters, and a removed name may be a plugin field. The configuration reference shows the governed
   values in the Profile column and names the components each page's violations refuse.
-- The development profile reads the legacy spellings of a switch (`yes`, `no`, `1`, `0`, `on`, `off`) as the reader
-  before 0.6.0 read them - `false`, every one - with a warning, until 1.0; production refuses them.
+- The development profile reads the legacy spellings of a switch (`yes`, `no`, `1`, `0`, `on`, `off`) as `false`,
+  as most readers before 0.6.0 did, with a warning, until 1.0; production refuses them. `OIDF_EVENTS_AUDIT`'s reader
+  keeps its own rule: anything but `false` keeps auditing on.
 - New events: `platform.profile.refused` (audited) and `platform.component.changed` (counted), in platform's new
   `platform` event catalogue.
 
@@ -36,7 +38,10 @@
    is production, and production refuses components for what this release checks. Run
    `java -cp '<the 0.6.0 jars>/*' com.pingidentity.ps.oidf.platform.settings.Preflight --env-file <your env file>`
    (put the JVM's `-D` options in a `JAVA_OPTS` line) until a later 0.6.0 package ships it as `oidf-preflight.jar`.
-   Exit 1 lists each violation with its fix and the components it refuses; fix each, or accept its risk. A running
+   Exit 1 means a component would be refused: each line marked `REFUSED:` names the violation, its fix and the
+   components it refuses; fix each, or accept its risk. It judges as the server does, from the component switches
+   in the file: a component switched off is never refused, and a required setting left unset refuses only a
+   component switched on (those lines say `not refused`). A running
    PingFederate shows the same list at the top of server.log and in the start-up audit. Development: under
    `OIDF_DEPLOYMENT_PROFILE=development` nothing is refused; the list is a warning.
 
@@ -46,7 +51,8 @@
    `OIDF_SSF_INTROSPECTION_INSECURE_TLS=true`, `OIDF_SSF_RECEIVER_INSECURE_TLS=true`, `OIDF_SSF_JDBC_URL` (any value),
    `OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM=true`, `OIDF_AUTHORITY_JDBC_URL` (any value), `OIDF_OPERATOR_INSECURE_TLS=true`,
    `OIDF_ATTESTER_CIMD_URL` (any value; before 0.6.0 the attester only left that source out), `oidf.mock.attesters`
-   (any value), `OIDF_REDIS_URL` or `REDIS_URL` as a `redis://` URL (use `rediss://`), `OIDF_CIBA_SIM_ENABLED=true`,
+   (any value), `OIDF_REDIS_URL` or `REDIS_URL` as a `redis://` URL (use `rediss://`; `REDIS_URL` counts only while
+   `OIDF_REDIS_URL` is unset), `OIDF_CIBA_SIM_ENABLED=true`,
    and the JVM flag (see "Remove `jdk.internal.httpclient.disableHostnameVerification` from the JVM"). Why: each turns off a check production depends on. How to tell: the component is
    `REFUSED` in `/agentic-identity/health` and the start-up audit, and server.log names the switch. What to change:
    unset the switch, or set it to its default. Development: a rig sets `OIDF_DEPLOYMENT_PROFILE=development`.
@@ -82,7 +88,8 @@
 
 6. **Strict parsing arrives with the ST-5 packages.** As each later 0.6.0 package moves its readers onto the
    catalogue, a value only the old reader took is refused in production; development still reads the legacy
-   spellings of a switch (`yes`, `no`, `1`, `0`, `on`, `off`, each as `false`) with a warning, until 1.0.
+   spellings of a switch (`yes`, `no`, `1`, `0`, `on`, `off`, each as `false`; `OIDF_EVENTS_AUDIT` keeps its own
+   rule, anything but `false` is true) with a warning, until 1.0.
 
 ## Notes
 
@@ -90,8 +97,9 @@
 unset refuses its component only when the component's switch is `true`: unswitched, a component is inferred in
 production only while none of its settings is set, and its start disables it. A component switched off with
 `OIDF_<COMPONENT>_ENABLED=false` is never refused. A refused part stays `REFUSED` whatever its `init` reports next,
-until it registers again. The legacy spellings of a switch read as `false`, not their plain meaning, because every
-reader before 0.6.0 (`Boolean.parseBoolean`, `"true".equalsIgnoreCase`) read them so; reading `yes` as true in
+until it registers again. The legacy spellings of a switch read as `false`, not their plain meaning, because most
+readers before 0.6.0 (`Boolean.parseBoolean`, `"true".equalsIgnoreCase`) read them so (`OIDF_EVENTS_AUDIT`'s reader,
+which reads anything but `false` as true, keeps its rule); reading `yes` as true in
 development would silently turn on what had been off. The components each catalogue refuses come from a table in
 docs/development/settings-catalogue.md until each catalogue's owner writes its own: `federation-runtime` refuses
 `FEDERATION`, `AUTO_REGISTRATION` and `ATTESTATION_AUTH` together until ST5F narrows it (F-0297).

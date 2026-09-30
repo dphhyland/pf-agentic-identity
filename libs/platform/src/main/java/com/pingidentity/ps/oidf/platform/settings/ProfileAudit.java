@@ -157,7 +157,8 @@ public final class ProfileAudit {
         for (Catalogue catalogue : catalogues.catalogues()) {
             for (Setting setting : catalogue.settings()) {
                 if (setting.profile().kind() == ProfileClass.Kind.ANY
-                        || (setting.kind() != EntryKind.ENV && setting.kind() != EntryKind.SYSTEM_PROPERTY)) {
+                        || (setting.kind() != EntryKind.ENV && setting.kind() != EntryKind.SYSTEM_PROPERTY)
+                        || shadowed(setting, catalogue, sources)) {
                     continue;
                 }
                 Violation v = judge(setting, catalogue.componentsOf(setting), sources, profile, risks, warnings);
@@ -171,6 +172,24 @@ public final class ProfileAudit {
             warnings.add(refusal + " - that risk is not accepted");
         }
         return new Result(profile, violations, warnings);
+    }
+
+    /**
+     * Whether {@code setting} is not read because an entry its reader takes first is set
+     * ({@link Governed#unlessSet()}): {@code REDIS_URL} while {@code OIDF_REDIS_URL} or its property is. An entry set to
+     * something its resolver refuses still shadows, since the reader stops at it too.
+     */
+    static boolean shadowed(Setting setting, Catalogue catalogue, Sources sources) {
+        for (String other : setting.governed() == null ? List.<String>of() : setting.governed().unlessSet()) {
+            try {
+                if (catalogue.setting(other).resolveRaw(sources).provenance().source() != Source.DEFAULT) {
+                    return true;
+                }
+            } catch (SettingRefused refused) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** One classed env or system-property entry, read from {@code sources}; null when it violates nothing. */
@@ -203,8 +222,9 @@ public final class ProfileAudit {
             if (old == null) {
                 return unreadable(setting, refused, components);
             }
-            warnings.add(setting.name() + " is '" + value + "', a legacy spelling read as " + old + " under the development"
-                    + " profile; write " + old);
+            warnings.add(setting.name() + " is '" + value + "', a legacy spelling this check takes as " + old + " under the"
+                    + " development profile (what the setting's own reader makes of it is in docs/development/"
+                    + "settings-catalogue.md, \"Legacy spellings\"); write true or false");
             value = String.valueOf(old);
             governed = setting.governed().matches(setting, value);
         }

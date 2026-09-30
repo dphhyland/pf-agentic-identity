@@ -525,6 +525,10 @@ class ProfileFormatTest(unittest.TestCase):
                     dict(profile="forbidden-in-production", governed={"schemes": ["Redis"]}),
                     dict(profile="forbidden-in-production", governed={"schemes": ["a", "a"]}),
                     dict(profile="forbidden-in-production", governed={"hosts": ["a"]}),
+                    dict(profile="forbidden-in-production", governed={"schemes": ["redis"], "unless_set": []}),
+                    dict(profile="forbidden-in-production", governed={"schemes": ["redis"], "unless_set": ["A", "A"]}),
+                    dict(profile="forbidden-in-production", governed={"schemes": ["redis"], "unless_set": ["OIDF_THING"]}),
+                    dict(profile="forbidden-in-production", governed={"schemes": ["redis"], "unless_set": [1]}),
                     dict(profile="forbidden-in-production", governed=["x"])):
             with self.subTest(bad):
                 self.assertRaises(ValueError, lambda: governed(**bad))
@@ -536,6 +540,14 @@ class ProfileFormatTest(unittest.TestCase):
                                                         governed=[True]))
         self.assertEqual(("schemes", ["redis"]), governed(type="secret", security=True, profile="forbidden-in-production",
                                                           governed={"schemes": ["redis"]}))
+        shadowed = entry("OIDF_THING_FALLBACK", type="secret", security=True, profile="forbidden-in-production",
+                         governed={"schemes": ["redis"], "unless_set": ["OIDF_THING"]})
+        self.assertEqual(("schemes", ["redis"]), scan.governed_of(shadowed))
+        self.assertEqual(["OIDF_THING"], scan.unless_set_of(shadowed))
+        self.assertEqual([], scan.unless_set_of(entry("OIDF_THING")))
+        self.assertEqual([], self.problems_of(catalogue("thing", "libs/a", "x", [entry("OIDF_THING"), shadowed])))
+        self.assertEqual(["x: OIDF_THING_FALLBACK: governed unless_set names OIDF_THING, which is not a setting of this"
+                          " catalogue"], self.problems_of(catalogue("thing", "libs/a", "x", [shadowed])))
         problems = self.problems_of(catalogue("thing", "libs/a", "x", [entry("OIDF_THING", type="choice", default="a",
                                                                              choices=["a", "b", "c"],
                                                                              profile="forbidden-in-production")]))

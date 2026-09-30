@@ -28,9 +28,9 @@
       "type": "secret",
       "default": null,
       "description": "The shared Redis when OIDF_REDIS_URL and its property are unset: the name Railway and most managed Redis providers export; read as OIDF_REDIS_URL is",
-      "when_wrong": {"effect": "first-request", "detail": "As OIDF_REDIS_URL"},
+      "when_wrong": {"effect": "first-request", "detail": "As OIDF_REDIS_URL, when it is read: while OIDF_REDIS_URL or oidf.redis.url is set, REDIS_URL is not read and the production profile does not judge it"},
       "profile": "forbidden-in-production",
-      "governed": {"schemes": ["redis"]},
+      "governed": {"schemes": ["redis"], "unless_set": ["OIDF_REDIS_URL"]},
       "security": true,
       "sources": [
         {"from": "env", "name": "REDIS_URL"}

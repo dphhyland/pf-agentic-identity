@@ -14,9 +14,12 @@ import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 import java.util.regex.Pattern;
+import com.pingidentity.ps.oidf.platform.component.ComponentSwitches;
 import com.pingidentity.ps.oidf.platform.profile.AcceptedRisks;
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
+import com.pingidentity.ps.oidf.platform.profile.ProfileRefusals;
 
 /**
  * The start-up sweep ({@link ProfileAudit}) on an environment file, before it reaches a deployment (plan item ST-7's
@@ -32,9 +35,13 @@ import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
  * {@code JAVA_OPTS} line's {@code -Dname=value} words are read as system properties. The profile is the file's
  * {@code OIDF_DEPLOYMENT_PROFILE}, read as the server reads it, unless {@code --profile} names one.
  *
- * <p>It prints what the server would log - every violation, then every warning - and exits 0 when nothing would be
- * refused, 1 when the production profile would refuse something (development refuses nothing, so there it exits 0
- * and prints the violations as warnings), and 2 when the arguments or the file cannot be read.
+ * <p>It judges each violation as the server does ({@link ProfileRefusals#refusedBy}), from the component switches the
+ * file sets ({@link ComponentSwitches}): a component switched off is never refused, and a
+ * {@code required-in-production} setting left unset refuses only a component switched on. It prints what the server
+ * would log - a switch that refuses its component, then every violation labelled as the start-up log labels it
+ * ({@link ProfileRefusals#label}), then every warning - and exits 0 when nothing would be refused, 1 when a component
+ * would be (under development only a switch that does not parse refuses one; the profile's violations are printed as
+ * {@code not refused (development)}), and 2 when the arguments or the file cannot be read.
  */
 public final class Preflight {
 
@@ -84,29 +91,51 @@ public final class Preflight {
             err.println("Preflight: " + file + ": " + e.getMessage());
             return USAGE;
         }
+        if (profileName != null) {
+            // The switches read the profile from the environment, as the server's do: --profile stands in for the file's.
+            env.put(DeploymentProfile.SETTING, profileName);
+        }
         Map<String, String> properties = systemProperties(env.get("JAVA_OPTS"));
-        DeploymentProfile profile = profileName != null ? DeploymentProfile.parse(profileName) : DeploymentProfile.of(env::get);
+        DeploymentProfile profile = DeploymentProfile.of(env::get);
         ProfileAudit.Result result = ProfileAudit.evaluate(Sources.of(env, properties), Catalogues.onClassPath(loader), profile,
                 AcceptedRisks.of(env::get, today));
-        return report(result, out);
+        return report(result, ComponentSwitches.of(env::get, properties::get), out);
     }
 
-    /** Prints the result as the server would log it; answers the exit status. */
-    static int report(ProfileAudit.Result result, PrintStream out) {
+    /** Prints the result as the server would log it, judged against {@code switches}; answers the exit status. */
+    static int report(ProfileAudit.Result result, ComponentSwitches switches, PrintStream out) {
         String profile = result.profile().value();
+        int refusing = 0;
+        for (String component : new TreeSet<>(ComponentSwitches.SWITCHES.keySet())) {
+            ComponentSwitches.Verdict verdict = switches.verdict(component);
+            if (verdict.kind() == ComponentSwitches.Kind.FAILED_CONFIG) {
+                out.println("REFUSED: " + verdict.note() + " [" + component + "]");
+                refusing++;
+            }
+        }
+        int notRefusing = 0;
         for (ProfileAudit.Violation v : result.violations()) {
-            out.println((result.refuses() ? "REFUSED: " : "warning: ") + v.line());
+            boolean refuses = result.refuses() && !ProfileRefusals.refusedBy(v,
+                    c -> switches.verdict(c).kind() == ComponentSwitches.Kind.ENABLED,
+                    c -> switches.verdict(c).kind() == ComponentSwitches.Kind.DISABLED).isEmpty();
+            out.println(ProfileRefusals.label(v, result.profile(), refuses) + v.line());
+            if (refuses) {
+                refusing++;
+            } else {
+                notRefusing++;
+            }
         }
         for (String warning : result.warnings()) {
             out.println("warning: " + warning);
         }
-        if (result.refuses()) {
-            out.println(result.violations().size() + " violation(s) under the " + profile + " profile: the components named"
-                    + " would be refused");
+        if (refusing > 0) {
+            out.println(refusing + " line(s) under the " + profile + " profile refuse the components named; each answers 503"
+                    + " until it is fixed");
             return REFUSED;
         }
-        out.println("clean under the " + profile + " profile: nothing would be refused" + (result.violations().isEmpty() ? ""
-                : " (" + result.violations().size() + " violation(s) the production profile would refuse)"));
+        out.println("clean under the " + profile + " profile: nothing would be refused" + (notRefusing == 0 ? ""
+                : " (" + notRefusing + " violation(s) listed that refuse nothing here" + (result.profile().isDevelopment()
+                        ? "; the production profile would judge them" : "") + ")"));
         return CLEAN;
     }
 

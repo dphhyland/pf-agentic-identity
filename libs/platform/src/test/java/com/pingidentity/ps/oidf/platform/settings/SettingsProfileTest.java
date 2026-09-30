@@ -61,7 +61,8 @@ class SettingsProfileTest {
             assertTrue(r.legacy());
             assertEquals(spelling.trim(), r.legacySpelling());
             assertEquals("OIDF_READS_SWITCH is '" + spelling.trim() + "', a spelling only the reader before 0.6.0 took; it is read as"
-                    + " false, as that reader read it. Write false (or the value you meant): the production profile refuses this"
+                    + " false (docs/development/settings-catalogue.md, \"Legacy spellings\", names what each reader before 0.6.0 made"
+                    + " of it). Write false (or the value you meant): the production profile refuses this"
                     + " spelling, and development stops taking it at 1.0", this.warned.get(0));
             assertTrue(Settings.legacySpellings().contains("OIDF_READS_SWITCH = '" + spelling.trim() + "', read as false"),
                     Settings.legacySpellings().toString());

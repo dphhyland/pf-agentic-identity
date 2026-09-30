@@ -208,7 +208,12 @@ forms, or leaves it to the default rule (`platform.settings.Governed`):
   none twice, and the default may not be one: unset would then be the case the profile governs, and nothing could see
   it.
 - `"governed": {"schemes": ["redis"]}` - a URL whose scheme, the text before `://` in any case, is one of these; for a
-  `string`, `secret`, `url` or `https-url` only. `OIDF_REDIS_URL` uses it for `redis://`.
+  `string`, `secret`, `url` or `https-url` only. `OIDF_REDIS_URL` uses it for `redis://`. It may add
+  `"unless_set": ["OIDF_REDIS_URL"]`: other entries of the same catalogue that the reader takes first. While any of
+  them is set (or set to something its resolver refuses, where the reader stops too), this entry is not read, so the
+  start-up sweep does not judge it. `REDIS_URL` uses it: `RedisConfig.url()` reads it only when `OIDF_REDIS_URL` and
+  `oidf.redis.url` are unset, so a managed Redis's `redis://` `REDIS_URL` beside a `rediss://` `OIDF_REDIS_URL` refuses
+  nothing. The loader and the scan refuse a name that is not an entry of the catalogue, the entry's own, or one twice.
 - Absent - the default rule: a `bool` governs every value but its default; a `choice` of exactly two with a default
   governs the other one; a type with no default governs any value set. Any other classed entry - a `choice` of more
   than two, a number or text with a default - must say, and the loader refuses it until it does.

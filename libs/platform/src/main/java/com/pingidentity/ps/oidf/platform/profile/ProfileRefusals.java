@@ -116,6 +116,41 @@ public final class ProfileRefusals {
     }
 
     /**
+     * The components {@code v} refuses under production, given each one's switch - the rule
+     * {@code platform.health.Startup.begin} applies to each part it registers: none switched off (switching a component
+     * off is never a violation), and for a {@code required-in-production} setting only those switched on. The start-up
+     * log, the banner and {@code Preflight} all judge a violation by it, so they say what the server does.
+     */
+    public static List<String> refusedBy(ProfileAudit.Violation v, Predicate<String> switchedOn, Predicate<String> switchedOff) {
+        List<String> out = new ArrayList<>();
+        for (String component : v.components()) {
+            if (!switchedOff.test(component) && (v.kind() != ProfileAudit.Kind.REQUIRED || switchedOn.test(component))) {
+                out.add(component);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * How the start-up log, the banner and {@code Preflight} label a violation: {@code REFUSED: } when it refuses a
+     * component ({@link #refusedBy}); otherwise {@code not refused (development): } under development,
+     * {@code not refused (not switched on): } for a required setting, {@code not refused (names no component): } for one
+     * that names none, and {@code not refused (switched off): } for one whose components are all switched off.
+     */
+    public static String label(ProfileAudit.Violation v, DeploymentProfile profile, boolean refusing) {
+        if (refusing) {
+            return "REFUSED: ";
+        }
+        if (profile.isDevelopment()) {
+            return "not refused (development): ";
+        }
+        if (v.kind() == ProfileAudit.Kind.REQUIRED) {
+            return "not refused (not switched on): ";
+        }
+        return v.components().isEmpty() ? "not refused (names no component): " : "not refused (switched off): ";
+    }
+
+    /**
      * The violations of {@code sweep} that refuse {@code component}, and the refusals made in code for it; nothing
      * from the sweep when there is none, and nothing at all under development.
      */

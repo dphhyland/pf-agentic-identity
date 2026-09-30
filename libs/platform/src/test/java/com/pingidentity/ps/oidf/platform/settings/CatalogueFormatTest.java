@@ -211,6 +211,32 @@ class CatalogueFormatTest {
     }
 
     @Test
+    void unlessSetNamesTheEntriesTheReaderTakesFirst() {
+        String first = "{\"name\": \"OIDF_FMT_FIRST\", \"kind\": \"env\", \"type\": \"secret\", \"default\": null,"
+                + " \"profile\": \"any\", \"description\": \"d\", \"when_wrong\": {\"effect\": \"not-checked\", \"detail\": \"d\"},"
+                + " \"security\": true, \"sources\": [{\"from\": \"env\", \"name\": \"OIDF_FMT_FIRST\"}], \"aliases\": [],"
+                + " \"file\": false}";
+        String fallback = "\"type\": \"secret\", \"default\": null, \"profile\": \"forbidden-in-production\","
+                + " \"governed\": {\"schemes\": [\"redis\"], \"unless_set\": ";
+        Catalogue c = Catalogue.parse(catalogue("", first + "," + env(fallback + "[\"OIDF_FMT_FIRST\"]}")), "fmt.json");
+        Governed governed = c.setting("OIDF_FMT_X").governed();
+        assertEquals(List.of("OIDF_FMT_FIRST"), governed.unlessSet());
+        assertEquals(List.of(), only("\"type\": \"secret\", \"default\": null, \"profile\": \"forbidden-in-production\","
+                + " \"governed\": {\"schemes\": [\"redis\"]}").governed().unlessSet(), "an entry read on its own");
+        assertFalse(governed.equals(Governed.schemes(List.of("redis"))), "unless_set counts");
+        assertEquals(Governed.schemes(List.of("redis"), List.of("OIDF_FMT_FIRST")).hashCode(), governed.hashCode());
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> Catalogue.parse(catalogue("", env(fallback
+                + "[\"OIDF_FMT_NONE\"]}")), "fmt.json")).getMessage().endsWith("governed unless_set names OIDF_FMT_NONE, which"
+                        + " is not a setting of this catalogue"));
+        assertTrue(refusal(fallback + "[\"OIDF_FMT_X\"]}").endsWith("governed unless_set names other entries of this catalogue,"
+                + " each once, not 'OIDF_FMT_X'"));
+        assertTrue(refusal(fallback + "[\"A\", \"A\"]}").endsWith("each once, not 'A'"));
+        assertTrue(refusal(fallback + "[1]}").endsWith("each once, not a number"));
+        assertTrue(refusal(fallback + "[]}").endsWith("governed unless_set names at least one entry; leave it out for an entry"
+                + " read on its own"));
+    }
+
+    @Test
     void aSystemPropertyNameMayCarryUpperCaseLetters() {
         String json = catalogue("", "{\"name\": \"jdk.internal.httpclient.disableHostnameVerification\", \"kind\": \"system-property\","
                 + " \"type\": \"string\", \"default\": null, \"profile\": \"forbidden-in-production\", \"description\": \"d\","

@@ -51,6 +51,8 @@ class StartupAuditTest {
         assertEquals("REFUSED: ", StartupAudit.label(required, production, v -> true));
         assertEquals("not refused (not switched on): ", StartupAudit.label(required, production, v -> false));
         assertEquals("not refused (development): ", StartupAudit.label(required, DEVELOPMENT_AUDIT, v -> false));
+        ProfileAudit.Violation forbidden = DEVELOPMENT_AUDIT.violations().get(0);
+        assertEquals("not refused (switched off): ", StartupAudit.label(forbidden, production, v -> false));
     }
 
     private static Map<String, String> env(String profile, String risks) {

@@ -57,11 +57,13 @@ public final class Parsers {
 
     /**
      * The spellings of a switch that {@link #strictBoolean} refuses and the development profile still reads, with a
-     * warning, until 1.0 (Phase 3 plan, decision 11): every one is read as {@code false}, because that is what the
+     * warning, until 1.0 (Phase 3 plan, decision 11): every one is read as {@code false}, because that is what most
      * readers before 0.6.0 made of it - {@code Boolean.parseBoolean}, which answers true for {@code true} in any case
-     * and false for anything else, and {@code "true".equalsIgnoreCase(value.trim())} (docs/development/
-     * settings-catalogue.md, "Legacy spellings", lists each reader). None of them ever read {@code yes}, {@code 1} or
-     * {@code on} as true.
+     * and false for anything else, and {@code "true".equalsIgnoreCase(value.trim())}. Not every reader: two refused
+     * anything but {@code true} or {@code false}, and {@code PfAuditSink} reads anything but {@code false} as true for
+     * {@code OIDF_EVENTS_AUDIT} and keeps that rule when it is converted (docs/development/settings-catalogue.md,
+     * "Legacy spellings", lists each reader's rule). No reader read {@code yes}, {@code 1} or {@code on} as true where
+     * this escape reads it as false and so turns something on.
      */
     public static final List<String> LEGACY_BOOLEAN = List.of("yes", "no", "1", "0", "on", "off");
 

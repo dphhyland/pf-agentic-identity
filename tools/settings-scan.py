@@ -920,12 +920,16 @@ def governed_of(entry):
         raise ValueError(f"governed goes with forbidden-in-production or accepted-risk:<id>, not {profile}")
     governed = entry["governed"]
     if isinstance(governed, dict):
-        if set(governed) != {"schemes"} or kind not in ("string", "secret", "url", "https-url"):
+        if not {"schemes"} <= set(governed) <= {"schemes", "unless_set"} or kind not in ("string", "secret", "url", "https-url"):
             raise ValueError("governed {\"schemes\": [...]} goes with a string, secret, url or https-url")
         schemes = governed["schemes"]
         if not isinstance(schemes, list) or not schemes or len(set(map(str, schemes))) != len(schemes) or \
                 not all(isinstance(x, str) and SCHEME_RE.fullmatch(x) for x in schemes):
             raise ValueError("governed schemes are lower-case scheme names, at least one, each once")
+        unless = governed.get("unless_set", [None])
+        if "unless_set" in governed and (not isinstance(unless, list) or not unless or len(set(map(str, unless))) != len(unless)
+                                         or not all(isinstance(x, str) and x != entry["name"] for x in unless)):
+            raise ValueError("governed unless_set names other entries of this catalogue, at least one, each once")
         return ("schemes", list(schemes))
     if not isinstance(governed, list) or not governed or kind not in ("bool", "choice"):
         raise ValueError("governed values are a list, for a bool or a choice")
@@ -942,6 +946,13 @@ def governed_of(entry):
             raise ValueError(f"governed value {spelt} is the default")
         values.append(spelt)
     return ("values", values)
+
+
+def unless_set_of(entry):
+    """The entries of the same catalogue whose being set means `entry` is not read, so the profile does not judge it
+    (governed's unless_set, as platform.settings' Governed.unlessSet reads it); empty for an entry read on its own."""
+    governed = entry.get("governed")
+    return list(governed.get("unless_set", [])) if isinstance(governed, dict) else []
 
 
 def components_problems(components, at):
@@ -1031,6 +1042,13 @@ def check_catalogue(doc, where):
                 if not isinstance(source, dict) or set(source) != {"from", "name"} or source["from"] not in SOURCE_KINDS \
                         or not isinstance(source["name"], str) or not NAME_RES[source["from"]].fullmatch(source["name"]):
                     problems.append(f"{at}: source {source!r} is not {{from, name}} with a name its source can hold")
+    names = {e.get("name") for e in doc["settings"] if isinstance(e, dict)}
+    for entry in doc["settings"]:
+        if isinstance(entry, dict) and isinstance(entry.get("governed"), dict):
+            for other in entry["governed"].get("unless_set", []) if isinstance(entry["governed"].get("unless_set"), list) else []:
+                if other not in names:
+                    problems.append(f"{where}: {entry.get('name')}: governed unless_set names {other}, which is not a setting"
+                                    " of this catalogue")
     for i, gone in enumerate(doc["removed"]):
         if not isinstance(gone, dict) or set(gone) != {"name", "from", "replacement", "release"} or \
                 gone.get("from") not in REMOVED_KINDS:
