@@ -168,7 +168,7 @@
                                         <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.retentionFor(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.saturatingAdd(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.assertFresh(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig$Builder.positiveAge(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig.Builder.positiveAge(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

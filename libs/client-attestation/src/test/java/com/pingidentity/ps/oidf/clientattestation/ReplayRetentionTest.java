@@ -271,6 +271,9 @@ class ReplayRetentionTest {
         assertThrows(IllegalArgumentException.class, () -> b.popMaxAgeSeconds(0L));
         assertThrows(IllegalArgumentException.class, () -> b.dpopMaxAgeSeconds(-1L));
         assertThrows(NullPointerException.class, () -> b.clock(null));
+        ClientAttestationConfig tight = ClientAttestationConfig.builder().popMaxAgeSeconds(30L).dpopMaxAgeSeconds(45L).build();
+        assertEquals(30L, tight.popMaxAgeSeconds());
+        assertEquals(45L, tight.dpopMaxAgeSeconds());
         assertEquals(Clock.systemUTC(), ClientAttestationConfig.builder().build().clock());
     }
 
