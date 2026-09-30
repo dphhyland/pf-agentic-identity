@@ -17,6 +17,9 @@ import com.pingidentity.ps.oidf.platform.settings.Settings;
 import com.pingidentity.ps.oidf.platform.settings.Source;
 import com.pingidentity.ps.oidf.platform.settings.SourceName;
 import com.pingidentity.ps.oidf.platform.settings.Sources;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -26,6 +29,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Function;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Plan item ST-5 for servlets/ssf: {@link SsfConfiguration} reads every setting through the {@code ssf-transmitter}
@@ -172,6 +176,44 @@ class SsfSettingsTest {
                     env.put("OIDF_DEPLOYMENT_PROFILE", DEVELOPMENT); // a governed value from an init-param is refused in production
                 }
                 assertEquals(c.expected(), c.read().apply(read(env, props, init)), s.name() + " from " + source);
+            }
+        }
+    }
+
+    /** The five secrets, each of which may be given as a file through each source's {@code _FILE} variant. */
+    private static final List<String> SECRETS = List.of("OIDF_SSF_JDBC_PASSWORD", "OIDF_SSF_KAFKA_SASL_PASSWORD",
+            "OIDF_SSF_INTROSPECTION_CLIENT_SECRET", "OIDF_SSF_RECEIVER_ENDPOINT_AUTH_TOKEN", "OIDF_SSF_RECEIVER_POLL_TOKEN");
+
+    /**
+     * Each secret read from a file named by its {@code _FILE} variant in each source ({@code X_FILE},
+     * {@code oidf.ssf.x.file}, {@code xFile}), one trailing newline trimmed; the variant is a declared name, so the
+     * unknown-key sweep does not report it.
+     */
+    @Test
+    void everySecretIsReadFromAFileThroughEachSource(@TempDir Path dir) throws IOException {
+        List<String> secrets = new ArrayList<>();
+        for (Setting s : CATALOGUE.settings()) {
+            if (s.type() == SettingType.SECRET) {
+                secrets.add(s.name());
+            }
+        }
+        assertEquals(SECRETS, secrets);
+        for (String name : SECRETS) {
+            Setting s = CATALOGUE.setting(name);
+            assertEquals(3, s.fileVariants().size(), name);
+            assertTrue(CATALOGUE.declaredEnvironmentNames().contains(name + "_FILE"), name);
+            Path file = dir.resolve(name.toLowerCase(java.util.Locale.ROOT));
+            Files.writeString(file, "from-" + name + "\n");
+            for (SourceName variant : s.fileVariants()) {
+                Map<String, String> env = base(name);
+                Map<String, String> props = new HashMap<>();
+                Map<String, String> init = new HashMap<>();
+                Source source = variant.source();
+                (source == Source.INIT_PARAM ? init : source == Source.SYSTEM_PROPERTY ? props : env).put(variant.name(), file.toString());
+                if (source != Source.ENV) {
+                    env.put("OIDF_DEPLOYMENT_PROFILE", DEVELOPMENT);
+                }
+                assertEquals("from-" + name, CASES.get(name).read().apply(read(env, props, init)), name + " from " + variant.name());
             }
         }
     }

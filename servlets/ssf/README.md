@@ -83,8 +83,9 @@ Every setting is read through the `ssf-transmitter` catalogue ([docs/configurati
 generated from it) with platform's `Settings`: the servlet's init-param, then the system property
 `oidf.ssf.<init-param>` (PF loads `run.properties` as system properties), then `OIDF_SSF_<UPPER_SNAKE>` - the
 order `SsfConfiguration.param` used before 0.6.0, and all 43 names of each are catalogued, so an image-baked PF
-needs no `web.xml` (only `SsfConfigurationServlet`'s init-params count; the other servlets read none). A secret may
-be given as a file (`OIDF_SSF_JDBC_PASSWORD_FILE` and the like). Only `issuer` is required (`OIDF_SSF_ISSUER` - the
+needs no `web.xml` (only `SsfConfigurationServlet`'s init-params count; the other servlets read none). Each of the
+five secrets may be given as a file, through its `_FILE` variant in any source (`OIDF_SSF_JDBC_PASSWORD_FILE`,
+`oidf.ssf.jdbcPassword.file` or the init-param `jdbcPasswordFile`). Only `issuer` is required (`OIDF_SSF_ISSUER` - the
 SET `iss` and the base of `jwks_uri`, so it must be the external base receivers use). `OIDF_SSF_ENABLED` and
 `OIDF_SSF_RECEIVER_ENABLED` switch the two components ([docs/operator/components.md](../../docs/operator/components.md)).
 

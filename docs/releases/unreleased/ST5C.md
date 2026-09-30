@@ -6,8 +6,11 @@
   (plan item ST-5): the servlet's init-param, then the system property `oidf.ssf.<init-param>`, then
   `OIDF_SSF_<UPPER_SNAKE>`, the order `SsfConfiguration.param` used. The 42 camelCase system properties
   (`oidf.ssf.signingAlgorithm` and the rest) are catalogued under their real names, so nothing that was read stops
-  being read (finding F-0235, closed), and a secret can be given as a file (`OIDF_SSF_JDBC_PASSWORD_FILE` and the
-  like). The logout filter's `OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM` is read through `ssf-logout-signal` the same way.
+  being read (finding F-0235, closed). The five secrets (`OIDF_SSF_JDBC_PASSWORD`, `OIDF_SSF_KAFKA_SASL_PASSWORD`,
+  `OIDF_SSF_INTROSPECTION_CLIENT_SECRET`, `OIDF_SSF_RECEIVER_ENDPOINT_AUTH_TOKEN`, `OIDF_SSF_RECEIVER_POLL_TOKEN`) can
+  now be given as a file: `OIDF_SSF_JDBC_PASSWORD_FILE`, the system property `oidf.ssf.jdbcPassword.file` or the
+  init-param `jdbcPasswordFile` names a file whose content, one trailing newline trimmed, is the value; setting a
+  name and its file variant together is refused, naming both. The logout filter's `OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM` is read through `ssf-logout-signal` the same way.
 - Values are parsed strictly and every refusal names its setting: the seven switches are `true` or `false`, the six
   numbers whole numbers, the three choices one of their choices (in any case now: `rs256` is `RS256`), and the three
   URLs http or https URLs with a host.
@@ -92,11 +95,15 @@ conformance profile's settings, development profile, a suite at release-v5.3.1 f
 the branch at `d63629ea`: `openid-ssf-transmitter-test-plan` (poll), plan `UMrqIK7ZhRNrR`, 19 of 19 PASSED;
 `openid-ssf-transmitter-caep-test-plan`, plan `T2nmjH2FzFLcC`, 13 of 13 PASSED. Start-up on the same rig: with
 `OIDF_SSF_JDBC_URL` naming a PostgreSQL that was not running, SSF was `FAILED_DEPENDENCY` with 503 on its endpoints,
-and the supervisor's attempt 38 s after the database started made it `READY` (U-0282, closed); at `2d952243`,
+and the supervisor's attempt 38 s after the database started made it `READY` (recorded on U-0282, which stays open
+until the retries metric and a thread dump are read); at `2d952243`,
 `OIDF_SSF_PUSH_RETRY_MAX_ATTEMPTS=lots` gave `FAILED_CONFIG` with the ERROR naming it and 503,
 `OIDF_SSF_VERIFICATION_EVENT_ENABLED=yes` was read as `false` with the legacy WARN, and `OIDF_SSF_ENABLED=false` gave
 `DISABLED` and 404. The production refusals were not seen on a running PingFederate: the image refuses the rig's
-plaintext archive in production (U-0340).
+plaintext archive in production (U-0340). The two plans ran at `d63629ea`; the later commits change the receiver's
+part (a receiver nobody configured stays `DISABLED`), narrow the receiver's settings to `SSF_RECEIVER` for the
+production refusals, and let the five secrets be read from a file, none of which the transmitter's poll or CAEP plans
+exercise. The receiver change was seen on the rig at `2d952243`.
 
 **Found on the way.** The image carries no PostgreSQL JDBC driver, so `OIDF_SSF_JDBC_URL` cannot open a store in it
 (F-0330); a receiver JWKS that cannot be reached is not a start-up failure, since it is fetched on the first SET
@@ -106,12 +113,13 @@ plaintext archive in production (U-0340).
 management, poll, `events:emit`, SCIM) got the gate as their first statement, one call each, because "the endpoints
 503 in between" needs it; S9B replaces the floor with each surface's own rule. docs/operator/components.md's SSF
 paragraph was rewritten because it said the switches did not apply. A choice is now read in any case, as platform's
-parser reads every choice. The specification's "FAILED_DEPENDENCY for a JWKS that is unreachable" is F-0331.
+parser reads every choice. The specification's "FAILED_DEPENDENCY for a JWKS that is unreachable" is F-0331. F-0271 and F-0295, which the
+specification did not allocate, are closed here because both carry plan item ST-5 and this change is what closes them.
 
-**Tests.** servlets/ssf's 427 tests with its method coverage gate (the start-up's methods added to it) on JDK 20 and
+**Tests.** servlets/ssf's 428 tests with its method coverage gate (the start-up's methods added to it) on JDK 20 and
 17, and on the image's java 21; `SsfSettingsTest` reads every setting from each of its three sources and refuses a
-bad value of each, `SsfComponentsTest` drives the start functions through a supervisor with a hand-run scheduler, and
+bad value of each and each secret from a file through each source, `SsfComponentsTest` drives the start functions through a supervisor with a hand-run scheduler, and
 `SsfSupportBootTest` has four threads read the state while it is being built.
 
-**Findings.** Closes F-0040, F-0191, F-0235, F-0237, F-0271 and F-0295, and U-0282; opens F-0330, F-0331, F-0332 and
-U-0340. F-0025 is the umbrella (plan decision 6: named, not edited).
+**Findings.** Closes F-0040, F-0191, F-0235, F-0237, F-0271 and F-0295; adds evidence to U-0282 (open); opens
+F-0330, F-0331, F-0332 and U-0340. F-0025 is the umbrella (plan decision 6: named, not edited).

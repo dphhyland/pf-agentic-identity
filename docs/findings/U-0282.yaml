@@ -2,7 +2,7 @@ id: U-0282
 title: The supervisor's retry of a part that failed on a dependency has not been seen in a running PingFederate
 area: platform
 source: design
-status: closed
+status: open
 plan_items: [S9a]
 prs: [72, 82]
 recorded_in: docs/operator/components.md, What a component does when it fails; libs/platform/README.md, component
@@ -16,15 +16,7 @@ verify_by: >
   FAILED_DEPENDENCY in the start-up audit, a thread named for the component-supervisor executor in a thread dump,
   oidf_component_retries_total{component="AUTO_REGISTRATION"} rising in the webapp's metrics MXBean, and the part
   READY within 300 s of the file appearing, with no retry after that.
-verification: >
-  Seen 2026-09-30 by package ST5C on the rig (slot 3, PingFederate 13.1.3.0 on java 21.0.12.1, prod/p3-ssf-settings at
-  d63629ea, development profile), with the SSF transmitter, which ST-5 moved onto Part.start, instead of automatic
-  registration: OIDF_SSF_JDBC_URL named a PostgreSQL that was not running (and the driver was copied into
-  server/default/lib - F-0330). The start-up audit showed SSF FAILED_DEPENDENCY; the server log showed the supervisor's
-  attempts ("Component SSF: FAILED_DEPENDENCY -> STARTING" at 07:09:27 and 07:09:37 UTC, each followed by the ERROR
-  naming the refused connection); the database was started at 07:09:39 and the next attempt, at 07:10:17, opened the
-  store and moved SSF to READY, after which no further attempt was logged. The retries metric and a thread dump were not
-  read.
+verification: ''
 notes: >
   Package S9A (2026-09-30) tested the backoff and its jitter bounds with a fake clock and scheduler, retry to READY,
   no retry of FAILED_CONFIG, and no schedule in a copy that is not the webapp's (SupervisorTest,
@@ -33,3 +25,12 @@ notes: >
   reads (the federation error page) realistically fails on a dependency today - the stores are not contacted until
   the first request, and a RAR models file that cannot be read is a RarModelException without its cause, so
   FAILED_CONFIG.
+
+  Package ST5C (2026-09-30) saw part of it on the rig (slot 3, PingFederate 13.1.3.0 on java 21.0.12.1,
+  prod/p3-ssf-settings at d63629ea, development profile), with the SSF transmitter, which ST-5 moved onto Part.start,
+  instead of automatic registration: OIDF_SSF_JDBC_URL named a PostgreSQL that was not running (the driver copied into
+  server/default/lib - F-0330). The start-up audit showed SSF FAILED_DEPENDENCY; the server log showed the supervisor's
+  attempts ("Component SSF: FAILED_DEPENDENCY -> STARTING" at 07:09:27 and 07:09:37 UTC, each followed by the ERROR
+  naming the refused connection); the database was started at 07:09:39 and the next attempt, at 07:10:17, opened the
+  store and moved SSF to READY, after which no further attempt was logged. Left open: the retries metric and a thread
+  dump, which verify_by asks for, were not read.

@@ -245,7 +245,7 @@
         }
       ],
       "aliases": [],
-      "file": false
+      "file": true
     },
     {
       "name": "OIDF_SSF_KAFKA_ENABLED",
@@ -448,7 +448,7 @@
         }
       ],
       "aliases": [],
-      "file": false
+      "file": true
     },
     {
       "name": "OIDF_SSF_PUSH_RETRY_MAX_ATTEMPTS",
@@ -775,7 +775,7 @@
         }
       ],
       "aliases": [],
-      "file": false
+      "file": true
     },
     {
       "name": "OIDF_SSF_INTROSPECTION_INSECURE_TLS",
@@ -1020,7 +1020,7 @@
         }
       ],
       "aliases": [],
-      "file": false,
+      "file": true,
       "components": [
         "SSF_RECEIVER"
       ]
@@ -1150,7 +1150,7 @@
         }
       ],
       "aliases": [],
-      "file": false,
+      "file": true,
       "components": [
         "SSF_RECEIVER"
       ]
