@@ -335,6 +335,60 @@ class SsfSettingsTest {
         assertEquals("OIDF_SSF_ALLOWED_AUDIENCES", e.setting());
     }
 
+    /** The receiver's client and managed stream settings come in sets; each wrong set names the setting to change. */
+    @Test
+    void theReceiversClientAndStreamSettingsAreRefusedOutOfTheirSets() {
+        String token = "OIDF_SSF_RECEIVER_TOKEN_ENDPOINT";
+        String id = "OIDF_SSF_RECEIVER_CLIENT_ID";
+        String secret = "OIDF_SSF_RECEIVER_CLIENT_SECRET";
+        String key = "OIDF_SSF_RECEIVER_CLIENT_KEY";
+        String config = "OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL";
+        String[][] cases = {
+            {id, "rx", "", "", token, "OIDF_SSF_RECEIVER_TOKEN_ENDPOINT is required when the receiver has a client"},
+            {secret, "s", "", "", token, null},
+            {key, CLIENT_JWK, "", "", token, null},
+            {token, "https://as.example.com/t", "", "", id, "OIDF_SSF_RECEIVER_CLIENT_ID is required with OIDF_SSF_RECEIVER_TOKEN_ENDPOINT"},
+            {token, "https://as.example.com/t", id, "rx", secret, "set one of OIDF_SSF_RECEIVER_CLIENT_SECRET and"
+                    + " OIDF_SSF_RECEIVER_CLIENT_KEY with OIDF_SSF_RECEIVER_TOKEN_ENDPOINT, not neither"},
+            {key, "{\"kty\":\"oct\",\"k\":\"AAAA\"}", token, "https://as.example.com/t", key, null},
+            {config, "https://tx.example.com/.well-known/ssf-configuration", "", "", config, null},
+            {"OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL", "https://me.example.com/events", "", "", "OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL", null},
+        };
+        for (String[] c : cases) {
+            Map<String, String> env = new HashMap<>(Map.of("OIDF_SSF_ISSUER", "https://op.example.com", c[0], c[1]));
+            if (!c[2].isEmpty()) {
+                env.put(c[2], c[3]);
+            }
+            if (c[0].equals(key) && !c[2].isEmpty()) {
+                env.put(id, "rx");
+            }
+            SettingRefused e = assertThrows(SettingRefused.class, () -> read(env, Map.of(), Map.of()), c[0]);
+            assertEquals(c[4], e.setting(), c[0]);
+            if (c[5] != null) {
+                assertTrue(e.getMessage().startsWith(c[5]), e.getMessage());
+            }
+        }
+        Map<String, String> both = new HashMap<>(Map.of("OIDF_SSF_ISSUER", "https://op.example.com", token, "https://as.example.com/t",
+                id, "rx", secret, "s", key, CLIENT_JWK));
+        assertEquals(secret, assertThrows(SettingRefused.class, () -> read(both, Map.of(), Map.of())).setting());
+        both.remove(key);
+        both.put("OIDF_SSF_RECEIVER_POLL_TOKEN", "pt");
+        assertEquals("OIDF_SSF_RECEIVER_POLL_TOKEN", assertThrows(SettingRefused.class, () -> read(both, Map.of(), Map.of())).setting());
+        both.put("OIDF_SSF_RECEIVER_POLL_TOKEN", " ");
+        assertEquals("rx", read(both, Map.of(), Map.of()).receiverClientId(), "a blank poll token is none");
+        both.put(config, "https://tx.example.com/.well-known/ssf-configuration");
+        both.put("OIDF_SSF_RECEIVER_POLL_URL", "https://tx.example.com/poll");
+        assertEquals("OIDF_SSF_RECEIVER_POLL_URL", assertThrows(SettingRefused.class, () -> read(both, Map.of(), Map.of())).setting());
+        both.remove("OIDF_SSF_RECEIVER_POLL_URL");
+        both.put("OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL", "https://me.example.com/events");
+        assertEquals("https://me.example.com/events", read(both, Map.of(), Map.of()).receiverPushEndpointUrl());
+        Map<String, String> devToken = new HashMap<>(Map.of("OIDF_SSF_ISSUER", "https://op.example.com", config,
+                "https://tx.example.com/.well-known/ssf-configuration", "OIDF_SSF_RECEIVER_POLL_TOKEN", " "));
+        assertEquals(config, assertThrows(SettingRefused.class, () -> read(devToken, Map.of(), Map.of())).setting());
+        devToken.put("OIDF_SSF_RECEIVER_POLL_TOKEN", "pt");
+        assertEquals(SsfConfiguration.RECEIVER_DEFAULT_EVENTS, read(devToken, Map.of(), Map.of()).receiverEventsRequested());
+    }
+
     /**
      * The seven switches are {@code true} or {@code false} (any case) in both profiles; a legacy spelling is refused in
      * production and read as the reader before 0.6.0 read it - {@code false}, whatever the default - in development.

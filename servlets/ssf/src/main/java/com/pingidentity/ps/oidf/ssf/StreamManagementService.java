@@ -393,15 +393,12 @@ public final class StreamManagementService {
         return new Polled(out, n == 0 && cap > 0 ? Duration.ofSeconds(this.config.pollLongPollWaitSeconds()) : Duration.ZERO);
     }
 
-    /** Whether the stream has a SET waiting that has not expired: the long poll's cheap check between polls. */
+    /**
+     * Whether the stream has a SET queued: the long poll's cheap check between polls, one row at most. An expired SET
+     * counts; the full poll it triggers evicts it and returns nothing, and the poll goes on waiting.
+     */
     public boolean hasPending(String streamId) {
-        long now = SetMinter.nowSeconds();
-        for (PendingSet p : this.store.peek(streamId, 1)) {
-            if (p.expiresAt() == 0 || p.expiresAt() > now) {
-                return true;
-            }
-        }
-        return false;
+        return !this.store.peek(streamId, 1).isEmpty();
     }
 
     private void recordSetErrors(String streamId, Map<String, Map<String, Object>> setErrs) {
