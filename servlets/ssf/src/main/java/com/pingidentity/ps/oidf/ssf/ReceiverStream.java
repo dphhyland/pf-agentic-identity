@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.platform.events.LogSafe;
 import java.util.Objects;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -49,7 +50,8 @@ public final class ReceiverStream {
         ReceiverStreamClient.Setup done = ReceiverStreamClient.ensure(this.http, this.plan);
         this.receiver.criticalSubjectMembers(done.criticalSubjectMembers());
         this.setup = done;
-        LOGGER.info((Object) ("SSF receiver: stream " + done.streamId() + " at " + this.plan.expectedIssuer() + " is set up ("
+        LOGGER.info((Object) ("SSF receiver: stream " + LogSafe.value(done.streamId()) + " at " + this.plan.expectedIssuer()
+                + " is set up ("
                 + (done.pollUrl() == null ? "push to " + this.plan.pushEndpointUrl() : "poll") + ", "
                 + this.plan.events().size() + " event type(s) requested)"));
         return done;

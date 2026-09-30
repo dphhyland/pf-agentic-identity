@@ -26,6 +26,7 @@ refuses are named at the top of the page.
 | `OIDF_SSF_JDBC_URL` | set | `SSF`, `SSF_RECEIVER` |
 | `OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM` | `true` | `SSF` |
 | `OIDF_SSF_RECEIVER_POLL_TOKEN` (the static development token; production uses the receiver's client, `OIDF_SSF_RECEIVER_TOKEN_ENDPOINT`) | set | `SSF_RECEIVER` |
+| `OIDF_SSF_RECEIVER_TOKEN_ENDPOINT`, `OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL`, `OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL` | an `http://` URL (the receiver's tokens would cross the network in clear) | `SSF_RECEIVER` |
 | `OIDF_AUTHORITY_JDBC_URL` | set | `HOSTING`, `OPERATOR_API` |
 | `OIDF_OPERATOR_INSECURE_TLS` | `true` | `OPERATOR_API` |
 | `OIDF_ATTESTER_CIMD_URL` | set | `ATTESTATION_ISSUER` |

@@ -1319,9 +1319,14 @@
       "description": "The transmitter's authorization server token endpoint, where the receiver gets its poll and stream token by client credentials",
       "when_wrong": {
         "effect": "doesnt-start",
-        "detail": "Not an http or https URL with a host, or set without OIDF_SSF_RECEIVER_CLIENT_ID and one of its secret or key: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The wrong endpoint: each poll fails and is logged, and a managed stream leaves SSF_RECEIVER FAILED_DEPENDENCY"
+        "detail": "Not an http or https URL with a host, or set without OIDF_SSF_RECEIVER_CLIENT_ID and one of its secret or key: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The wrong endpoint: each poll fails and is logged, and a managed stream leaves SSF_RECEIVER FAILED_DEPENDENCY. An http URL under the production profile refuses SSF_RECEIVER: the client's credentials and the token it gets would cross the network in clear (RFC 6749 §3.2: the authorization server \"MUST require the use of TLS\" at the token endpoint)"
       },
-      "profile": "any",
+      "profile": "forbidden-in-production",
+      "governed": {
+        "schemes": [
+          "http"
+        ]
+      },
       "security": true,
       "sources": [
         {
@@ -1479,9 +1484,14 @@
       "description": "The transmitter's configuration metadata (its /.well-known/ssf-configuration); set, the receiver creates or finds its own stream there at start-up and keeps it in step with its settings",
       "when_wrong": {
         "effect": "doesnt-start",
-        "detail": "Not an http or https URL with a host, set with OIDF_SSF_RECEIVER_POLL_URL, or set with no token (OIDF_SSF_RECEIVER_TOKEN_ENDPOINT or, in development, OIDF_SSF_RECEIVER_POLL_TOKEN): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. A transmitter that cannot be reached or refuses: SSF_RECEIVER is FAILED_DEPENDENCY and retried; one whose issuer or stream audience is not the receiver's: SSF_RECEIVER is FAILED_CONFIG"
+        "detail": "Not an http or https URL with a host, set with OIDF_SSF_RECEIVER_POLL_URL, or set with no token (OIDF_SSF_RECEIVER_TOKEN_ENDPOINT or, in development, OIDF_SSF_RECEIVER_POLL_TOKEN): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. A transmitter that cannot be reached or refuses: SSF_RECEIVER is FAILED_DEPENDENCY and retried; one whose issuer or stream audience is not the receiver's: SSF_RECEIVER is FAILED_CONFIG. An http URL under the production profile refuses SSF_RECEIVER: the receiver's token, and a push stream's endpoint token, would cross the network in clear; the transmitter's endpoints must then be https too (SSF 1.0 §7.1)"
       },
-      "profile": "any",
+      "profile": "forbidden-in-production",
+      "governed": {
+        "schemes": [
+          "http"
+        ]
+      },
       "security": true,
       "sources": [
         {
@@ -1511,9 +1521,14 @@
       "description": "Where the transmitter should push to - this receiver's public /ssf/receiver/events URL - for the stream the receiver manages; unset, the stream is a poll stream",
       "when_wrong": {
         "effect": "doesnt-start",
-        "detail": "Not an http or https URL with a host, or set without OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The wrong URL: nothing arrives"
+        "detail": "Not an http or https URL with a host, or set without OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The wrong URL: nothing arrives. An http URL under the production profile refuses SSF_RECEIVER: the transmitter would push SETs and present the receiver's endpoint token in clear"
       },
-      "profile": "any",
+      "profile": "forbidden-in-production",
+      "governed": {
+        "schemes": [
+          "http"
+        ]
+      },
       "security": true,
       "sources": [
         {

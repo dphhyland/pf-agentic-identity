@@ -6,6 +6,7 @@ package com.pingidentity.ps.oidf.servlet.ssf;
 import com.pingidentity.ps.oidf.platform.component.ComponentState;
 import com.pingidentity.ps.oidf.platform.component.ComponentStatus;
 import com.pingidentity.ps.oidf.platform.component.ComponentSwitches;
+import com.pingidentity.ps.oidf.platform.events.LogSafe;
 import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.platform.profile.AcceptedRisk;
@@ -288,14 +289,14 @@ final class SsfComponents {
             stream.ensure();
         } catch (ReceiverStreamClient.Misconfigured e) {
             LOG.error((Object) ("SSF receiver NOT started: its stream at the transmitter does not match its settings: "
-                    + e.getMessage()));
+                    + LogSafe.value(e.getMessage())));
             part.failedConfig("the receiver's stream: " + e.getMessage());
         } catch (Exception e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
-            LOG.warn((Object) ("SSF receiver waiting for its transmitter: its stream could not be set up (" + e
-                    + "); the supervisor tries again"));
+            LOG.warn((Object) ("SSF receiver waiting for its transmitter: its stream could not be set up ("
+                    + LogSafe.value(String.valueOf(e)) + "); the supervisor tries again"));
             part.failedDependency("the receiver's stream could not be set up at the transmitter: " + e.getMessage());
         }
     }

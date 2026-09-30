@@ -40,7 +40,7 @@ class ReceiverStreamSetupTest {
     }
 
     /** A fake transmitter: metadata, a list of streams, and what create and update answer. */
-    private static final class Transmitter implements ReceiverStreamClient.HttpJson {
+    private static class Transmitter implements ReceiverStreamClient.HttpJson {
         final List<Call> calls = new ArrayList<>();
         String metadata = "{\"issuer\":\"" + ISS + "\",\"configuration_endpoint\":\"" + STREAMS
                 + "\",\"critical_subject_members\":[\"session\",7]}";
@@ -151,6 +151,61 @@ class ReceiverStreamSetupTest {
             assertEquals("DELETE", last.method());
             assertEquals(STREAMS + "?stream_id=s-9", last.url());
         }
+    }
+
+    /**
+     * The receiver's token goes to URLs the transmitter names only over TLS. SSF 1.0 §7.1, configuration_endpoint: "If
+     * present, this URL MUST use HTTP over TLS [RFC9110]"; RFC 8936 §3: "The SET delivery method described in this
+     * specification is based upon HTTP over TLS [RFC2818]". A created stream whose poll URL is refused is deleted again.
+     */
+    @Test
+    @Requirement("SSF §7.1")
+    void aTransmitterThatNamesAnHttpEndpointIsMisconfigured() {
+        Transmitter tx = new Transmitter();
+        tx.metadata = "{\"issuer\":\"" + ISS + "\",\"configuration_endpoint\":\"http://tx.example.com/ssf/streams\"}";
+        ReceiverStreamClient.Misconfigured e = assertThrows(ReceiverStreamClient.Misconfigured.class,
+                () -> ReceiverStreamClient.ensure(tx, poll()));
+        assertTrue(e.getMessage().startsWith("the transmitter names configuration_endpoint http://tx.example.com/ssf/streams,"
+                + " which is not https"), e.getMessage());
+        assertEquals(1, tx.calls.size(), "no token was sent there");
+
+        Transmitter plain = new Transmitter();
+        plain.written = stream("s-7", ISS, AUD, POLL, "http://tx.example.com/poll");
+        assertThrows(ReceiverStreamClient.Misconfigured.class, () -> ReceiverStreamClient.ensure(plain, poll()));
+        Call last = plain.calls.get(plain.calls.size() - 1);
+        assertEquals("DELETE", last.method());
+        assertEquals(STREAMS + "?stream_id=s-7", last.url());
+    }
+
+    /** Development only: a configuration URL that is itself http lets the transmitter name http endpoints. */
+    @Test
+    void anHttpConfigurationUrlAcceptsHttpEndpoints() throws Exception {
+        String base = "http://127.0.0.1:9";
+        ReceiverStreamClient.HttpJson tx = (method, url, body) -> url.endsWith("/ssf-configuration")
+                ? "{\"issuer\":\"" + ISS + "\",\"configuration_endpoint\":\"" + base + "/ssf/streams\"}"
+                : "GET".equals(method) ? "[]" : stream("s-8", ISS, AUD, POLL, base + "/poll");
+        ReceiverStreamClient.Plan plan = new ReceiverStreamClient.Plan(base + "/.well-known/ssf-configuration", ISS, AUD,
+                List.of(SsfEventTypes.CAEP_SESSION_REVOKED), null, null);
+        assertEquals(base + "/poll", ReceiverStreamClient.ensure(tx, plan).pollUrl());
+    }
+
+    /** A delete that fails does not hide why the stream was refused: it rides along as suppressed. */
+    @Test
+    void aDeleteThatFailsIsSuppressedBehindTheRefusal() {
+        Transmitter tx = new Transmitter() {
+            @Override
+            public String call(String method, String url, String bodyJson) throws Exception {
+                if ("DELETE".equals(method)) {
+                    throw new InterruptedException("stopping");
+                }
+                return super.call(method, url, bodyJson);
+            }
+        };
+        tx.written = stream("s-6", ISS, "someone-else", POLL, ISS + "/poll");
+        ReceiverStreamClient.Misconfigured e = assertThrows(ReceiverStreamClient.Misconfigured.class,
+                () -> ReceiverStreamClient.ensure(tx, poll()));
+        assertEquals(1, e.getSuppressed().length);
+        assertTrue(Thread.interrupted(), "the interrupt is kept");
     }
 
     @Test

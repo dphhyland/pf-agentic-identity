@@ -21,7 +21,12 @@
 - With `OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL` the receiver creates or finds its own stream at the
   transmitter at start-up and keeps its events (`OIDF_SSF_RECEIVER_EVENTS_REQUESTED`) and, for push
   (`OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL`), its delivery in step; a transmitter that refuses leaves `SSF_RECEIVER`
-  `FAILED_DEPENDENCY`, retried by the supervisor, and a stream it created and cannot accept is deleted again.
+  `FAILED_DEPENDENCY`, retried by the supervisor, and a stream it created and cannot accept is deleted again. A
+  `configuration_endpoint` or poll `endpoint_url` the transmitter names that is not https leaves `SSF_RECEIVER`
+  `FAILED_CONFIG`, and the receiver's token is not sent there (SSF 1.0 §7.1, RFC 8936 §3).
+- `OIDF_SSF_RECEIVER_TOKEN_ENDPOINT`, `OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL` and
+  `OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL` are classed forbidden in production when they are http URLs.
+- The poll endpoint holds at most 256 long polls at once in each copy; past that a poll is answered at once.
 - The poll endpoint caps `maxEvents` (`OIDF_SSF_POLL_MAX_EVENTS_CAP`, 100, 1-1000), records `setErrs` (logged,
   counted as `ssf.poll.set_error`, the SET released), returns nothing for a paused or disabled stream, and treats a
   poll whose `returnImmediately` is not `true` as a long poll, held for up to `OIDF_SSF_POLL_LONG_POLL_WAIT_SECONDS`
@@ -73,6 +78,21 @@
    subject's iss '...' is neither the SET's issuer nor this PingFederate's", and
    `oidf_events_total{code="ssf.receiver.subject_unmapped"}` rises. Development-profile escape: none; the list is the
    escape, in any profile.
+5. **The receiver's token and stream URLs are https in production.** What to do: give
+   `OIDF_SSF_RECEIVER_TOKEN_ENDPOINT`, `OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL` and
+   `OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL` https URLs, and use a transmitter whose configuration names https endpoints.
+   Why: the receiver sends its client credentials to the token endpoint, its token to the transmitter's stream and poll
+   endpoints, and a push stream's endpoint token in the stream it creates - over http all of them cross the network in
+   clear. RFC 6749 §3.2: the authorization server "MUST require the use of TLS as described in Section 1.6 when sending
+   requests to the token endpoint"; SSF 1.0 §7.1 on `configuration_endpoint`: "If present, this URL MUST use HTTP over
+   TLS [RFC9110]". What now happens: in production an http URL in any of the three refuses `SSF_RECEIVER` (its
+   endpoint answers 503 and the start-up audit names the setting); in every profile, a transmitter reached over https
+   that names an http `configuration_endpoint` or poll `endpoint_url` leaves `SSF_RECEIVER` `FAILED_CONFIG`, and a
+   stream it had just created is deleted again. How to tell: the start-up audit's "SSF_RECEIVER REFUSED" line names
+   the setting, or server.log's ERROR "SSF receiver NOT started: its stream at the transmitter does not match its
+   settings: the transmitter names ... which is not https". Development-profile escape: with
+   `OIDF_DEPLOYMENT_PROFILE=development` an http configuration URL is allowed, and the transmitter it names may then
+   name http endpoints too.
 
 ## Notes
 
@@ -101,4 +121,5 @@
   platform.http (wave 6).
 - `mvn verify` of servlets/ssf passed on JDK 20 and 17 (486 tests, the 100% METHOD gate with the new methods in it)
   and the tests on JDK 21.0.12 (`maven:3-eclipse-temurin-21`); `EventsCataloguedTest` passed with the two new
-  catalogues.
+  catalogues. After review (2026-09-30), with the https rules, the long-poll cap and the listener ordering: 491 tests
+  on JDK 17, the METHOD gate met.

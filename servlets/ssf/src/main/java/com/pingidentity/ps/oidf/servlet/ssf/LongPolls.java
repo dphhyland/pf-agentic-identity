@@ -37,6 +37,11 @@ final class LongPolls {
     static final String EXECUTOR_NAME = "ssf-long-poll";
     /** How often the held polls are checked. */
     static final Duration TICK = Duration.ofMillis(250);
+    /**
+     * The most polls held at once in this copy. Each is an open connection and a one-row read of the store per tick, so
+     * past this a poll is answered at once, as a wait of 0 would answer it, and the receiver polls again.
+     */
+    static final int MAX_HELD = 256;
 
     /** One held poll. */
     private record Held(long deadlineMillis, BooleanSupplier ready, Supplier<Map<String, Object>> poll,
@@ -60,12 +65,16 @@ final class LongPolls {
 
     /**
      * Holds a poll until {@code ready} says a SET is waiting - then {@code answer} gets {@code poll}'s body - or until
-     * {@code wait} has passed - then it gets {@code empty}. Returns the handle that ends it early ({@link #finish}), or
-     * empty when this copy may not start the executor, and the caller answers at once.
+     * {@code wait} has passed - then it gets {@code empty}. Returns the handle that ends it early, or empty when this
+     * copy may not start the executor or already holds {@value #MAX_HELD} polls, and the caller answers at once.
      */
     static Optional<Runnable> hold(Duration wait, BooleanSupplier ready, Supplier<Map<String, Object>> poll,
             Consumer<Map<String, Object>> answer, Map<String, Object> empty) {
         if (!started()) {
+            return Optional.empty();
+        }
+        if (HELD.size() >= MAX_HELD) {
+            LOG.debug((Object) ("SSF long poll answered at once: " + MAX_HELD + " polls are held already"));
             return Optional.empty();
         }
         Held held = new Held(clock.millis() + wait.toMillis(), ready, poll, answer, empty, new AtomicBoolean());

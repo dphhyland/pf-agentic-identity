@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import jakarta.servlet.AsyncContext;
 import jakarta.servlet.AsyncEvent;
 import jakarta.servlet.AsyncListener;
@@ -127,21 +128,18 @@ public class SsfPollServlet extends HttpServlet {
             StreamManagementService svc, AuthContext auth, Duration wait, Map<String, Object> empty) throws IOException {
         AsyncContext async = req.startAsync();
         async.setTimeout(wait.plusSeconds(5).toMillis());
-        Optional<Runnable> held = LongPolls.hold(wait, () -> svc.hasPending(streamId),
-                () -> svc.poll(streamId, again, auth).body(), body -> answer(async, body), empty);
-        if (held.isEmpty()) {
-            answer(async, empty);
-            return;
-        }
+        // The listener goes on before the poll is handed over: once LongPolls has it, a tick may answer and complete the
+        // request at any moment, and a listener added to a completed request is refused.
+        AtomicReference<Runnable> handle = new AtomicReference<>();
         async.addListener(new AsyncListener() {
             @Override
             public void onTimeout(AsyncEvent event) {
-                held.get().run();
+                release(handle.get());
             }
 
             @Override
             public void onError(AsyncEvent event) {
-                held.get().run();
+                release(handle.get());
             }
 
             @Override
@@ -154,6 +152,20 @@ public class SsfPollServlet extends HttpServlet {
                 // not restarted
             }
         });
+        Optional<Runnable> held = LongPolls.hold(wait, () -> svc.hasPending(streamId),
+                () -> svc.poll(streamId, again, auth).body(), body -> answer(async, body), empty);
+        if (held.isEmpty()) {
+            answer(async, empty);
+            return;
+        }
+        handle.set(held.get());
+    }
+
+    /** Ends a held poll early: the container timed it out or the connection failed. Null before it was handed over. */
+    static void release(Runnable held) {
+        if (held != null) {
+            held.run();
+        }
     }
 
     /** Writes a held poll's answer and completes it; a client that has gone away is only logged. */

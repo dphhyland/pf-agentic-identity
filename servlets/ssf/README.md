@@ -217,7 +217,12 @@ subject's PingFederate grants, `InstanceRegistryReceiverHandler` suspends or rev
   handlers act on, by default). It checks what SSF 1.0 has a receiver check - §7.2.4, the metadata's `issuer` is the
   one the receiver expects, and §8.1.1.1-§8.1.1.3, the stream's `iss` - and that the stream's `aud` holds
   `receiverAudience`; a stream it created and cannot accept it deletes again. A poll stream is polled at the
-  `endpoint_url` the transmitter gave it, so `receiverPollUrl` is refused beside this.
+  `endpoint_url` the transmitter gave it, so `receiverPollUrl` is refused beside this. The receiver's token goes only
+  to https URLs the transmitter names: a `configuration_endpoint` or poll `endpoint_url` that is not https is
+  `FAILED_CONFIG` (SSF 1.0 §7.1: "If present, this URL MUST use HTTP over TLS [RFC9110]"; RFC 8936 §3: "based upon
+  HTTP over TLS [RFC2818]"), unless the configuration URL is itself http, which only the development profile allows;
+  production refuses an http `receiverTokenEndpoint`, `receiverTransmitterConfigurationUrl` or
+  `receiverPushEndpointUrl`.
 
 Where `SSF_RECEIVER` stands while it sets its stream up is under [Start-up](#start-up).
 
@@ -235,7 +240,8 @@ Where `SSF_RECEIVER` stands while it sets its stream up is under [Start-up](#sta
   cannot succeed. Nothing records it once released; a dead-letter record is S-10's (Phase 4). A `setErrs` that is not
   an object of objects is a 400.
 - **A stream that is not enabled returns nothing.** SSF 1.0 §8.1.2.1: `paused` - "The Transmitter MUST NOT transmit
-  events over the stream" (its SETs are held and returned once it is enabled); `disabled` - "The Transmitter MUST
+  events over the stream" (the SETs already queued stay and are returned once it is enabled, but nothing new is
+  queued while it is paused - see F-0017 above); `disabled` - "The Transmitter MUST
   NOT transmit events over the stream and will not hold any events for later transmission". The poll still
   acknowledges and records `setErrs`, and answers `{"sets": {}, "moreAvailable": false}` at once.
 - **Long polling.** RFC 8936 §2.2: `returnImmediately` "The default value is "false", which indicates the request is

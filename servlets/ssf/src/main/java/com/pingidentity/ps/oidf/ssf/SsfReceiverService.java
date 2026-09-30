@@ -4,6 +4,7 @@
 package com.pingidentity.ps.oidf.ssf;
 
 import com.pingidentity.ps.oidf.platform.events.Events;
+import com.pingidentity.ps.oidf.platform.events.LogSafe;
 import com.pingidentity.ps.oidf.signals.ReceivedSet;
 import com.pingidentity.ps.oidf.signals.SetVerifier;
 import com.pingidentity.ps.oidf.signals.SubjectId;
@@ -117,7 +118,8 @@ public final class SsfReceiverService {
         Set<String> unprocessed = unprocessedCriticalMembers(set.subjectId(), this.criticalSubjectMembers);
         if (!unprocessed.isEmpty()) {
             LOGGER.warn((Object) ("SSF receiver: SET " + set.jti() + " discarded: its subject carries the critical member(s) "
-                    + unprocessed + ", which this receiver does not act on (SSF 1.0 §3.6)"));
+                    + LogSafe.value(String.valueOf(unprocessed))
+                    + ", which this receiver does not act on (SSF 1.0 §3.6)"));
             Events.event(EVENTS, SET_DISCARDED).failure("critical_subject_member").emit();
             return Outcome.DISCARDED;
         }

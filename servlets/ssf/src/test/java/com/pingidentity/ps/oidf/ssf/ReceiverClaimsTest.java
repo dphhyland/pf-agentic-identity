@@ -11,6 +11,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.conformance.Requirement;
+import com.pingidentity.ps.oidf.platform.events.Event;
+import com.pingidentity.ps.oidf.platform.events.Events;
 import com.pingidentity.ps.oidf.servlet.ssf.SsfReceiverServlet;
 import com.pingidentity.ps.oidf.signals.SetMinter;
 import com.pingidentity.ps.oidf.signals.SetVerifier;
@@ -26,6 +28,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletInputStream;
 import jakarta.servlet.http.HttpServletRequest;
@@ -46,10 +49,13 @@ class ReceiverClaimsTest {
 
     private final TestSigningKeyProvider keys = new TestSigningKeyProvider("tx-key");
     private HttpServer jwks;
+    private final List<Event> events = new CopyOnWriteArrayList<>();
 
     @BeforeEach
     void serveTheTransmittersKeys() throws Exception {
         SsfSupport.resetForTests();
+        Events.reset();
+        Events.configure(events::add);
         RsaJsonWebKey jwk = new RsaJsonWebKey(keys.publicKey());
         jwk.setKeyId(keys.keyId());
         byte[] body = new JsonWebKeySet(List.<JsonWebKey>of(jwk)).toJson().getBytes(StandardCharsets.UTF_8);
@@ -67,6 +73,7 @@ class ReceiverClaimsTest {
 
     @AfterEach
     void stop() {
+        Events.reset();
         SsfSupport.resetForTests();
         jwks.stop(0);
     }
@@ -102,6 +109,7 @@ class ReceiverClaimsTest {
                 () -> SsfSupport.receiverService().receive(jws));
         assertEquals("invalid_request", e.errorCode());
         assertEquals("the SET carries the \"exp\" claim, which SSF 1.0 §4.1.7 forbids in SETs", e.getMessage());
+        assertEquals(List.of("ssf.receiver.set_refused/invalid_request"), counted(), "counted under its error code");
     }
 
     @Test
@@ -113,6 +121,12 @@ class ReceiverClaimsTest {
         assertEquals("invalid_request", e.errorCode());
         assertEquals("the SET carries the JWT \"sub\" claim, which SSF 1.0 §4.1.2 forbids in SETs (the subject is sub_id)",
                 e.getMessage());
+        assertEquals(List.of("ssf.receiver.set_refused/invalid_request"), counted(), "counted under its error code");
+    }
+
+    /** The receiver's failure events, as code/reason. */
+    private List<String> counted() {
+        return events.stream().filter(Event::isFailure).map(ev -> ev.code() + "/" + ev.reason()).toList();
     }
 
     /** RFC 8935 §2.3: 400, err and description, and a Content-Language. */
@@ -150,6 +164,7 @@ class ReceiverClaimsTest {
                 "session", SubjectId.opaque("s-1"))).toMap();
         Map<String, Object> userOnly = SubjectId.complex(Map.of("user", SubjectId.email("bob@example.com"))).toMap();
         assertEquals(SsfReceiverService.Outcome.DISCARDED, receiver.receive(set("j-crit", withSession, Map.of())));
+        assertEquals(List.of("ssf.receiver.set_discarded/critical_subject_member"), counted());
         assertEquals(SsfReceiverService.Outcome.ACCEPTED, receiver.receive(set("j-user", userOnly, Map.of())),
                 "a critical member the handlers act on is processed");
         assertEquals(SsfReceiverService.Outcome.ACCEPTED, receiver.receive(set("j-simple", email(), Map.of())));

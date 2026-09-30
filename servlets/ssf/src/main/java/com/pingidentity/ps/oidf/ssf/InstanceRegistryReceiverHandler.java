@@ -6,6 +6,7 @@ package com.pingidentity.ps.oidf.ssf;
 import com.pingidentity.ps.oidf.device.CaepSignalApplier;
 import com.pingidentity.ps.oidf.device.RegistryException;
 import com.pingidentity.ps.oidf.platform.events.Events;
+import com.pingidentity.ps.oidf.platform.events.LogSafe;
 import com.pingidentity.ps.oidf.signals.ReceivedSet;
 import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.util.List;
@@ -130,7 +131,8 @@ public final class InstanceRegistryReceiverHandler implements SsfReceiverService
     }
 
     private static void unmapped(String eventType, SubjectId subject, String reason) {
-        LOGGER.warn((Object) (eventType + ": the subject names no device or owner here (" + reason + "); ignoring"));
+        LOGGER.warn((Object) (eventType + ": the subject names no device or owner here (" + LogSafe.value(reason)
+                + "); ignoring"));
         Events.event(EVENTS, SUBJECT_UNMAPPED).failure("unmapped").field("handler", "instance_registry")
                 .field("format", subject.format()).emit();
     }

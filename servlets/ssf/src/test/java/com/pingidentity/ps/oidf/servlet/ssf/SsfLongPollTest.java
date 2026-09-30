@@ -274,6 +274,25 @@ class SsfLongPollTest {
         }
     }
 
+    /** Past MAX_HELD held polls a poll is answered at once; a listener fired before the hand-over releases nothing. */
+    @Test
+    void pastTheCapAPollIsAnsweredAtOnce() throws Exception {
+        for (int i = 0; i < LongPolls.MAX_HELD; i++) {
+            assertTrue(LongPolls.hold(Duration.ofSeconds(20), () -> false, Map::of, body -> { }, Map.of()).isPresent());
+        }
+        assertTrue(LongPolls.hold(Duration.ofSeconds(20), () -> false, Map::of, body -> { }, Map.of()).isEmpty());
+        assertEquals(LongPolls.MAX_HELD, LongPolls.held());
+        service(20);
+        Exchange x = poll("{}", true);
+        verify(x.req).startAsync();
+        assertTrue(x.completed.await(1, TimeUnit.SECONDS), "answered at once");
+        assertEquals(Map.of(), x.json().get("sets"));
+        SsfPollServlet.release(null);
+        int[] ran = {0};
+        SsfPollServlet.release(() -> ran[0]++);
+        assertEquals(1, ran[0]);
+    }
+
     @Test
     void anAnswerThatCannotBeWrittenStillCompletes() throws Exception {
         AsyncContext async = mock(AsyncContext.class);

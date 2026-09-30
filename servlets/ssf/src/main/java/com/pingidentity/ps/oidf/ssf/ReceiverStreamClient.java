@@ -6,9 +6,11 @@ package com.pingidentity.ps.oidf.ssf;
 import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -132,7 +134,7 @@ public final class ReceiverStreamClient {
             throw new Misconfigured("the transmitter's configuration has no configuration_endpoint, so it offers no"
                     + " stream management");
         }
-        String configurationEndpoint = (String) endpoint;
+        String configurationEndpoint = requireTls((String) endpoint, "configuration_endpoint", plan);
         boolean push = plan.pushEndpointUrl() != null;
         Map<String, Object> existing = find(streams(http.call("GET", configurationEndpoint, null)), plan);
         LinkedHashMap<String, Object> body = new LinkedHashMap<>();
@@ -146,22 +148,60 @@ public final class ReceiverStreamClient {
         Map<String, Object> stream = JsonUtil.parseJson(http.call(existing == null ? "POST" : "PATCH",
                 configurationEndpoint, JsonUtil.toJson(body)));
         Object id = stream.get("stream_id");
+        String pollUrl;
         try {
             if (!(id instanceof String) || ((String) id).isBlank()) {
                 throw new IllegalStateException("the transmitter answered with no stream_id: " + stream.keySet());
             }
             check(stream, plan);
-        } catch (IllegalStateException e) {
-            if (existing == null && id instanceof String) {
-                http.call("DELETE", configurationEndpoint + "?stream_id=" + id, null);
+            pollUrl = push ? null : endpointOf(stream);
+            if (!push && pollUrl == null) {
+                throw new Misconfigured("the transmitter's poll stream " + id + " names no endpoint_url to poll");
+            }
+            if (pollUrl != null) {
+                requireTls(pollUrl, "the poll stream's endpoint_url", plan);
+            }
+        } catch (RuntimeException e) {
+            if (existing == null && id instanceof String && !((String) id).isBlank()) {
+                deleteQuietly(http, configurationEndpoint, (String) id, e);
             }
             throw e;
         }
-        String pollUrl = push ? null : endpointOf(stream);
-        if (!push && pollUrl == null) {
-            throw new Misconfigured("the transmitter's poll stream " + id + " names no endpoint_url to poll");
-        }
         return new Setup((String) id, pollUrl, strings(metadata.get("critical_subject_members")));
+    }
+
+    /**
+     * Deletes a stream this start created and could not accept, so no half-set-up stream is left; a delete that fails
+     * is added to {@code cause} as suppressed, and {@code cause} is what the caller sees.
+     */
+    private static void deleteQuietly(HttpJson http, String configurationEndpoint, String id, RuntimeException cause) {
+        try {
+            http.call("DELETE", configurationEndpoint + "?stream_id=" + URLEncoder.encode(id, StandardCharsets.UTF_8),
+                    null);
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            cause.addSuppressed(e);
+        }
+    }
+
+    /**
+     * A URL the transmitter names, which the receiver will send its bearer token to: https, unless the configuration URL
+     * the receiver was given is itself http (the development profile only; production refuses an http
+     * {@code OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL}). SSF 1.0 §7.1 on {@code configuration_endpoint}: "If
+     * present, this URL MUST use HTTP over TLS [RFC9110]"; RFC 8936 §3, for the poll: "The SET delivery method described
+     * in this specification is based upon HTTP over TLS [RFC2818]".
+     *
+     * @throws Misconfigured when {@code url} is not https and the configuration URL is
+     */
+    static String requireTls(String url, String what, Plan plan) {
+        boolean developmentHttp = plan.configurationUrl().regionMatches(true, 0, "http://", 0, 7);
+        if (!url.regionMatches(true, 0, "https://", 0, 8) && !developmentHttp) {
+            throw new Misconfigured("the transmitter names " + what + " " + url + ", which is not https: the receiver's"
+                    + " token is not sent there (SSF 1.0 §7.1, RFC 8936 §3)");
+        }
+        return url;
     }
 
     /** The stream's {@code iss} and {@code aud} are what the receiver verifies its SETs against. */

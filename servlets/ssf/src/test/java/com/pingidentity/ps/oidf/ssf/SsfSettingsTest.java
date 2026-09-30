@@ -8,7 +8,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
+import com.pingidentity.ps.oidf.platform.profile.AcceptedRisks;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import com.pingidentity.ps.oidf.platform.settings.Catalogue;
+import com.pingidentity.ps.oidf.platform.settings.ProfileAudit;
 import com.pingidentity.ps.oidf.platform.settings.ProfileRefused;
 import com.pingidentity.ps.oidf.platform.settings.Setting;
 import com.pingidentity.ps.oidf.platform.settings.SettingRefused;
@@ -387,6 +391,26 @@ class SsfSettingsTest {
         assertEquals(config, assertThrows(SettingRefused.class, () -> read(devToken, Map.of(), Map.of())).setting());
         devToken.put("OIDF_SSF_RECEIVER_POLL_TOKEN", "pt");
         assertEquals(SsfConfiguration.RECEIVER_DEFAULT_EVENTS, read(devToken, Map.of(), Map.of()).receiverEventsRequested());
+    }
+
+    /**
+     * The URLs the receiver sends its tokens to or through are https in production: RFC 6749 §3.2, the authorization
+     * server "MUST require the use of TLS as described in Section 1.6 when sending requests to the token endpoint";
+     * SSF 1.0 §7.1, configuration_endpoint: "If present, this URL MUST use HTTP over TLS [RFC9110]". Development only
+     * warns, for a rig.
+     */
+    @Test
+    @Requirement("SSF §7.1")
+    void theReceiversUrlsAreHttpsInProduction() {
+        for (String name : List.of("OIDF_SSF_RECEIVER_TOKEN_ENDPOINT", "OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL",
+                "OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL")) {
+            List<ProfileAudit.Violation> plain = ProfileAudit.evaluate(Sources.of(Map.of(name, "http://tx.example.com/x"),
+                    Map.of()), List.of(CATALOGUE), DeploymentProfile.PRODUCTION, AcceptedRisks.none()).violations();
+            assertEquals(List.of(name), plain.stream().map(ProfileAudit.Violation::setting).toList(), name);
+            assertEquals(List.of("SSF_RECEIVER"), plain.get(0).components(), name);
+            assertEquals(List.of(), ProfileAudit.evaluate(Sources.of(Map.of(name, "https://tx.example.com/x"), Map.of()),
+                    List.of(CATALOGUE), DeploymentProfile.PRODUCTION, AcceptedRisks.none()).violations(), name);
+        }
     }
 
     /**

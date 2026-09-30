@@ -4,6 +4,7 @@
 package com.pingidentity.ps.oidf.ssf;
 
 import com.pingidentity.ps.oidf.platform.events.Events;
+import com.pingidentity.ps.oidf.platform.events.LogSafe;
 import com.pingidentity.ps.oidf.signals.ReceivedSet;
 import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.util.HashSet;
@@ -65,7 +66,7 @@ public final class ReceiverActionHandler implements SsfReceiverService.ReceivedS
         SsfSubjects.Mapping mapping = SsfSubjects.userKey(set.subjectId(), issuers(set, this.localIssuers));
         if (!mapping.mapped()) {
             LOGGER.warn((Object) ("SSF receiver: revocation signal " + set.jti() + " names no user here: "
-                    + mapping.refusal()));
+                    + LogSafe.value(mapping.refusal())));
             Events.event(EVENTS, SUBJECT_UNMAPPED).failure("unmapped").field("handler", "grants")
                     .field("format", formatOf(set.subjectId())).emit();
             return;
