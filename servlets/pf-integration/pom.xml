@@ -171,6 +171,7 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.doFilter(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.clientIdOf(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.unverifiedSubject(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.attestedClientOf(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.extractTrustChain(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter.write(*</include>
                                         <!-- Registration at the authorization and PAR endpoints (§12.1.1): which requests

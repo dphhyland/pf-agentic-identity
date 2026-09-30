@@ -181,7 +181,16 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
                 return;
             }
             try {
-                this.service.admit(clientId, extractTrustChain(clientAssertion), this.issuerResolver.apply(http));
+                String issuer = this.issuerResolver.apply(http);
+                this.service.admit(clientId, extractTrustChain(clientAssertion), issuer);
+                // An attested request authenticates as its attestation's sub, whatever else it names: ClientAttestationAuth
+                // never compares a client_assertion with the attestation, and replaces it with the bridge's. So that
+                // client's registration is checked too, or a decoy client_assertion naming another client would carry
+                // the request past its expiry. It presents no chain of its own.
+                String attested = attestedClientOf(http);
+                if (attested != null && !attested.equals(clientId)) {
+                    this.service.admit(attested, List.of(), issuer);
+                }
             }
             catch (RegistrationRejectedException e) {
                 if (!this.failClosed) {
@@ -226,11 +235,13 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
      * <p>None of them is verified yet: PingFederate verifies the assertion next, and ClientAttestationAuth, mapped after
      * this filter, verifies the attestation and refuses the request unless the verified {@code sub} is the one it read
      * first (and, when there is one, the {@code client_id} parameter). Here the name only chooses which registration is
-     * looked up - renewed when due, its expiry enforced when past it. A lie can only name another client, which the
-     * {@code client_id} parameter could always do; and the request it came with is then refused, or fails
-     * authentication, as that client. The attestation's {@code sub} is read so that an attested request, which need send
-     * no {@code client_id}, is not let past its client's expired registration. More than one attestation header names
-     * nothing: ClientAttestationAuth refuses that request.
+     * looked up - renewed when due, its expiry enforced when past it. The attestation's {@code sub} is read so that an
+     * attested request, which need send no {@code client_id}, is not let past its client's expired registration.
+     *
+     * <p>An attested request is not bound to the name this returns: ClientAttestationAuth ignores the
+     * {@code client_assertion} and forwards the request as the attestation's {@code sub}. So {@link #doFilter} also checks
+     * {@link #attestedClientOf} when it differs - a decoy assertion naming another client then adds a lookup, and never
+     * takes one away.
      */
     static String clientIdOf(HttpServletRequest request, String clientAssertion) {
         String fromAssertion = unverifiedSubject(clientAssertion);
@@ -241,6 +252,15 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
         if (clientId != null && !clientId.isBlank()) {
             return clientId;
         }
+        return attestedClientOf(request);
+    }
+
+    /**
+     * The unverified {@code sub} of the request's {@code OAuth-Client-Attestation} header - the client an attested
+     * request authenticates as, once ClientAttestationAuth has verified it. Null when there is none, when it is not a
+     * JWT with a {@code sub}, and when there is more than one header: ClientAttestationAuth refuses that request.
+     */
+    static String attestedClientOf(HttpServletRequest request) {
         Enumeration<String> attestations = request.getHeaders(ATTESTATION_HEADER);
         if (attestations == null || !attestations.hasMoreElements()) {
             return null;

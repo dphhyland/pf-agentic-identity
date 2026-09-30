@@ -14,6 +14,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -557,5 +558,50 @@ class TokenEndpointAutoRegistrationFilterTest {
         store.with(RegistrationFixtures.federationClient(CLIENT_ID, "registered", clock.epochSecond() + 3600, List.of("leaf")));
         new TokenEndpointAutoRegistrationFilter(real, FIXED_ISSUER, true).doFilter(this.request, this.response, this.chain);
         verify(this.chain).doFilter(this.request, this.response);
+    }
+
+    /**
+     * ClientAttestationAuth ignores a client_assertion next to an attestation and forwards the request as the
+     * attestation's sub. So a decoy client_assertion naming another client - here one PingFederate does not know -
+     * must not carry an attested request past the attested client's expired registration: both are checked.
+     */
+    @Test
+    @Requirement("OIDFED §12.3")
+    void aDecoyAssertionDoesNotCarryAnAttestedRequestPastItsExpiry() throws Exception {
+        com.pingidentity.ps.oidf.federation.testkit.MutableClock clock = com.pingidentity.ps.oidf.federation.testkit.MutableClock.startingNow();
+        com.pingidentity.ps.oidf.pf.testkit.FakeClientStore store = new com.pingidentity.ps.oidf.pf.testkit.FakeClientStore();
+        store.with(RegistrationFixtures.federationClient(CLIENT_ID, "registered", clock.epochSecond() - 10, List.of("leaf")));
+        RegistrationService real = RegistrationFixtures.service(mock(com.pingidentity.ps.oidf.federation.TrustChainValidator.class), store, clock,
+                FederationRuntimeConfig.ExpiryEnforcement.REFUSE);
+        String attestation = clientAssertion(List.of(), CLIENT_ID);
+        when(this.request.getHeaders(TokenEndpointAutoRegistrationFilter.ATTESTATION_HEADER))
+                .thenAnswer(i -> java.util.Collections.enumeration(List.of(attestation)));
+        when(this.request.getParameter("client_assertion")).thenReturn(clientAssertion(List.of(), "https://decoy.example"));
+
+        new TokenEndpointAutoRegistrationFilter(real, FIXED_ISSUER, true).doFilter(this.request, this.response, this.chain);
+
+        verify(this.response).setStatus(401);
+        assertTrue(String.valueOf(this.answered().get("error_description")).contains("explicit registration has expired"),
+                this.body.toString());
+        verify(this.chain, never()).doFilter(any(), any());
+    }
+
+    /** Both names are looked up, the assertion's with its chain and the attestation's with none; one name is looked up once. */
+    @Test
+    void anAttestedRequestLooksUpTheAttestedClientAsWellAsTheNamedOne() throws Exception {
+        String attestation = clientAssertion(List.of(), "https://attested.example");
+        when(this.request.getHeaders(TokenEndpointAutoRegistrationFilter.ATTESTATION_HEADER))
+                .thenAnswer(i -> java.util.Collections.enumeration(List.of(attestation)));
+        when(this.request.getParameter("client_assertion")).thenReturn(clientAssertion(List.of(), CLIENT_ID));
+
+        new TokenEndpointAutoRegistrationFilter(this.service, FIXED_ISSUER, true).doFilter(this.request, this.response, this.chain);
+
+        verify(this.service).admit(eq(CLIENT_ID), anyList(), anyString());
+        verify(this.service).admit(eq("https://attested.example"), eq(List.of()), anyString());
+        verify(this.chain).doFilter(this.request, this.response);
+
+        when(this.request.getParameter("client_assertion")).thenReturn(null);
+        new TokenEndpointAutoRegistrationFilter(this.service, FIXED_ISSUER, true).doFilter(this.request, this.response, this.chain);
+        verify(this.service, times(2)).admit(eq("https://attested.example"), anyList(), anyString());
     }
 }

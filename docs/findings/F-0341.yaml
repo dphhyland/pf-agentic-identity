@@ -1,5 +1,5 @@
 id: F-0341
-title: OIDF_AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS's catalogue text says allow registers an RP, which production no longer does
+title: The ENCRYPTED_REQUEST_OBJECTS and REQUIRE_PKCE catalogue texts and the pkce-off risk describe what HFEDR changed
 severity: low
 area: pf-integration
 source: design
@@ -14,4 +14,8 @@ notes: >
   docs/configuration/federation-runtime.md is generated from it. From HFEDR (2026-09-30) allow means that a registered
   RP's encrypted request objects go on to PingFederate; one registers or renews an RP only under the development
   profile. servlets/pf-integration/README.md and docs/federation/limits.md say so. ST5F rewrites the description and
-  regenerates the page.
+  regenerates the page. The same package made OIDF_AUTO_REGISTRATION_REQUIRE_PKCE, and so the pkce-off accepted risk,
+  cover relying parties registered explicitly at /federation/register as well as those registered at the front
+  channel; the texts still say front channel only - AcceptedRisk.PKCE_OFF's description (libs/platform), the
+  setting's description in federation-runtime.json, docs/configuration/federation-runtime.md (generated) and
+  libs/platform/README.md. ST5F rewords the setting and the page; the platform's owner rewords the risk.

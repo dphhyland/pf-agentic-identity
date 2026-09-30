@@ -10,8 +10,8 @@
   with its declared algorithm, else its signed proof's, and only when that is an asymmetric JWS algorithm (`RS256`-`RS512`,
   `PS256`-`PS512`, `ES256`-`ES512`, `EdDSA`). Anything else leaves it unset, and PingFederate's default applies.
 - The token endpoint names an attested request's client from the `OAuth-Client-Attestation` header's `sub` when the
-  request carries neither a client assertion nor `client_id`, so that client's registration expiry is enforced
-  (H-FED-2, F-0021).
+  request carries neither a client assertion nor `client_id`, and checks that client's registration as well when the
+  request names another, so the attested client's registration expiry is enforced (H-FED-2, F-0021).
 - An explicitly registered `openid_relying_party` gets OpenID Connect Registration 1.0 §2's defaults for what its
   metadata omits - `response_types` `["code"]`, `grant_types` `["authorization_code"]`, `id_token_signed_response_alg`
   `RS256` - is restricted to its response types, requires PKCE unless `OIDF_AUTO_REGISTRATION_REQUIRE_PKCE=false`, and
@@ -47,8 +47,11 @@
    that the Client will use only the code Response Type."), `grant_types` `["authorization_code"]` ("If omitted, the
    default is that the Client will use only the authorization_code Grant Type.") and `id_token_signed_response_alg`
    `RS256` ("The default, if omitted, is RS256."). Why: before 0.6.0 such a client was registered with no response
-   type and no grant when its metadata named none - it could not complete an authorization-code flow at all - and was
-   never held to PKCE, which FAPI 2.0 §5.3.1.2 requires. The registration response now reports the three defaults.
+   type and no grant type when its metadata named none (what PingFederate then did with it was not checked), and was
+   never held to PKCE, which FAPI 2.0 §5.3.1.2 requires. Where the metadata omits `id_token_signed_response_alg`, the
+   client now names `RS256` rather than leaving PingFederate's default to apply; on a PingFederate whose OpenID
+   Connect policy signs ID tokens with an EC key only, that has not been tried (U-0351), so check such a deployment
+   on staging first. The registration response now reports the three defaults.
    How to tell: in the admin console or API, a relying party registered explicitly (its extended property
    `status` is `registered`) shows "Require Proof Key for Code Exchange (PKCE)" ticked after it
    registers again; an authorization request from it without a `code_challenge` is refused by PingFederate. The
@@ -61,8 +64,8 @@
    same setting turns it off with no risk to accept.
 
 3. **An attested token request is now held to its client's registration expiry.** From 0.6.0 a token request that
-   carries an `OAuth-Client-Attestation` header and neither a `client_assertion` nor `client_id` is taken to name the
-   client in the attestation's `sub`, so an expired federation registration for that client is refused with 401
+   carries an `OAuth-Client-Attestation` header has the registration of the client in the attestation's `sub` checked,
+   whether or not it also names a client by `client_assertion` or `client_id`, so an expired federation registration for that client is refused with 401
    `invalid_client` ("the client's explicit registration has expired", or the automatic registration's equivalent),
    or renewed when it can be, as a request naming the client by `client_id` always was. Before, such a request went
    on to the attestation bridge and PingFederate with no expiry check. The `sub` is read before the attestation is
@@ -91,9 +94,12 @@ relying party that only encrypts must send a signed request or use PAR once per 
 failure, never remembered against the relying party, so a stranger's encrypted request cannot hold back the relying
 party's own signed one (`RegistrationServiceFrontChannelTest`).
 
-The attestation's `sub` is read unverified at the token endpoint. A lie names another client, which `client_id` could
-always do; the request is then refused, or fails authentication, as that client, and ClientAttestationAuth - mapped
-after this filter - refuses it unless the verified `sub` is the one it read.
+The attestation's `sub` is read unverified at the token endpoint, only to choose which registrations to look up.
+ClientAttestationAuth - mapped after this filter - refuses the request unless the verified `sub` is the one it read,
+and it forwards the request as that `sub`, ignoring any `client_assertion` the request carried. So the filter checks
+the attestation's `sub` as well as the name it read first when the two differ: a decoy `client_assertion` naming
+another client adds a lookup and never removes the attested client's. The package's adversarial review found that
+case (2026-09-30) in the first version, which checked only the first name.
 
 Normative text was quoted from OpenID Federation 1.0 Final (17 February 2026) §12.1.1 and §12.1.1.1.2, OpenID Connect
 Dynamic Client Registration 1.0 incorporating errata set 2 §2, and RFC 7516 §4.1.1, each fetched 2026-09-30. The
