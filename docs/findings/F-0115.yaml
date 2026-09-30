@@ -3,10 +3,21 @@ title: PingFederate's own discovery documents name no challenge endpoint and no 
 severity: low
 area: openid-federation, pf-integration
 source: pr-review
-status: open
+status: closed
 plan_items: [S-4]
-prs: []
-verification: ''
+prs: [95]
+verification: >
+  2026-10-01, PR 95 (S4M), on the rig (slot 4, pfai-p3-s4m, PingFederate 13.1.3, the branch's image,
+  OIDF_ATTESTATION_AUTH_ENABLED=true): /.well-known/openid-configuration and /.well-known/oauth-authorization-server
+  came back with attest_jwt_client_auth and attest_jwt_client_auth_dpop appended to PingFederate's six
+  token_endpoint_auth_methods_supported, client_attestation_signing_alg_values_supported,
+  client_attestation_pop_signing_alg_values_supported, client_attestation_pop_methods_supported and challenge_endpoint
+  <issuer>/federation/attestation-challenge added after PingFederate's members, every one of PingFederate's members
+  unchanged and in its order, over HTTP/2, HTTP/1.1 and the plain listener; the war assembler printed
+  AttestationMetadata in both documents' chains. The Entity Configuration's oauth_authorization_server block carries
+  the same set through AttestationMetadataConfig.extend. ChallengeEndpointAdvertisementTest
+  .theFourDocumentsCarryTheSameAttestationMembers holds the four documents to one set, and
+  switchedOffNoneOfTheFourAdvertisesAMember holds S9b's rule.
 target_release: 0.6.0
 notes: >
   Found on 2026-09-27 in S4b. ABCA-10 section 6.1 (read at ietf.org that day; draft -11 says the same): an
