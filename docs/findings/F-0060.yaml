@@ -12,12 +12,16 @@ verification: >
   else per node) and answers 429 temporarily_unavailable with Retry-After past it; reads at most
   OIDF_ATTESTER_MAX_BODY_BYTES (32768) and answers 413 invalid_request beyond it without reading on; matches evidence
   against ClientBindingIndex, rebuilt every OIDF_ATTESTER_CLIENT_INDEX_REFRESH_SECONDS (30) and after a miss at most
-  once in 5 s, instead of enumerating PingFederate's clients per request; and answers every failure, an unexpected
-  exception included, with a CAS section 4.6 code, an X-Correlation-Id header, and for a 5xx or invalid_client a fixed
-  description, the detail logged at WARN under the id. IssuanceRequestPathTest (body cap, limit with a fake clock and
-  with the CI Redis, each failure's text), ClientBindingIndexTest (one read for a hundred requests, a thousand misses
-  in ten seconds rebuilding twice) and the attestation-issuer coverage gate hold it, on JDK 17 and 21. Not exercised
-  on the rig.
+  once in 5 s, and served for at most four intervals while rebuilds fail, instead of enumerating PingFederate's clients
+  per request; and answers every failure its own code, an unexpected exception or Error included, with an
+  X-Correlation-Id header, and for a 5xx or invalid_client a fixed description with no internal URL, the detail logged
+  at WARN under the id. Every code it answers is CAS section 4.6's but three kept from before 0.6.0 (invalid_svid,
+  spiffe_id_not_authorized, invalid_client at 400), which F-0392 records; the 2026-09-30 review found none of their
+  descriptions names an internal URL.
+  IssuanceRequestPathTest (body cap, limit with a fake clock and with the CI Redis, each failure's text),
+  ClientBindingIndexTest (one read for a hundred requests, a thousand misses in ten seconds rebuilding twice, the
+  staleness bound, two stale reads sharing one rebuild) and the attestation-issuer coverage gate hold it, on JDK 17
+  and 21. Not exercised on the rig.
 
 target_release: 0.6.0
 notes: >

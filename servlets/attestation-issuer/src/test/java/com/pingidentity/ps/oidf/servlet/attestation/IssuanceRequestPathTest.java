@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -329,6 +330,7 @@ class IssuanceRequestPathTest {
         AttestationIssuanceServlet servlet = new AttestationIssuanceServlet();
         assertInstanceOf(InMemoryWindowCounter.class, servlet.rateCounter());
         assertTrue(servlet.rateCounter() == servlet.rateCounter(), "made once");
+        assertTrue(servlet.makeRateCounter() == servlet.rateCounter(), "a second maker finds the first's counter");
     }
 
     @Test
@@ -414,6 +416,52 @@ class IssuanceRequestPathTest {
         assertFalse(a.description().contains("internal"), a.description());
         assertFalse(a.description().contains("IllegalStateException"), a.description());
         assertEquals(2, a.body().size(), "error and error_description, nothing else");
+    }
+
+    /** A resolver whose client lookup throws {@code error}. */
+    static IssuanceClientResolver throwing(Error error) {
+        return new IssuanceClientResolver() {
+            @Override
+            public AttestationIssuanceConfig resolve(String clientId) {
+                throw error;
+            }
+
+            @Override
+            public List<AttesterClient> attestationClients() {
+                throw error;
+            }
+        };
+    }
+
+    @Test
+    @Requirement("CAS §4.6")
+    void anErrorFromPingFederatesClassesIsAServerErrorNotTheContainersPage() throws Exception {
+        AttestationIssuanceServlet servlet = new AttestationIssuanceServlet();
+        servlet.setClientResolver(throwing(new NoClassDefFoundError("org/sourceid/internal/pf-node-1/ClientManager")));
+        Answer a = post(servlet, wellFormed());
+        assertEquals(500, a.status());
+        assertEquals("server_error", a.body().get("error"));
+        assertFalse(a.description().contains("ClientManager"), a.description());
+        assertNotNull(a.headers().get(AttestationIssuanceServlet.CORRELATION_HEADER));
+    }
+
+    @Test
+    void anErrorTheJvmRaisesAboutItselfIsAnsweredAndThrownOn() throws Exception {
+        AttestationIssuanceServlet servlet = new AttestationIssuanceServlet();
+        servlet.setClientResolver(throwing(new StackOverflowError()));
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        when(req.getMethod()).thenReturn("POST");
+        when(req.getRemoteAddr()).thenReturn("192.0.2.1");
+        byte[] body = wellFormed().getBytes(StandardCharsets.UTF_8);
+        when(req.getContentLengthLong()).thenReturn((long) body.length);
+        when(req.getInputStream()).thenReturn(new BytesIn(body));
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        StringWriter out = new StringWriter();
+        when(resp.getWriter()).thenReturn(new PrintWriter(out));
+        assertThrows(StackOverflowError.class, () -> servlet.service((jakarta.servlet.ServletRequest) req,
+                (jakarta.servlet.ServletResponse) resp));
+        verify(resp).setStatus(500);
+        assertEquals("server_error", JsonUtil.parseJson(out.toString()).get("error"));
     }
 
     @Test

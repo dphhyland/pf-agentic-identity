@@ -13,12 +13,15 @@
 - `POST /federation/attestation` (plan item H-ATT-2, [F-0060](../../findings/F-0060.yaml)) reads at most
   `OIDF_ATTESTER_MAX_BODY_BYTES` (32768, 4096 to 262144) and answers `413 invalid_request` beyond it; allows each client
   address `OIDF_ATTESTER_ISSUANCE_REQUESTS_PER_MINUTE` (60) requests a minute, in Redis when `OIDF_REDIS_URL` is set,
-  and answers `429 temporarily_unavailable` with `Retry-After` past it; answers every failure with a CAS §4.6 code and
-  an `X-Correlation-Id` header, a `5xx` or `invalid_client` with a fixed description instead of the exception's text;
-  and answers other methods `405`.
+  and answers `429 temporarily_unavailable` with `Retry-After` past it; answers every failure, an unexpected exception
+  or `Error` included, with an error code and an `X-Correlation-Id` header, a `5xx` or `invalid_client` with a fixed
+  description instead of the exception's text; and answers other methods `405`. The codes are CAS §4.6's except
+  `invalid_svid`, `spiffe_id_not_authorized` and `invalid_client` at 400, kept unchanged
+  ([F-0392](../../findings/F-0392.yaml)).
 - The attester matches evidence against a cached index of PingFederate's attestation clients, rebuilt every
   `OIDF_ATTESTER_CLIENT_INDEX_REFRESH_SECONDS` (30) and after a miss at most once every 5 s, instead of reading every
-  PingFederate client on every request.
+  PingFederate client on every request. While PingFederate's clients cannot be read the index it has is served for at
+  most four intervals, then the endpoint answers `503 temporarily_unavailable`.
 - `/.well-known/client-attester` and `/federation/attester-configuration` build their URLs from `X-Forwarded-*` only
   when a listed proxy sent them, and send `Access-Control-Allow-Origin` only to the origins
   `OIDF_ATTESTER_CORS_ORIGINS` lists, none by default, for `GET` ([F-0061](../../findings/F-0061.yaml)).
@@ -54,7 +57,8 @@
    in `error_description` but a fixed sentence naming that id, and PingFederate's server log has the detail at WARN
    under it, so search the log for the id rather than reading the response. A client disabled or deleted in
    PingFederate stops being issued attestations within `OIDF_ATTESTER_CLIENT_INDEX_REFRESH_SECONDS` (30) rather than
-   at once. What to change: the settings above; lower the refresh interval if a client must stop sooner. Without
+   at once, while PingFederate's clients can be read; if they cannot be read for four intervals (two minutes at the
+   default), issuance answers `503 temporarily_unavailable` until they can. What to change: the settings above; lower the refresh interval if a client must stop sooner. Without
    `OIDF_REDIS_URL` each node counts for itself, which needs no accepted risk. Development-profile escape: none; the
    settings apply in both profiles.
 3. **The attester configuration no longer answers browsers from any origin.** What to do: if a browser application,
@@ -84,5 +88,7 @@ those conditions; the draft's table may want the two statuses added.
 
 Built on JDK 17 and 20 and run on 21; the Redis test of the shared limit runs where `OIDF_TEST_REDIS_URL` is set (CI's
 java job). Not exercised on the rig. [F-0390](../../findings/F-0390.yaml) records the other discovery documents that
-still answer every origin, and [F-0391](../../findings/F-0391.yaml) that an IPv6 client is keyed by its full address.
+still answer every origin, [F-0391](../../findings/F-0391.yaml) that an IPv6 client is keyed by its full address,
+[F-0392](../../findings/F-0392.yaml) the three answers whose codes or status are not CAS §4.6's, and
+[F-0393](../../findings/F-0393.yaml) that gm-api's metadata still believes forwarding headers from anyone.
 F-0275 (the operator limit behind a proxy, S8A's) is fixed by this change and left for its owner to close.

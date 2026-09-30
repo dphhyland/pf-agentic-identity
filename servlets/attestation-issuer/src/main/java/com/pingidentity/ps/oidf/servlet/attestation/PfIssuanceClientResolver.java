@@ -165,28 +165,30 @@ public final class PfIssuanceClientResolver implements IssuanceClientResolver {
     }
 
     /** The webapp's index over PingFederate's own store, and its schedule, made once, on first use. */
-    private static final class Shared {
+    static final class Shared {
         private static volatile ClientBindingIndex index;
 
         private Shared() {
         }
 
+        /** The index, without a lock once it is made. */
         static ClientBindingIndex index() {
             ClientBindingIndex local = index;
+            return local != null ? local : create();
+        }
+
+        /** Makes the index and starts its schedule, unless a caller that held the lock first already did. */
+        static synchronized ClientBindingIndex create() {
+            ClientBindingIndex local = index;
             if (local == null) {
-                synchronized (Shared.class) {
-                    local = index;
-                    if (local == null) {
-                        Duration interval = AttestationIssuanceServlet.processSettings()
-                                .duration(AttestationIssuanceServlet.CLIENT_INDEX_REFRESH_SETTING);
-                        PfMgmtClientStore store = new PfMgmtClientStore();
-                        local = new ClientBindingIndex(() -> load(store), Clock.systemUTC(), interval);
-                        // Refused (and logged) in a copy that may not start threads; the index then rebuilds on a read
-                        // that finds it older than twice the interval.
-                        ManagedExecutors.every(EXECUTOR, interval, local::refresh);
-                        index = local;
-                    }
-                }
+                Duration interval = AttestationIssuanceServlet.processSettings()
+                        .duration(AttestationIssuanceServlet.CLIENT_INDEX_REFRESH_SETTING);
+                PfMgmtClientStore store = new PfMgmtClientStore();
+                local = new ClientBindingIndex(() -> load(store), Clock.systemUTC(), interval);
+                // Refused (and logged) in a copy that may not start threads; the index then rebuilds on a read that
+                // finds it older than twice the interval.
+                ManagedExecutors.every(EXECUTOR, interval, local::refresh);
+                index = local;
             }
             return local;
         }

@@ -1,0 +1,17 @@
+id: F-0393
+title: 'gm-api MetadataServlet builds its advertised URLs from X-Forwarded-Proto and X-Forwarded-Host sent by anyone'
+severity: low
+area: gm-api
+source: pr-review
+status: open
+plan_items: [H-ATT-3]
+prs: [89]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found in HATT2's adversarial review (2026-09-30). services/gm-api/servlet/src/main/java/au/com/idpartners/gm/servlet/MetadataServlet.java
+  (baseUrlOf) takes X-Forwarded-Proto and X-Forwarded-Host from any caller, the first comma-separated value of each,
+  and builds the metadata it publishes from them, so a caller can make it advertise a host of its choosing - what F-0061
+  was for the attester's configuration document. HATT2's spec kept gm-api out of its scope. The rule to reuse is
+  platform.net.TrustedProxies (OIDF_TRUSTED_PROXIES), as AttesterConfigurationServlet.baseUrl now does; a sweep on
+  2026-09-30 found no other production code that reads forwarding headers.

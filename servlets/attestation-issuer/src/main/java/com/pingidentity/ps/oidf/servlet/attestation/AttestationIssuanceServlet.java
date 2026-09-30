@@ -285,7 +285,9 @@ public class AttestationIssuanceServlet extends HttpServlet {
 
     /**
      * The request path: the per-address limit, the capped body, the issuance; and every failure, an unexpected one
-     * included, answered as a CAS §4.6 error by {@link #fail}.
+     * included, answered as an error by {@link #fail}. An {@link Error} - a {@code LinkageError} from PingFederate's
+     * classes, say - is answered {@code server_error} too, rather than by the container's own error page; one the JVM
+     * raises about itself ({@link VirtualMachineError}) is then thrown on, since the process may not be fit to go on.
      */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -299,8 +301,11 @@ public class AttestationIssuanceServlet extends HttpServlet {
             write(resp, 200, body);
         } catch (IssuanceException e) {
             fail(resp, e, null);
-        } catch (RuntimeException e) {
+        } catch (RuntimeException | Error e) {
             fail(resp, IssuanceException.serverError("unexpected " + e), e);
+            if (e instanceof VirtualMachineError vme) {
+                throw vme;
+            }
         }
     }
 
@@ -332,7 +337,8 @@ public class AttestationIssuanceServlet extends HttpServlet {
         return local != null ? local : this.makeRateCounter();
     }
 
-    private synchronized WindowCounter makeRateCounter() {
+    /** Makes the counter, unless a request that held the lock first already did. */
+    synchronized WindowCounter makeRateCounter() {
         if (this.rateCounter == null) {
             this.rateCounter = defaultRateCounter();
         }

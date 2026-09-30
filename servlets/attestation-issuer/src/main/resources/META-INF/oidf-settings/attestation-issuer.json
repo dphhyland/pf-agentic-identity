@@ -293,7 +293,7 @@
       "min": 5,
       "max": 3600,
       "default": 30,
-      "description": "How often, in seconds, the attester rebuilds its index of PingFederate's attestation clients (every client read once, on a background thread); evidence no indexed client accepts rebuilds it at once, at most once every 5 s. A client added, changed, disabled or deleted in PingFederate is seen at issuance within this time",
+      "description": "How often, in seconds, the attester rebuilds its index of PingFederate's attestation clients (every client read once, on a background thread); evidence no indexed client accepts rebuilds it at once, at most once every 5 s. A client added, changed, disabled or deleted in PingFederate is seen at issuance within this time while PingFederate's clients can be read; while they cannot, the index is served for at most four of these intervals, then issuance answers 503",
       "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number of seconds from 5 to 3600: the issuance servlet's part is FAILED_CONFIG at deploy, naming the setting, and the endpoint answers 503"},
       "profile": "any",
       "security": true,

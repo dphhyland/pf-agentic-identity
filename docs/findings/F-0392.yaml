@@ -1,0 +1,23 @@
+id: F-0392
+title: 'Issuance endpoint: three answers still use codes or a status outside CAS section 4.6 (invalid_svid, spiffe_id_not_authorized, invalid_client at 400)'
+severity: low
+area: attestation-issuer
+source: pr-review
+status: open
+plan_items: [H-ATT-2]
+prs: [89]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found in HATT2's adversarial review (2026-09-30). CAS section 4.6 (docs/openid-client-attestation-service-1_0.md)
+  lists invalid_request, invalid_client (401), invalid_instance_attestation, instance_not_authorized (403),
+  invalid_instance_proof, instance_attestation_bound (401), access_denied (403), server_error (500) and
+  temporarily_unavailable (503). POST /federation/attestation still answers three things outside that list:
+  invalid_svid (401) when no attester client accepts SPIFFE or cloud-token evidence and for every SPIFFE or cloud-token
+  refusal; spiffe_id_not_authorized (403) when a valid SPIFFE ID is bound to no client; and invalid_client with 400
+  rather than 401 (IssuanceException.invalidClient). HATT2 kept them: they are the codes in
+  docs/client-attestation-architecture.md's error table and in the harness's checks, HATT1 kept them on purpose for
+  0.6.0 ("A refusal keeps its error code"), and a client that matches on them would break. The mapping is
+  invalid_svid to invalid_instance_attestation, spiffe_id_not_authorized to instance_not_authorized and invalid_client
+  to 401, done once at the servlet's answer with a Before-you-deploy item; or the draft's table gains the two codes.
+  An owner decision either way.

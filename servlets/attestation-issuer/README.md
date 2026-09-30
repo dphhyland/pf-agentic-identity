@@ -20,7 +20,7 @@ Plain `@WebServlet` classes on the webapp classloader (not a PF-INF plugin): the
 
 | Path | Class | What |
 |---|---|---|
-| `POST /federation/attestation` | `AttestationIssuanceServlet` | Issuance. JSON body: `instance_key` (JWK), `instance_attestation` (alias `svid`), `proof`, optional `authorization_details` / `asserted_context`; a `client_id` is accepted but ignored and an `agent_id` is rejected. The client is resolved **from the evidence**: it is validated against every attestation client's config and the one whose trust bundle verifies it *and* whose bindings contain the resulting identity is the match. Then: instance-key proof (its window, challenge + `jti` replay - [below](#the-instance-key-proof)), deployment-required custom proof claims, the binding's ceiling narrowed by the asserted context's when there is one (the containment model's meet), the grant (`authorize(requested, ceiling, INHERIT)`, or the full ceiling for an empty request - [below](#the-ceiling-and-the-grant)), `agent_id`, mint. `200 {"attestation","expires_in"}`, `Cache-Control: no-store`. Before any of that, the per-address limit and the body cap ([below](#the-request-path)); every failure is a CAS §4.6 error. |
+| `POST /federation/attestation` | `AttestationIssuanceServlet` | Issuance. JSON body: `instance_key` (JWK), `instance_attestation` (alias `svid`), `proof`, optional `authorization_details` / `asserted_context`; a `client_id` is accepted but ignored and an `agent_id` is rejected. The client is resolved **from the evidence**: it is validated against every attestation client's config and the one whose trust bundle verifies it *and* whose bindings contain the resulting identity is the match. Then: instance-key proof (its window, challenge + `jti` replay - [below](#the-instance-key-proof)), deployment-required custom proof claims, the binding's ceiling narrowed by the asserted context's when there is one (the containment model's meet), the grant (`authorize(requested, ceiling, INHERIT)`, or the full ceiling for an empty request - [below](#the-ceiling-and-the-grant)), `agent_id`, mint. `200 {"attestation","expires_in"}`, `Cache-Control: no-store`. Before any of that, the per-address limit and the body cap ([below](#the-request-path)); every failure is an error answer with no internal text, its code CAS §4.6's but for three ([below](#the-request-path)). |
 | `GET /.well-known/client-attester`, `/federation/.well-known/client-attester` | `AttesterConfigurationServlet` | This deployment's discovery document: endpoints, evidence types (read off the validator registry), `evidence_audience`, `pop_audience` (PF's OP issuer - the "aud trap"), active resolver plugins. Cacheable, parameterless. URLs from the request, or a trusted proxy's forwarding headers; CORS only for listed origins ([below](#the-configuration-documents-urls-and-cors)). |
 | `GET /federation/attester-configuration?client_id=` | same | Per-client view: issuer, evidence audience, trust domain, RAR type names. Ceiling, bindings and signing config are deliberately not exposed. |
 | `GET /.well-known/client-attestation-service` | `ClientAttestationServiceMetadataServlet` | The fixed CAS 1.0 §5 document: required request members, required proof claims (`aud`, `jti`, `iat`, `exp`, `challenge` when required, plus custom), claims minted. Reads the same config the issuance servlet enforces, so advertisement and enforcement cannot drift. |
@@ -44,12 +44,19 @@ Plain `@WebServlet` classes on the webapp classloader (not a PF-INF plugin): the
    larger is refused before any of it is read, and one found larger once the cap is reached is refused with nothing
    more read: `413 invalid_request`. PingFederate's `pf.runtime.http.maxRequestBodySize` bounds form parameters, not
    this stream (U-0326).
-3. **Every failure a CAS §4.6 error.** CAS §4.6: "Errors use HTTP 400 (or the status noted: 401, 403, 500 or 503)".
-   Every answer that is not a 200 carries a §4.6 code and an `X-Correlation-Id` header. A `5xx` or `invalid_client` -
+3. **Every failure an error answer with no internal text.** CAS §4.6: "Errors use HTTP 400 (or the status noted:
+   401, 403, 500 or 503)". Every answer this servlet writes that is not a 200 carries an `error` code and an
+   `X-Correlation-Id` header; the component gate's `404` and `503`, written before the servlet runs, carry no id. Every
+   code is one §4.6 lists except three kept from before 0.6.0, which clients may match on: `invalid_svid` (401) when
+   no client accepts SPIFFE or cloud-token evidence or the evidence is refused, `spiffe_id_not_authorized` (403) when a
+   valid SPIFFE ID is bound to no client, and `invalid_client` answered 400 where §4.6 notes 401
+   ([F-0392](../../docs/findings/F-0392.yaml)). A `5xx` or `invalid_client` -
    the attester's own state or configuration, whose text can name a vault, a trust bundle's URL or a client's
    settings - carries a fixed description naming the correlation id, and the detail, with its stack when there is
-   one, is logged at WARN under the same id. An exception nothing expected is `500 server_error` the same way; before
-   0.6.0 it reached the container, which answered with a page of its own. A refusal of the request itself
+   one, is logged at WARN under the same id. An exception nothing expected is `500 server_error` the same way, and so
+   is an `Error` such as a `LinkageError` from PingFederate's classes (one the JVM raises about itself, a
+   `VirtualMachineError`, is then thrown on); before 0.6.0 they reached the container, which answered with a page of
+   its own. A refusal of the request itself
    (`invalid_request`, `invalid_instance_proof`, `access_denied`, ...) still says what is wrong with it. Two statuses
    are not among §4.6's: `413` for the body cap and `429` for the limit, each with a §4.6 code, because RFC 9110
    (section 15.5.14) and RFC 6585 (section 4) name those conditions and a client's HTTP stack knows them. Methods
@@ -62,16 +69,19 @@ the issuance and configuration servlets share, built on first use and rebuilt ev
 client accepts rebuilds it at once and is matched again, at most once every 5 s whoever sends it, so unknown evidence
 cannot make the attester read PingFederate's clients faster than that. A read that finds the index older than twice
 the interval rebuilds it, which covers a schedule that could not start. A rebuild that fails keeps the index it had,
-and logs why.
+and logs why, for at most four intervals after the last rebuild that succeeded (two minutes at the default); past
+that, while PingFederate's clients still cannot be read, the endpoint answers `503 temporarily_unavailable` rather
+than issue for clients that may since have been disabled or deleted.
 
 - **What a rebuild costs:** one `ClientManager.getClients()` - every client PingFederate has, from its configuration
   or, with a JDBC client store, a read of the whole client table - and the `attestation_*` properties of each client
   that carries an `attestation_issuer` parsed. At the defaults that is two reads a minute, plus at most twelve a
   minute while evidence keeps missing.
-- **How stale it can be:** a client added, changed, disabled or deleted in PingFederate is seen here within the
-  interval; a client added for evidence that is already arriving is seen at the first miss after it. Until then a
-  disabled or deleted client can still be issued attestations, for at most 30 s at the default. Lower the interval
-  where that matters more than the reads.
+- **How stale it can be:** while PingFederate's clients can be read, a client added, changed, disabled or deleted
+  there is seen here within the interval; a client added for evidence that is already arriving is seen at the first
+  miss after it. Until then a disabled or deleted client can still be issued attestations, for at most 30 s at the
+  default. While they cannot be read, for at most four intervals (two minutes). Lower the interval where that matters
+  more than the reads.
 
 The OpenID Federation and CIMD sources keep caches of their own (their TTLs), as before.
 

@@ -21,9 +21,13 @@ import com.pingidentity.ps.oidf.pf.ClientStore;
 import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.sourceid.oauth20.domain.Client;
 import org.sourceid.oauth20.domain.ParamValues;
@@ -127,6 +131,77 @@ class ClientBindingIndexTest {
     }
 
     @Test
+    void aKeptIndexIsServedForAtMostFourIntervalsAfterTheLastRebuildThatRead() throws Exception {
+        IssuanceRequestPathTest.MovableClock clock = new IssuanceRequestPathTest.MovableClock();
+        Source source = new Source();
+        source.clients = List.of(client("a"));
+        ClientBindingIndex index = new ClientBindingIndex(source, clock, INTERVAL);
+        index.clients();
+        source.fail = new IllegalStateException("the client store's database does not answer");
+        for (int i = 1; i < ClientBindingIndex.MAX_UNREBUILT_INTERVALS; i++) {
+            clock.advance(INTERVAL);
+            index.refresh();
+            assertEquals(1, index.clients().size(), "still within the bound after " + i + " failed rebuilds");
+        }
+        clock.advance(INTERVAL);
+        index.refresh();
+        IssuanceException e = assertThrows(IssuanceException.class, index::clients);
+        assertEquals("temporarily_unavailable", e.error());
+        assertEquals(503, e.status());
+        assertFalse(index.refreshAfterMiss(), "a miss cannot read them either");
+        int reads = source.reads;
+        assertThrows(IssuanceException.class, index::clients);
+        assertEquals(reads, source.reads, "and the refusals do not read PingFederate's clients each time");
+
+        source.fail = null;
+        clock.advance(INTERVAL);
+        index.refresh();
+        assertEquals(1, index.clients().size(), "a rebuild that reads them serves the index again");
+    }
+
+    @Test
+    void staleReadsWaitingOnOneRebuildShareIt() throws Exception {
+        IssuanceRequestPathTest.MovableClock clock = new IssuanceRequestPathTest.MovableClock();
+        CountDownLatch loading = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger reads = new AtomicInteger();
+        AttesterClient a = client("a");
+        ClientBindingIndex index = new ClientBindingIndex(() -> {
+            reads.incrementAndGet();
+            loading.countDown();
+            try {
+                assertTrue(release.await(10, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return List.of(a);
+        }, clock, INTERVAL);
+        List<List<AttesterClient>> seen = Collections.synchronizedList(new ArrayList<>());
+        Runnable reader = () -> {
+            try {
+                seen.add(index.clients());
+            } catch (IssuanceException e) {
+                throw new IllegalStateException(e);
+            }
+        };
+        Thread first = new Thread(reader, "first reader");
+        first.start();
+        assertTrue(loading.await(10, TimeUnit.SECONDS));
+        Thread second = new Thread(reader, "second reader");
+        second.start();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (second.getState() != Thread.State.BLOCKED && System.nanoTime() < deadline) {
+            Thread.onSpinWait();
+        }
+        assertEquals(Thread.State.BLOCKED, second.getState(), "the second reader waits on the first's rebuild");
+        release.countDown();
+        first.join(10_000);
+        second.join(10_000);
+        assertEquals(2, seen.size());
+        assertEquals(1, reads.get(), "the second finds the first's index under the lock and reads nothing");
+    }
+
+    @Test
     void withNoIndexYetAFailureIsTheReadsAndAMissRefreshSaysNo() throws Exception {
         IssuanceRequestPathTest.MovableClock clock = new IssuanceRequestPathTest.MovableClock();
         Source source = new Source();
@@ -179,5 +254,6 @@ class ClientBindingIndexTest {
         assertSame(a.index(), b.index());
         PfIssuanceClientResolver own = new PfIssuanceClientResolver(mock(ClientStore.class));
         assertFalse(own.index() == a.index());
+        assertSame(a.index(), PfIssuanceClientResolver.Shared.create(), "a second maker finds the first's index");
     }
 }
