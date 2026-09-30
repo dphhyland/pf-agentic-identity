@@ -20,10 +20,12 @@ import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
  * were valid recently, and signature verification still gates everything). A fetch failure with no cached
  * copy is a {@code server_error}.
  *
- * <p>Only signing keys are kept ({@link #signingKeys}): a key whose {@code use} is present and not {@code sig} is
- * dropped, since RFC 7517 §4.2 says {@code use} "is employed to indicate whether a public key is used for encrypting
- * data or verifying the signature on data". The cache is bounded: a set of more than {@value #MAX_KEYS} keys is
- * refused as a failed fetch, and at most {@value #MAX_ENTRIES} URLs are held, the oldest fetch dropped first.
+ * <p>Every key of the set is kept, whatever its {@code use}: a SPIRE bundle endpoint's keys carry {@code use}
+ * {@code jwt-svid} or {@code x509-svid}, since the SPIFFE bundle format says "The use parameter MUST be set"
+ * (SPIFFE Trust Domain and Bundle §4.2.2). A validator that wants signing keys only filters with
+ * {@link #signingKeys}, as {@link CloudTokenValidator} does. The cache is bounded: a set of more than
+ * {@value #MAX_KEYS} keys is refused as a failed fetch, and at most {@value #MAX_ENTRIES} URLs are held, the oldest
+ * fetch dropped first.
  */
 public final class RemoteJwksCache {
 
@@ -61,13 +63,12 @@ public final class RemoteJwksCache {
         }
         try {
             String body = this.http.get(url, "application/json");
-            List<JsonWebKey> all = new JsonWebKeySet(body).getJsonWebKeys();
-            if (all.size() > MAX_KEYS) {
+            List<JsonWebKey> keys = new JsonWebKeySet(body).getJsonWebKeys();
+            if (keys.size() > MAX_KEYS) {
                 throw new IllegalArgumentException("JWKS carries more than " + MAX_KEYS + " keys");
             }
-            List<JsonWebKey> keys = signingKeys(all);
             if (keys.isEmpty()) {
-                throw new IllegalArgumentException("JWKS carries no signing keys");
+                throw new IllegalArgumentException("JWKS carries no keys");
             }
             if (cached == null && this.cache.size() >= MAX_ENTRIES) {
                 this.evictOldest();
@@ -82,7 +83,10 @@ public final class RemoteJwksCache {
         }
     }
 
-    /** The keys whose {@code use} is absent or {@code sig}, in order; empty for null. */
+    /**
+     * The keys whose {@code use} is absent or {@code sig}, in order; empty for null. RFC 7517 §4.2: {@code use} "is
+     * employed to indicate whether a public key is used for encrypting data or verifying the signature on data".
+     */
     public static List<JsonWebKey> signingKeys(List<JsonWebKey> keys) {
         List<JsonWebKey> out = new ArrayList<>();
         if (keys != null) {

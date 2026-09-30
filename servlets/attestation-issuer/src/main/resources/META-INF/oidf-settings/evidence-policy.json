@@ -142,7 +142,7 @@
       "min": 60,
       "max": 86400,
       "default": 3600,
-      "description": "The longest a cloud evidence token may be issued to live (exp - iat), for the six cloud types; a longer-lived token is refused (invalid_svid). OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS still caps every piece of evidence",
+      "description": "The longest a cloud evidence token may be issued to live (exp - iat); a longer-lived token is refused (invalid_svid). Set, it holds all six cloud types. Unset, it is 3600 s for every type but azure-mi-token, which takes 5700 s: Entra, not the caller, picks a managed identity token's lifetime, 60 to 90 minutes, dated up to five minutes back. OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS still caps every piece of evidence",
       "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number of seconds from 60 to 86400: the issuance servlet's part is FAILED_CONFIG at deploy, naming the variable"},
       "profile": "any",
       "security": true,

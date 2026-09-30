@@ -1,5 +1,6 @@
 /*
- * RemoteJwksCache: fresh fetch, TTL-cached reuse, stale-on-error, hard failure, signing keys only, and its bounds.
+ * RemoteJwksCache: fresh fetch, TTL-cached reuse, stale-on-error, hard failure, every key kept whatever its use (a SPIRE
+ * bundle's are jwt-svid), the signing-key filter the cloud validators apply, and its bounds.
  */
 package com.pingidentity.ps.oidf.issuer;
 
@@ -14,6 +15,9 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwk.JsonWebKeySet;
+import org.jose4j.jwk.PublicJsonWebKey;
+import org.jose4j.jwt.JwtClaims;
+import org.jose4j.jwt.NumericDate;
 import org.junit.jupiter.api.Test;
 import com.pingidentity.ps.oidf.jose.HttpGetClient;
 
@@ -89,19 +93,32 @@ class RemoteJwksCacheTest {
     }
 
     @Test
-    void onlyKeysWhoseUseIsAbsentOrSigAreKept() throws Exception {
-        String body = new JsonWebKeySet(key("sig", "sig"), key("enc", "enc"), key("plain", null), key("other", "x")).toJson();
+    void everyKeyIsKeptWhateverItsUseAndSigningKeysFiltersToSig() throws Exception {
+        String body = new JsonWebKeySet(key("sig", "sig"), key("enc", "enc"), key("plain", null), key("svid", "jwt-svid"))
+                .toJson();
         List<JsonWebKey> keys = new RemoteJwksCache((url, accept) -> body, 300).get("https://cluster.example/jwks");
-        assertEquals(List.of("sig", "plain"), keys.stream().map(JsonWebKey::getKeyId).toList());
+        assertEquals(List.of("sig", "enc", "plain", "svid"), keys.stream().map(JsonWebKey::getKeyId).toList());
+        assertEquals(List.of("sig", "plain"), RemoteJwksCache.signingKeys(keys).stream().map(JsonWebKey::getKeyId).toList());
         assertTrue(RemoteJwksCache.signingKeys(null).isEmpty());
     }
 
     @Test
-    void aSetOfEncryptionKeysOnlyIsAFetchFailure() throws Exception {
-        String body = new JsonWebKeySet(key("enc", "enc")).toJson();
-        IssuanceException e = assertThrows(IssuanceException.class,
-                () -> new RemoteJwksCache((url, accept) -> body, 300).get("https://cluster.example/jwks"));
-        assertEquals("server_error", e.error());
+    void aSpireBundleFetchedByUrlStillVerifiesAJwtSvid() throws Exception {
+        // The SPIFFE bundle format: "The use parameter MUST be set" (to x509-svid, jwt-svid or wit-svid), so a SPIRE
+        // bundle endpoint's keys are never use=sig; the cache keeps them for SpiffeSvidValidator as it did before 0.6.0.
+        PublicJsonWebKey signer = TestJwts.ec("spire-1");
+        Map<String, Object> params = new LinkedHashMap<>(TestJwts.publicParams(signer));
+        params.put("use", "jwt-svid");
+        String body = new JsonWebKeySet(JsonWebKey.Factory.newJwk(params), key("x509", "x509-svid")).toJson();
+        List<JsonWebKey> bundle = new RemoteJwksCache((url, accept) -> body, 300).get("https://spire.example/bundle");
+        JwtClaims claims = new JwtClaims();
+        claims.setSubject("spiffe://banking.demo/payment-agent");
+        claims.setAudience("https://attester.example.com");
+        claims.setIssuedAtToNow();
+        claims.setExpirationTime(NumericDate.fromSeconds(NumericDate.now().getValue() + 600L));
+        String svid = TestJwts.sign(signer, "ES256", "JWT", claims);
+        SpiffeSvid verified = new SpiffeSvidValidator().validate(svid, bundle, "https://attester.example.com", "banking.demo");
+        assertEquals("spiffe://banking.demo/payment-agent", verified.spiffeId());
     }
 
     @Test

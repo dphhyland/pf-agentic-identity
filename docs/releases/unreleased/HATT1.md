@@ -11,11 +11,14 @@
   `OIDF_ATTESTER_AZURE_MI_TOKEN_ISSUERS`). A client's `attestation_evidence_issuer` may now only narrow them. The
   production profile refuses a type with no pin.
 - `nbf` is checked when present and `iat` is required, both with the 60 s clock skew, and a token issued to live longer
-  than `OIDF_ATTESTER_MAX_CLOUD_TOKEN_LIFETIME_SECONDS` (default 3600, 60 to 86400) is refused. The evidence lifetime
-  cap, `OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS`, still bounds every piece of evidence after that.
+  than `OIDF_ATTESTER_MAX_CLOUD_TOKEN_LIFETIME_SECONDS` (default 3600, 60 to 86400) is refused. Unset, the maximum is
+  5700 s for `azure-mi-token`, whose lifetime Entra picks, and 3600 s for the other five; set, it holds all six. The
+  evidence lifetime cap, `OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS`, still bounds every piece of evidence after
+  that.
 - Only keys whose `use` is absent or `sig` verify a cloud token, from an inline bundle or a fetched one; the key's type
   and curve must fit the token's algorithm, and its `alg`, when it has one, must be the header's. `RemoteJwksCache`
-  drops keys of any other `use`, refuses a set of more than 64 keys, and holds at most 256 URLs.
+  still keeps every key of a fetched set, whatever its `use`, so a SPIRE bundle's `jwt-svid` keys keep verifying
+  `spiffe-jwt` evidence; it now refuses a set of more than 64 keys and holds at most 256 URLs.
 - `gcp-id-token` evidence must come from a user-managed service account of a project `OIDF_ATTESTER_GCP_PROJECTS`
   lists, and a `gcp-id-token` binding may not contain `*`. With the list set, a `gke-sa-token`'s cluster and
   `*.svc.id.goog` trust domain must name a listed project, and a `gke-sa-token` binding's `*` may only come last,
@@ -27,7 +30,8 @@
   agree with the token's `https://sts.amazonaws.com/` `aws_account` claim when present.
 - A refusal keeps its error code (`invalid_svid` for the token, `invalid_client` for the client's configuration),
   no longer repeats the token's `iss`, `sub`, `kid` or `alg` (F-0365), and is counted in
-  `oidf_attester_cloud_evidence_refusals_total{type, check}`.
+  `oidf_attester_cloud_evidence_refusals_total{type, check}`, a selector value over its bound under
+  `check="selectors"`.
 
 ## Before you deploy
 
@@ -47,16 +51,23 @@
    `invalid_client` naming the setting. Development-profile escape: with `OIDF_DEPLOYMENT_PROFILE=development`, a type
    with no pin accepts the provider's published issuer shape (above), or the client's own
    `attestation_evidence_issuer` when it has one, with one WARN per type.
-2. **Cloud evidence tokens older than the maximum lifetime are refused.** What to do: check that your workloads ask
-   for cloud tokens that live no longer than an hour, or set `OIDF_ATTESTER_MAX_CLOUD_TOKEN_LIFETIME_SECONDS` (60 to
-   86400, default 3600) to the longest you accept. Why: a token's `exp - iat` is how long it can be replayed; AWS's
-   `GetWebIdentityToken` allows "60 seconds (1 minute) to 3600 seconds (1 hour)" (read 2026-09-30), but a Kubernetes
-   projected token lives as long as the pod's `expirationSeconds` asks. `iat` is now
-   required, and `nbf`, when present, is honoured. How to tell: a refused token is `invalid_svid`, "token was issued
-   to live longer than the 3600 s this attester accepts of cloud evidence
-   (OIDF_ATTESTER_MAX_CLOUD_TOKEN_LIFETIME_SECONDS)", and `oidf_attester_cloud_evidence_refusals_total` counts it
-   under `check="lifetime"`. What to change: shorten the projected volume's `expirationSeconds`, or raise the setting.
-   There is no development-profile escape beyond the setting itself, which both profiles read.
+2. **Cloud evidence tokens older than the maximum lifetime are refused.** What to do: check that your Kubernetes
+   workloads ask for tokens that live no longer than an hour, or set `OIDF_ATTESTER_MAX_CLOUD_TOKEN_LIFETIME_SECONDS`
+   (60 to 86400, default 3600) to the longest you accept. On EKS, the pod identity webhook's
+   `eks.amazonaws.com/token-expiration` annotation "Defaults to 86400 for expirationSeconds if not set"
+   (aws/amazon-eks-pod-identity-webhook README, read 2026-09-30), so an `eks-sa-token` from a service account without
+   the annotation is refused until you set it to 3600 or less, on the service account or the pod. Azure managed
+   identities need nothing: Entra picks their tokens' lifetime, "a random value ranging between 60-90 minutes"
+   (Microsoft identity platform access tokens, read 2026-09-30), so with the setting unset `azure-mi-token` is held to
+   5700 s instead; if you set it, it applies to Azure too, and below about 5700 some Azure tokens are refused. Why: a
+   token's `exp - iat` is how long it can be replayed; AWS's `GetWebIdentityToken` allows "60 seconds (1 minute) to
+   3600 seconds (1 hour)" (read 2026-09-30), but a Kubernetes projected token lives as long as the pod's
+   `expirationSeconds` asks. `iat` is now required, and `nbf`, when present, is honoured. How to tell: a refused token
+   is `invalid_svid`, "token was issued to live longer than the 3600 s this attester accepts of eks-sa-token evidence
+   (OIDF_ATTESTER_MAX_CLOUD_TOKEN_LIFETIME_SECONDS)", naming its type, and `oidf_attester_cloud_evidence_refusals_total`
+   counts it under `check="lifetime"`. What to change: shorten the projected volume's `expirationSeconds` (or the EKS
+   annotation), or raise the setting. There is no development-profile escape beyond the setting itself, which both
+   profiles read.
 3. **GCP identity patterns may not wildcard across `@` or the project.** What to do: list your Google Cloud project
    IDs in `OIDF_ATTESTER_GCP_PROJECTS`, rewrite every `gcp-id-token` binding as a literal
    `spiffe://<trust-domain>/sa/<account>@<project>.iam.gserviceaccount.com`, and make every `gke-sa-token` binding
@@ -83,6 +94,10 @@
    the list when it is set. There is no development-profile escape: the tenant check applies in both profiles.
 
 ## Notes
+
+- `spiffe-jwt` clients whose trust bundle is fetched by `attestation_bundle_url` from a SPIRE bundle endpoint are not
+  affected: the SPIFFE bundle format says "The use parameter MUST be set" (to `x509-svid`, `jwt-svid` or `wit-svid`),
+  so `RemoteJwksCache` keeps every key and only the cloud validators filter to `use` absent or `sig`.
 
 - Decision, for David to confirm: the spec asked that a cloud type with no pin make `ATTESTATION_ISSUER`
   `FAILED_CONFIG` naming the setting. The attester cannot know at deploy which types its clients use - clients are

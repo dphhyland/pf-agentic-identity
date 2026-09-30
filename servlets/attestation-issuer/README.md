@@ -40,7 +40,10 @@ registration selectors into `workload.attributes`; they are not evidence selecto
 
 What each validator checks, and what it copies into the identity, as the code does it on 2026-09-30. The key
 source for every type but the wallet's is the client's trust bundle: `attestation_spiffe_bundle` inline, or
-`attestation_bundle_url` fetched and cached (`RemoteJwksCache`, at most 256 URLs and 64 keys a set). The key is the
+`attestation_bundle_url` fetched and cached (`RemoteJwksCache`, at most 256 URLs and 64 keys a set). The cache keeps
+every key whatever its `use`, since a SPIRE bundle's keys are `jwt-svid` or `x509-svid` - the SPIFFE bundle format:
+"The use parameter MUST be set" (SPIFFE Trust Domain and Bundle §4.2.2) - and the cloud types filter to signing keys
+themselves (below). The key is the
 one the header's `kid` names, or the bundle's only key when there is no `kid`. The algorithm must be RS, PS or ES
 256/384/512 or EdDSA, so `none` and HMAC are refused. `aud` must contain the client's `attestation_issuer`. A failure
 of the evidence is `invalid_svid`, or `invalid_instance_attestation` for the wallet; a cloud type's client with no
@@ -66,14 +69,15 @@ subclass adds only its own claims. The base checks, in this order:
    `OIDF_ATTESTER_REQUIRE_SINGLE_AUDIENCE_EVIDENCE` is `true`. `exp` required and not more than 60 s past; `nbf`, when
    present, not more than 60 s ahead - RFC 7519 §4.1.5: "the current date/time MUST be after or equal to the
    not-before date/time listed in the "nbf" claim. Implementers MAY provide for some small leeway"; `iat` required and
-   not more than 60 s ahead. `exp - iat` no longer than `OIDF_ATTESTER_MAX_CLOUD_TOKEN_LIFETIME_SECONDS` (3600 s by
-   default; `OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS` still caps every piece of evidence afterwards).
+   not more than 60 s ahead. `exp - iat` no longer than `OIDF_ATTESTER_MAX_CLOUD_TOKEN_LIFETIME_SECONDS`. Set, it
+   holds all six types; unset, it is 3600 s, except for `azure-mi-token`, which takes 5700 s (below).
+   `OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS` still caps every piece of evidence afterwards.
 
 A refusal keeps the code it had (`invalid_svid` for the token, `invalid_client` for the client's configuration),
 never repeats what the token says - not its `iss`, `sub`, `kid` or `alg` (before 0.6.0 several messages did) - and is
 counted in `oidf_attester_cloud_evidence_refusals_total{type, check}`, where `check` is one of `config`, `iss_pin`,
 `binding_pattern`, `malformed`, `alg`, `key`, `signature`, `iss`, `aud`, `exp`, `nbf`, `iat`, `lifetime`, `subject`,
-`project`, `tenant`, `managed_identity` or `account`.
+`project`, `tenant`, `managed_identity`, `account` or `selectors` (a selector value over its bound).
 
 What each type adds, from the providers' own documents (read 2026-09-30):
 
@@ -98,7 +102,11 @@ What each type adds, from the providers' own documents (read 2026-09-30):
   that prefix, so a wildcard can span namespaces and service accounts but never the trust domain, which holds the
   project.
 - **`eks-sa-token`.** The cluster is its issuer, `https://oidc.eks.<region>.amazonaws.com/id/<id>`, pinned; a
-  Kubernetes token names no account, so the pin is the cluster and account check, as before.
+  Kubernetes token names no account, so the pin is the cluster and account check, as before. The EKS pod identity
+  webhook's `eks.amazonaws.com/token-expiration` annotation "Defaults to 86400 for expirationSeconds if not set"
+  ([aws/amazon-eks-pod-identity-webhook](https://github.com/aws/amazon-eks-pod-identity-webhook), read 2026-09-30),
+  which the 3600 s default refuses: set the annotation to 3600 or less on the service account or pod, or raise the
+  setting.
 - **`aws-sts-web-identity`.** AWS's [Understanding token
   claims](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_outbound_token_claims.html): `iss` is
   "Your account-specific issuer URL", `sub` "The ARN of the IAM principal that requested the token". The ARN's account
@@ -114,7 +122,13 @@ What each type adds, from the providers' own documents (read 2026-09-30):
   else the tenant in the pinned `iss` (`https://sts.windows.net/<tenant>/` or
   `https://login.microsoftonline.com/<tenant>/v2.0`). `oid` is required and must be one of
   `OIDF_ATTESTER_AZURE_MANAGED_IDENTITIES`, when it is set. `xms_mirid` is not in that reference, so it is not read
-  (U-0375).
+  (U-0375). The caller cannot choose the token's lifetime: Microsoft
+  [assigns](https://learn.microsoft.com/en-us/entra/identity-platform/access-tokens) "a random value ranging between
+  60-90 minutes", and the [IMDS sample
+  response](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/how-to-use-vm-token)
+  has `not_before` 3900 s before `expires_on` with `expires_in` 3599 (both read 2026-09-30). So when
+  `OIDF_ATTESTER_MAX_CLOUD_TOKEN_LIFETIME_SECONDS` is unset, `azure-mi-token` is held to 5700 s, 90 minutes and five,
+  rather than 3600; set, the setting applies (U-0379).
 - **`aks-sa-token`.** A Kubernetes token carries no `tid`; the pinned cluster issuer
   (`https://<region>.oic.prod-aks.azure.com/...`, [Microsoft](https://learn.microsoft.com/en-us/azure/aks/use-oidc-issuer):
   "By default, the issuer uses the base URL https://{region}.oic.prod-aks.azure.com") is what holds it to a tenant. A

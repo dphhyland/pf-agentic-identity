@@ -286,6 +286,48 @@ class CloudTokenValidatorTest {
         })));
     }
 
+    @Test
+    void anAzureManagedIdentityTokenMayLiveNinetyFiveMinutesWhenTheLifetimeIsNotSet() throws Exception {
+        // Entra picks a managed identity's token lifetime, 60-90 minutes, dated up to five minutes back; the caller
+        // cannot ask for less. Unset, the maximum is 5700 s for azure-mi-token and 3600 s for the other five.
+        Type azure = type("azure-mi-token");
+        CloudTokenValidator.Policy unset = read(Map.of("OIDF_ATTESTER_AZURE_MI_TOKEN_ISSUERS", AZURE_ISSUER));
+        long now = NumericDate.now().getValue();
+        assertNotNull(validate(azure, unset, config(azure, null), claims(azure, c -> {
+            c.setIssuedAt(NumericDate.fromSeconds(now - 300));
+            c.setNotBefore(NumericDate.fromSeconds(now - 300));
+            c.setExpirationTime(NumericDate.fromSeconds(now + 5400));
+        })));
+        IssuanceException e = refused(azure, "invalid_svid", "lifetime", unset, config(azure, null), claims(azure, c -> {
+            c.setIssuedAt(NumericDate.fromSeconds(now - 300));
+            c.setExpirationTime(NumericDate.fromSeconds(now + 5401));
+        }));
+        assertTrue(e.getMessage().contains("5700 s"), e.getMessage());
+        // Set, the setting holds every type, Azure included.
+        CloudTokenValidator.Policy set = read(Map.of("OIDF_ATTESTER_AZURE_MI_TOKEN_ISSUERS", AZURE_ISSUER,
+                "OIDF_ATTESTER_MAX_CLOUD_TOKEN_LIFETIME_SECONDS", "3600"));
+        assertEquals(3600L, set.maxTokenLifetimeSeconds("azure-mi-token"));
+        refused(azure, "invalid_svid", "lifetime", set, config(azure, null), claims(azure, c -> {
+            c.setIssuedAt(NumericDate.fromSeconds(now - 300));
+            c.setExpirationTime(NumericDate.fromSeconds(now + 3400));
+        }));
+        for (String type : CloudTokenValidator.Policy.TYPES) {
+            assertEquals("azure-mi-token".equals(type) ? 5700L : 3600L, unset.maxTokenLifetimeSeconds(type), type);
+        }
+        assertEquals(3600L, production().maxTokenLifetimeSeconds("azure-mi-token"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("types")
+    void aSelectorOverItsBoundIsRefusedAndCounted(Type type) throws Exception {
+        if (!type.path().startsWith("/ns/")) {
+            return;
+        }
+        String longNamespace = "n".repeat(EvidenceSelectors.MAX_VALUE_BYTES + 1);
+        refused(type, "invalid_svid", "selectors", production(), config(type, null),
+                claims(type, c -> c.setSubject("system:serviceaccount:" + longNamespace + ":agent")), longNamespace);
+    }
+
     @ParameterizedTest
     @MethodSource("types")
     void onlySigningKeysVerify(Type type) throws Exception {

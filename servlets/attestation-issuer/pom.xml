@@ -222,6 +222,7 @@
                                         <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.Policy.issuerList(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.Policy.list(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.Policy.issuersSetting(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.Policy.maxTokenLifetimeSeconds(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.GkeTokenValidator.checkBindings(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.GkeTokenValidator.map(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.GcpSaTokenValidator.checkBindings(*</include>

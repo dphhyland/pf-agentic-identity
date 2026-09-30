@@ -54,7 +54,7 @@ import com.pingidentity.ps.oidf.platform.settings.Sources;
  *       {@code attestation_issuer} (and nothing else when {@code OIDF_ATTESTER_REQUIRE_SINGLE_AUDIENCE_EVIDENCE} is
  *       {@code true}); {@code exp} required and not past, {@code nbf} when present and not ahead, {@code iat} required
  *       and not ahead, each with the clock skew; {@code exp - iat} no longer than
- *       {@code OIDF_ATTESTER_MAX_CLOUD_TOKEN_LIFETIME_SECONDS}.</li>
+ *       {@code OIDF_ATTESTER_MAX_CLOUD_TOKEN_LIFETIME_SECONDS} ({@link Policy#maxTokenLifetimeSeconds(String)}).</li>
  * </ol>
  *
  * <p>A refusal keeps the code it had before 0.6.0 ({@code invalid_svid} for the evidence, {@code invalid_client} for a
@@ -69,7 +69,7 @@ public abstract class CloudTokenValidator implements InstanceAttestationValidato
     /** The checks a refusal is counted under. */
     static final List<String> CHECKS = List.of("config", "iss_pin", "binding_pattern", "malformed", "alg", "key",
             "signature", "iss", "aud", "exp", "nbf", "iat", "lifetime", "subject", "project", "tenant",
-            "managed_identity", "account");
+            "managed_identity", "account", "selectors");
 
     private static final Counter REFUSALS = Metrics.counter("oidf_attester_cloud_evidence_refusals_total",
             "Cloud evidence tokens the attester refused, by evidence type and the check that failed",
@@ -321,9 +321,10 @@ public abstract class CloudTokenValidator implements InstanceAttestationValidato
         if (iat - this.allowedClockSkewSeconds > now) {
             throw refused("iat", "token was issued in the future (iat)");
         }
-        if (exp - iat > policy.maxTokenLifetimeSeconds()) {
-            throw refused("lifetime", "token was issued to live longer than the " + policy.maxTokenLifetimeSeconds()
-                    + " s this attester accepts of cloud evidence (" + Policy.MAX_LIFETIME + ")");
+        long max = policy.maxTokenLifetimeSeconds(this.id());
+        if (exp - iat > max) {
+            throw refused("lifetime", "token was issued to live longer than the " + max
+                    + " s this attester accepts of " + this.id() + " evidence (" + Policy.MAX_LIFETIME + ")");
         }
         return new long[] {exp, iat};
     }
@@ -357,9 +358,13 @@ public abstract class CloudTokenValidator implements InstanceAttestationValidato
                 EvidenceSelectors.stringClaim(claims, "iss"), "namespace", matcher.group(1), "service_account", matcher.group(2)));
     }
 
-    /** The selectors a subclass proved, from its fixed list of names, in name, value pairs. */
+    /**
+     * The selectors a subclass proved, from its fixed list of names, in name, value pairs; a value over the selector
+     * bounds is refused {@code invalid_svid} and counted under {@code selectors}.
+     */
     protected final EvidenceSelectors selectors(String... nameValuePairs) throws IssuanceException {
-        return EvidenceSelectors.of(this.id(), this.selectorNames(), IssuanceException::invalidSvid, nameValuePairs);
+        return EvidenceSelectors.of(this.id(), this.selectorNames(), message -> this.refused("selectors", message),
+                nameValuePairs);
     }
 
     /** The evidence refused for {@code check}: {@code invalid_svid}, counted. */
@@ -442,6 +447,14 @@ public abstract class CloudTokenValidator implements InstanceAttestationValidato
         public static final String AZURE_MANAGED_IDENTITIES = "OIDF_ATTESTER_AZURE_MANAGED_IDENTITIES";
         static final String SINGLE_AUDIENCE = "OIDF_ATTESTER_REQUIRE_SINGLE_AUDIENCE_EVIDENCE";
         public static final long DEFAULT_MAX_LIFETIME_SECONDS = 3600L;
+        /**
+         * {@code azure-mi-token}'s longest lifetime when {@link #MAX_LIFETIME} is not set: Microsoft "assigns a random
+         * value ranging between 60-90 minutes" as an access token's default lifetime (Microsoft identity platform access
+         * tokens, read 2026-09-30), and the IMDS sample response's {@code not_before} is 3900 s before its
+         * {@code expires_on} with {@code expires_in} 3599 (How to use managed identities on a VM to acquire an access
+         * token, read 2026-09-30), so a token is dated up to five minutes before it is issued: 90 minutes and five.
+         */
+        public static final long AZURE_MI_DEFAULT_MAX_LIFETIME_SECONDS = 5700L;
 
         /**
          * A Google Cloud project ID: "6 to 30 characters", "only lowercase letters, numbers, and hyphens", "must start
@@ -457,6 +470,7 @@ public abstract class CloudTokenValidator implements InstanceAttestationValidato
 
         private final Map<String, Set<String>> issuers;
         private final long maxTokenLifetimeSeconds;
+        private final boolean lifetimeDefaulted;
         private final Set<String> gcpProjects;
         private final Set<String> awsAccounts;
         private final Set<String> azureTenants;
@@ -464,11 +478,12 @@ public abstract class CloudTokenValidator implements InstanceAttestationValidato
         private final boolean requireSingleAudience;
         private final boolean production;
 
-        private Policy(Map<String, Set<String>> issuers, long maxTokenLifetimeSeconds, Set<String> gcpProjects,
-                       Set<String> awsAccounts, Set<String> azureTenants, Set<String> azureManagedIdentities,
-                       boolean requireSingleAudience, boolean production) {
+        private Policy(Map<String, Set<String>> issuers, long maxTokenLifetimeSeconds, boolean lifetimeDefaulted,
+                       Set<String> gcpProjects, Set<String> awsAccounts, Set<String> azureTenants,
+                       Set<String> azureManagedIdentities, boolean requireSingleAudience, boolean production) {
             this.issuers = Collections.unmodifiableMap(new LinkedHashMap<>(issuers));
             this.maxTokenLifetimeSeconds = maxTokenLifetimeSeconds;
+            this.lifetimeDefaulted = lifetimeDefaulted;
             this.gcpProjects = gcpProjects;
             this.awsAccounts = awsAccounts;
             this.azureTenants = azureTenants;
@@ -519,6 +534,7 @@ public abstract class CloudTokenValidator implements InstanceAttestationValidato
                 issuers.put(AttestationIssuanceConfig.EVIDENCE_AZURE_MI_TOKEN,
                         issuerList(AZURE_MI_ISSUERS, settings.words(AZURE_MI_ISSUERS)));
                 return new Policy(issuers, settings.duration(MAX_LIFETIME).getSeconds(),
+                        settings.resolve(MAX_LIFETIME).provenance().isDefault(),
                         list(GCP_PROJECTS, settings.words(GCP_PROJECTS), PROJECT_ID, "a Google Cloud project ID (no wildcard)"),
                         list(AWS_ACCOUNTS, settings.words(AWS_ACCOUNTS), ACCOUNT_ID, "a twelve-digit AWS account ID"),
                         list(AZURE_TENANTS, settings.words(AZURE_TENANTS), GUID, "a tenant ID (a GUID)"),
@@ -534,7 +550,7 @@ public abstract class CloudTokenValidator implements InstanceAttestationValidato
         public static Policy of(Map<String, Set<String>> issuers, long maxTokenLifetimeSeconds, Set<String> gcpProjects,
                                 Set<String> awsAccounts, Set<String> azureTenants, Set<String> azureManagedIdentities,
                                 boolean requireSingleAudience, boolean production) {
-            return new Policy(issuers, maxTokenLifetimeSeconds, gcpProjects, awsAccounts, azureTenants,
+            return new Policy(issuers, maxTokenLifetimeSeconds, false, gcpProjects, awsAccounts, azureTenants,
                     azureManagedIdentities, requireSingleAudience, production);
         }
 
@@ -579,6 +595,19 @@ public abstract class CloudTokenValidator implements InstanceAttestationValidato
         }
 
         long maxTokenLifetimeSeconds() {
+            return this.maxTokenLifetimeSeconds;
+        }
+
+        /**
+         * The longest {@code type}'s tokens may be issued to live: the setting when it is set, for every type; unset,
+         * {@value #DEFAULT_MAX_LIFETIME_SECONDS} s, except {@code azure-mi-token}'s
+         * {@value #AZURE_MI_DEFAULT_MAX_LIFETIME_SECONDS} s, since Entra chooses a managed identity's token lifetime and
+         * the caller cannot ask for a shorter one.
+         */
+        long maxTokenLifetimeSeconds(String type) {
+            if (this.lifetimeDefaulted && AttestationIssuanceConfig.EVIDENCE_AZURE_MI_TOKEN.equals(type)) {
+                return AZURE_MI_DEFAULT_MAX_LIFETIME_SECONDS;
+            }
             return this.maxTokenLifetimeSeconds;
         }
 
