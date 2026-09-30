@@ -309,12 +309,13 @@ class FederationClientBuilderTest {
         assertEquals("RS256", registered.get("id_token_signed_response_alg"));
 
         Map<String, Object> declared = new LinkedHashMap<>(rp("id_token_signed_response_alg", "PS256", "grant_types",
-                List.of("authorization_code", "refresh_token")));
+                List.of("authorization_code", "refresh_token"), "response_types", List.of("code", "code id_token")));
         Client declaring = FederationClientBuilder.agent(RP, declared, INLINE, EXPLICIT_RP, true);
         declaring.getGrantTypes().remove("refresh_token");
         FederationClientBuilder.narrowed(declared, declaring);
         assertEquals("PS256", declared.get("id_token_signed_response_alg"));
         assertEquals(List.of("authorization_code"), declared.get("grant_types"), "narrowed, as before");
+        assertEquals(List.of("code", "code id_token"), declared.get("response_types"));
 
         Map<String, Object> agent = new LinkedHashMap<>();
         FederationClientBuilder.narrowed(agent, FederationClientBuilder.agent(RP, Map.of(), INLINE, EXPLICIT_AGENT, true));
