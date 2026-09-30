@@ -6,13 +6,15 @@ import com.pingidentity.ps.oidf.jose.LocalJwkSigner;
 import com.pingidentity.ps.oidf.jose.OpenBaoTransitSigner;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Locale;
 import java.util.Map;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import com.pingidentity.ps.oidf.platform.settings.Secret;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 
 /**
  * Per-client signing keys for {@code attest_jwt_client_auth}.
@@ -57,11 +59,6 @@ public final class BridgeSigners {
     public static final String VAULT_ADDR_ENV = "OIDF_BRIDGE_VAULT_ADDR";
     public static final String VAULT_TOKEN_ENV = "OIDF_BRIDGE_VAULT_TOKEN";
 
-    private static final String BACKING_PROP = "oidf.bridge.signer.backing";
-    private static final String KEYS_PROP = "oidf.bridge.signing.keys";
-    private static final String VAULT_ADDR_PROP = "oidf.bridge.vault.addr";
-    private static final String VAULT_TOKEN_PROP = "oidf.bridge.vault.token";
-
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final ConcurrentHashMap<String, JwsSigner> SIGNERS = new ConcurrentHashMap<>();
@@ -76,40 +73,19 @@ public final class BridgeSigners {
         return FederationRuntimeConfig.get().requireBridgeKey();
     }
 
-    /** True when a backing and a key map are configured, whether or not any given client has a key. */
-    public static boolean isConfigured() {
-        refuseSupersededConfig();
-        return backing() != null && setting(KEYS_PROP, KEYS_ENV) != null;
-    }
-
     /**
-     * Refuses to start when the superseded single-key variable is still set.
+     * True when a backing and a key map are configured, whether or not any given client has a key. Each is read through
+     * its entry in the {@code federation-runtime} catalogue (plan item ST-5), which also refuses the superseded
+     * single-key {@code OIDF_BRIDGE_PRIVATE_JWK} and {@code OIDF_BRIDGE_PREVIOUS_PUBLIC_JWK} when either is still set,
+     * naming what replaces it: bridge signing is per client now, and a security setting that silently does nothing is
+     * worse than one that is absent, because the deployment looks configured.
      *
-     * <p>{@code OIDF_BRIDGE_PRIVATE_JWK} configured one deployment-wide key. Signing is per client now, so
-     * that variable does nothing — and a security setting that silently does nothing is worse than one
-     * that is absent, because the deployment looks configured. Say so instead.
+     * @throws com.pingidentity.ps.oidf.platform.settings.SettingRefused for a value an entry refuses - a backing that is
+     *                                                                   not {@code vault} or {@code config} - or a removed
+     *                                                                   name that is set
      */
-    private static void refuseSupersededConfig() {
-        if (FederationRuntimeConfig.get().bridgePrivateJwk() != null) {
-            throw new IllegalStateException(FederationRuntimeConfig.BRIDGE_KEY_ENV
-                    + " is set but is no longer used: bridge signing is per client. Move that key to "
-                    + KEYS_ENV + " under the client it belongs to (as \"jwk\", with " + BACKING_ENV
-                    + "=config), or to a vault transit key (as \"key_ref\", with " + BACKING_ENV
-                    + "=vault), then unset " + FederationRuntimeConfig.BRIDGE_KEY_ENV + ".");
-        }
-        // Its sibling, and the same trap. This existed so a rotation could keep the OUTGOING public key
-        // in every client's JWKS while clients picked up the new one - a manoeuvre that only made sense
-        // when one key served everyone and registration injected it. withBridgeKeys is deleted, so
-        // nothing reads this now. An operator mid-rotation would otherwise set it and believe the
-        // overlap was in place.
-        if (FederationRuntimeConfig.get().bridgePreviousPublicJwk() != null) {
-            throw new IllegalStateException(FederationRuntimeConfig.BRIDGE_PREVIOUS_PUBLIC_KEY_ENV
-                    + " is set but is no longer used: it kept a superseded DEPLOYMENT-WIDE bridge key in "
-                    + "every client's JWKS during a rotation overlap, and there is no longer a "
-                    + "deployment-wide key to rotate. Rotating one client now means changing that "
-                    + "client's own registered JWKS and its entry in " + KEYS_ENV + ". Unset "
-                    + FederationRuntimeConfig.BRIDGE_PREVIOUS_PUBLIC_KEY_ENV + ".");
-        }
+    public static boolean isConfigured() {
+        return backing() != null && keysPath() != null;
     }
 
     /**
@@ -209,13 +185,14 @@ public final class BridgeSigners {
                 throw new IllegalStateException("bridge signing key for " + clientId + " is an inline \"jwk\", but "
                         + BACKING_ENV + "=vault. Inline keys are refused in a vault-backed deployment.");
             }
-            String addr = setting(VAULT_ADDR_PROP, VAULT_ADDR_ENV);
-            String token = setting(VAULT_TOKEN_PROP, VAULT_TOKEN_ENV);
+            Settings settings = settings();
+            String addr = settings.string(VAULT_ADDR_ENV);
+            Secret token = settings.secret(VAULT_TOKEN_ENV);
             if (addr == null || token == null) {
                 throw new IllegalStateException(BACKING_ENV + "=vault requires " + VAULT_ADDR_ENV
                         + " and " + VAULT_TOKEN_ENV);
             }
-            return new OpenBaoTransitSigner(addr, token, (String) keyRef);
+            return new OpenBaoTransitSigner(addr, token.reveal(), (String) keyRef);
         }
         if ("config".equals(backing)) {
             if (!hasJwk) {
@@ -232,19 +209,20 @@ public final class BridgeSigners {
                         + " is not a usable private JWK: " + e.getMessage(), e);
             }
         }
-        throw new IllegalStateException(BACKING_ENV + " must be \"vault\" or \"config\", got \"" + backing + "\"");
+        throw new IllegalStateException(BACKING_ENV + " is unset");
     }
 
     private static Map<String, Object> keys() {
-        String path = setting(KEYS_PROP, KEYS_ENV);
+        Path path = keysPath();
+        String from = String.valueOf(path);
         Map<String, Object> local = keysByClient;
-        if (local != null && java.util.Objects.equals(loadedFrom, path)) {
+        if (local != null && java.util.Objects.equals(loadedFrom, from)) {
             return local;
         }
         synchronized (BridgeSigners.class) {
             try {
                 @SuppressWarnings("unchecked")
-                Map<String, Object> parsed = MAPPER.readValue(Files.readString(Path.of(path)), Map.class);
+                Map<String, Object> parsed = MAPPER.readValue(Files.readString(path), Map.class);
                 keysByClient = parsed;
             }
             catch (Exception e) {
@@ -252,23 +230,25 @@ public final class BridgeSigners {
                 throw new IllegalStateException(KEYS_ENV + "=" + path + " could not be read as a JSON object "
                         + "of client id -> key: " + e.getMessage(), e);
             }
-            loadedFrom = path;
+            loadedFrom = from;
             return keysByClient;
         }
     }
 
+    /** {@value #BACKING_ENV}: {@code vault}, {@code config}, or null when unset. */
     private static String backing() {
-        String raw = setting(BACKING_PROP, BACKING_ENV);
-        return raw == null ? null : raw.trim().toLowerCase(Locale.ROOT);
+        Settings settings = settings();
+        return settings.choice(BACKING_ENV);
     }
 
-    /** System property first, then environment - the convention the rest of this package follows. */
-    private static String setting(String prop, String env) {
-        String value = System.getProperty(prop);
-        if (value == null || value.isBlank()) {
-            value = System.getenv(env);
-        }
-        return value == null || value.isBlank() ? null : value.trim();
+    private static Path keysPath() {
+        Settings settings = settings();
+        return settings.path(KEYS_ENV);
+    }
+
+    /** This process's federation runtime settings: the system property, then the environment variable, for each. */
+    private static Settings settings() {
+        return FederationRuntimeConfig.settings(Sources.process());
     }
 
     /** Test seam: drop memoised keys and signers so a test can change the environment. */

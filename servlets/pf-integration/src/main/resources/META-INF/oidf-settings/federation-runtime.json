@@ -74,24 +74,6 @@
       "file": false
     },
     {
-      "name": "OIDF_FEDERATION_IGNORE_SSL_ERRORS",
-      "kind": "env",
-      "type": "bool",
-      "default": false,
-      "description": "Whether federation fetches skip certificate checks, for a test federation only; PDP calls always check",
-      "when_wrong": {"effect": "not-checked", "detail": "Anything but true, in any case, means false; the superseded name set to a different value stops PingFederate starting"},
-      "profile": "forbidden-in-production",
-      "security": true,
-      "sources": [
-        {"from": "system-property", "name": "oidf.federation.ignore.ssl.errors"},
-        {"from": "env", "name": "OIDF_FEDERATION_IGNORE_SSL_ERRORS"}
-      ],
-      "aliases": [
-        {"name": "OIDF_TRUST_CONTROLLER_IGNORE_SSL", "sources": [{"from": "system-property", "name": "oidf.trust.controller.ignore.ssl"}, {"from": "env", "name": "OIDF_TRUST_CONTROLLER_IGNORE_SSL"}]}
-      ],
-      "file": false
-    },
-    {
       "name": "OIDF_ATTESTATION_REQUIRE_ATTESTER_BINDING",
       "kind": "env",
       "type": "bool",

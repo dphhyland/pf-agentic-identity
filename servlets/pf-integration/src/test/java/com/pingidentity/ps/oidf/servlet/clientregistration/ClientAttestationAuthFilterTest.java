@@ -837,16 +837,40 @@ class ClientAttestationAuthFilterTest {
         }
     }
 
+    private static final String REQUIRE_HOSTED_AGENT_PROP = "oidf.attestation.require_hosted_agent";
+
+    /** The hosted-agent requirement with this system property and this environment variable, and nothing else. */
+    private static boolean hostedAgent(String property, String environment) {
+        java.util.Map<String, String> props = new java.util.HashMap<>();
+        java.util.Map<String, String> env = new java.util.HashMap<>();
+        if (property != null) {
+            props.put(REQUIRE_HOSTED_AGENT_PROP, property);
+        }
+        if (environment != null) {
+            env.put(ClientAttestationAuthFilter.REQUIRE_HOSTED_AGENT_ENV, environment);
+        }
+        return ClientAttestationAuthFilter.requireHostedAgentSetting(com.pingidentity.ps.oidf.platform.settings.Sources.of(env::get,
+                props::get, null));
+    }
+
     @Test
     void membershipRequirementIsReadFromThePropertyThenTheEnvironment(@TempDir Path dir) throws Exception {
-        assertTrue(ClientAttestationAuthFilter.requireHostedAgentSetting("true", null));
-        assertTrue(ClientAttestationAuthFilter.requireHostedAgentSetting(" ", "true")); // a blank property defers
-        assertTrue(ClientAttestationAuthFilter.requireHostedAgentSetting(null, "true"));
-        assertEquals(false, ClientAttestationAuthFilter.requireHostedAgentSetting("false", "true"));
-        assertEquals(false, ClientAttestationAuthFilter.requireHostedAgentSetting(null, null));
+        assertTrue(hostedAgent("true", null));
+        assertTrue(hostedAgent(" ", "true")); // a blank property defers
+        assertTrue(hostedAgent(null, "true"));
+        assertEquals(false, hostedAgent("false", "true"));
+        assertEquals(false, hostedAgent(null, null));
+        // Strict from 0.6.0 (plan item ST-5): anything but true or false is refused, naming the setting, where the reader
+        // before read it as false; under development a legacy spelling is read as that reader read it, with a warning.
+        com.pingidentity.ps.oidf.platform.settings.SettingRefused refused = assertThrows(
+                com.pingidentity.ps.oidf.platform.settings.SettingRefused.class, () -> hostedAgent(null, "yes"));
+        assertEquals(ClientAttestationAuthFilter.REQUIRE_HOSTED_AGENT_ENV, refused.setting());
+        assertEquals(false, ClientAttestationAuthFilter.requireHostedAgentSetting(com.pingidentity.ps.oidf.platform.settings.Sources.of(
+                Map.of("OIDF_DEPLOYMENT_PROFILE", "development", ClientAttestationAuthFilter.REQUIRE_HOSTED_AGENT_ENV, "yes")::get,
+                name -> null, null)));
 
         // Read by a filter that starts: a switched-off one (OIDF_ATTESTATION_AUTH_ENABLED=false) reads nothing.
-        System.setProperty(ClientAttestationAuthFilter.REQUIRE_HOSTED_AGENT_PROP, "true");
+        System.setProperty(REQUIRE_HOSTED_AGENT_PROP, "true");
         resetSingletons();
         configureKeysFor(dir, DOFILTER_CLIENT_ID);
         try {
@@ -854,7 +878,7 @@ class ClientAttestationAuthFilterTest {
             filter.init(null);
             assertTrue(filter.requiresHostedAgent());
         } finally {
-            System.clearProperty(ClientAttestationAuthFilter.REQUIRE_HOSTED_AGENT_PROP);
+            System.clearProperty(REQUIRE_HOSTED_AGENT_PROP);
         }
     }
 

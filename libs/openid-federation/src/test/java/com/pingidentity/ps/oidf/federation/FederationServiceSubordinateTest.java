@@ -36,7 +36,7 @@ class FederationServiceSubordinateTest {
         SigningKeyProvider leafKeys = testSigningKeys("leaf-key");
 
         FederationConfiguration leafConfig = new FederationConfiguration(
-                List.of(ANCHOR), List.of(), null, false, false, null, null, null, 0, "RS256", null);
+                List.of(ANCHOR), List.of(), false, false, null, null, null, 0, "RS256", null);
         String leafSelfConfig = new FederationService(leafConfig, leafKeys).createEntityConfigurationJwt(SUBORDINATE);
 
         HttpGetClient fetcher = (url, accept) -> {
@@ -44,7 +44,7 @@ class FederationServiceSubordinateTest {
             return leafSelfConfig;
         };
         FederationConfiguration anchorConfig = new FederationConfiguration(
-                List.of(ANCHOR), List.of(ANCHOR, SUBORDINATE), null, false, false, null, null, null, 0, "RS256", null);
+                List.of(ANCHOR), List.of(ANCHOR, SUBORDINATE), false, false, null, null, null, 0, "RS256", null);
         FederationService anchor = new FederationService(anchorConfig, anchorKeys, fetcher);
 
         Map<String, Object> claims = payload(anchor.createEntityStatement(SUBORDINATE, null, ANCHOR));
@@ -59,7 +59,7 @@ class FederationServiceSubordinateTest {
     void selfStatementStillEmbedsOwnKeysAndMetadata() throws Exception {
         SigningKeyProvider anchorKeys = testSigningKeys("anchor-key");
         FederationConfiguration anchorConfig = new FederationConfiguration(
-                List.of(ANCHOR), List.of(ANCHOR), null, false, false, null, null, null, 0, "RS256", null);
+                List.of(ANCHOR), List.of(ANCHOR), false, false, null, null, null, 0, "RS256", null);
         FederationService anchor = new FederationService(anchorConfig, anchorKeys);
 
         Map<String, Object> claims = payload(anchor.createEntityStatement(ANCHOR, null, ANCHOR));
@@ -78,7 +78,7 @@ class FederationServiceSubordinateTest {
         String attesterJwks = JsonUtil.toJson(com.pingidentity.ps.oidf.federation.testkit.Keys.publicJwks(
                 com.pingidentity.ps.oidf.federation.testkit.Keys.ec("mock-attester-1")));
         FederationConfiguration anchorConfig = new FederationConfiguration(
-                List.of(ANCHOR), List.of(ANCHOR), null, false, false, null, null, null, 0, "RS256", null, attesterJwks);
+                List.of(ANCHOR), List.of(ANCHOR), false, false, null, null, null, 0, "RS256", null, attesterJwks);
         FederationService anchor = new FederationService(anchorConfig, anchorKeys);
 
         Map<String, Object> selfStatementMetadata = cast(payload(anchor.createEntityStatement(ANCHOR, null, ANCHOR)).get("metadata"));
@@ -98,7 +98,7 @@ class FederationServiceSubordinateTest {
         // what OpenIdFederationServlet could not tell apart.
         SigningKeyProvider anchorKeys = testSigningKeys("anchor-key");
         FederationConfiguration anchorConfig = new FederationConfiguration(
-                List.of(ANCHOR), List.of(ANCHOR), null, false, false, null, null, null, 0, "RS256", null);
+                List.of(ANCHOR), List.of(ANCHOR), false, false, null, null, null, 0, "RS256", null);
         FederationService anchor = new FederationService(anchorConfig, anchorKeys, (url, accept) -> {
             throw new AssertionError("must not fetch for an unknown subject");
         });
@@ -117,7 +117,7 @@ class FederationServiceSubordinateTest {
         Map<String, Object> claimsFragment = Map.of("jwks", hostedJwks);
 
         FederationConfiguration anchorConfig = new FederationConfiguration(
-                List.of(ANCHOR), List.of(ANCHOR), null, false, false, null, null, null, 0, "RS256", null);
+                List.of(ANCHOR), List.of(ANCHOR), false, false, null, null, null, 0, "RS256", null);
         FederationService anchor = new FederationService(anchorConfig, anchorKeys,
                 (url, accept) -> {
                     throw new AssertionError("must not fetch — the hosted-entity lookup should have answered first");
@@ -141,7 +141,7 @@ class FederationServiceSubordinateTest {
         Map<String, Object> claimsFragment = Map.of("jwks", hostedJwks, "metadata", vouched);
 
         FederationConfiguration anchorConfig = new FederationConfiguration(
-                List.of(ANCHOR), List.of(ANCHOR), null, false, false, null, null, null, 0, "RS256", null);
+                List.of(ANCHOR), List.of(ANCHOR), false, false, null, null, null, 0, "RS256", null);
         FederationService anchor = new FederationService(anchorConfig, anchorKeys,
                 (url, accept) -> {
                     throw new AssertionError("must not fetch — the hosted-entity lookup should have answered first");
@@ -162,7 +162,7 @@ class FederationServiceSubordinateTest {
         Map<String, Object> claimsFragment = Map.of("jwks", hostedJwks, "metadata_policy", policy);
 
         FederationConfiguration anchorConfig = new FederationConfiguration(
-                List.of(ANCHOR), List.of(ANCHOR), null, false, false, null, null, null, 0, "RS256", null);
+                List.of(ANCHOR), List.of(ANCHOR), false, false, null, null, null, 0, "RS256", null);
         FederationService anchor = new FederationService(anchorConfig, anchorKeys,
                 (url, accept) -> {
                     throw new AssertionError("must not fetch — the hosted-entity lookup should have answered first");
@@ -178,12 +178,12 @@ class FederationServiceSubordinateTest {
         SigningKeyProvider anchorKeys = testSigningKeys("anchor-key");
         SigningKeyProvider leafKeys = testSigningKeys("leaf-key");
         FederationConfiguration leafConfig = new FederationConfiguration(
-                List.of(ANCHOR), List.of(), null, false, false, null, null, null, 0, "RS256", null);
+                List.of(ANCHOR), List.of(), false, false, null, null, null, 0, "RS256", null);
         String leafSelfConfig = new FederationService(leafConfig, leafKeys).createEntityConfigurationJwt(SUBORDINATE);
 
         HttpGetClient fetcher = (url, accept) -> leafSelfConfig;
         FederationConfiguration anchorConfig = new FederationConfiguration(
-                List.of(ANCHOR), List.of(ANCHOR, SUBORDINATE), null, false, false, null, null, null, 0, "RS256", null);
+                List.of(ANCHOR), List.of(ANCHOR, SUBORDINATE), false, false, null, null, null, 0, "RS256", null);
         // The lookup answers for every subject but this one — proving "not hosted" (null) falls through
         // rather than short-circuiting the whole subordinate-statement path.
         FederationService anchor = new FederationService(anchorConfig, anchorKeys, fetcher, subject -> null);
@@ -198,7 +198,7 @@ class FederationServiceSubordinateTest {
         // never learned about hosted entities keep working unchanged.
         SigningKeyProvider anchorKeys = testSigningKeys("anchor-key");
         FederationConfiguration anchorConfig = new FederationConfiguration(
-                List.of(ANCHOR), List.of(ANCHOR), null, false, false, null, null, null, 0, "RS256", null);
+                List.of(ANCHOR), List.of(ANCHOR), false, false, null, null, null, 0, "RS256", null);
         FederationService anchor = new FederationService(anchorConfig, anchorKeys, (url, accept) -> {
             throw new AssertionError("must not fetch for an unknown subject");
         });
@@ -212,7 +212,7 @@ class FederationServiceSubordinateTest {
         String attesterJwks = JsonUtil.toJson(com.pingidentity.ps.oidf.federation.testkit.Keys.publicJwks(
                 com.pingidentity.ps.oidf.federation.testkit.Keys.ec("mock-attester-1")));
         FederationConfiguration anchorConfig = new FederationConfiguration(
-                List.of(ANCHOR), List.of(ANCHOR), null, false, false, null, null, null, 0, "RS256", null, attesterJwks);
+                List.of(ANCHOR), List.of(ANCHOR), false, false, null, null, null, 0, "RS256", null, attesterJwks);
         FederationService anchor = new FederationService(anchorConfig, anchorKeys);
 
         Map<String, Object> claims = payload(anchor.createEntityConfigurationJwt(ANCHOR));

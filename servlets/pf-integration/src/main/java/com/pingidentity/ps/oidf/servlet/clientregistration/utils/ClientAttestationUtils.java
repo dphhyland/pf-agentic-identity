@@ -10,6 +10,8 @@ import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.clientattestation.AttestationRarModels;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
 import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 import com.pingidentity.ps.oidf.rar.model.RarModelException;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
 import com.pingidentity.ps.oidf.clientattestation.AttesterKeyResolver;
@@ -378,7 +380,7 @@ public final class ClientAttestationUtils {
      */
     public static ClientAttestationConfig globalPolicy(String opIssuer, String endpointUrl) {
         ClientAttestationConfig base = ClientAttestationUtils.defaultConfig(opIssuer, endpointUrl);
-        Set<String> required = ClientAttestationUtils.requiredClaimsDefault(System::getProperty, System::getenv);
+        Set<String> required = ClientAttestationUtils.requiredClaimsDefault(Sources.process());
         return required == null ? base : ClientAttestationConfig.builder()
                 .expectedAudience(base.expectedAudience())
                 .expectedHtu(base.expectedHtu())
@@ -510,8 +512,10 @@ public final class ClientAttestationUtils {
      */
     public static AttesterKeyResolver attesterResolver(String opIssuer) {
         FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+        // The filter has no client's extended properties here, so an attester's presented chain is held to the per-client
+        // property's default, as the criterion holds it (F-0198): statements older than that are fetched again.
         return ClientAttestationUtils.resolveAttesterTrust(runtime.ignoreSslErrors(),
-                runtime.trustControllerHost(), runtime.trustControllerBaseUrl(), opIssuer, -1L);
+                runtime.trustControllerHost(), runtime.trustControllerBaseUrl(), opIssuer, OIDFederationUtils.TRUST_CHAIN_REQUEST_MAX_AGE_DEFAULT);
     }
 
     /**
@@ -659,10 +663,10 @@ public final class ClientAttestationUtils {
         }
         synchronized (LOCK) {
             if (!mockResolverLoaded) {
-                String path = System.getProperty("oidf.mock.attesters");
-                if (path != null && !path.isBlank() && java.nio.file.Files.isReadable(java.nio.file.Path.of(path))) {
+                java.nio.file.Path path = endpointSettings(Sources.process()).path(MOCK_ATTESTERS);
+                if (path != null && java.nio.file.Files.isReadable(path)) {
                     try {
-                        mockResolver = StaticAttesterKeyResolver.fromFile(java.nio.file.Path.of(path));
+                        mockResolver = StaticAttesterKeyResolver.fromFile(path);
                         LOGGER.warn((Object) ("DEV MODE: trusting static mock attester keys from '" + path
                                 + "' — OpenID Federation trust-chain validation is DISABLED."));
                     } catch (Exception e) {
@@ -725,35 +729,36 @@ public final class ClientAttestationUtils {
         }
     }
 
+    /** The catalogue the global attestation-endpoint settings are in ({@code attestation-token-endpoint.json}). */
+    public static final String ENDPOINT_SETTINGS = "attestation-token-endpoint";
+    static final String REQUIRED_CLAIMS = "oidf.attestation.required.claims";
+    static final String MOCK_ATTESTERS = "oidf.mock.attesters";
+
     /**
      * The required claims every client's attestation must carry, to which a client's {@code attestation_required_claims}
-     * adds: the
-     * {@code oidf.attestation.required.claims} system property, else {@code OIDF_ATTESTATION_REQUIRED_CLAIMS} - the
-     * first set to something not blank, as the catalogue entry records its sources - or null when neither names one.
-     * The image used to set the property to {@code workload}; from 0.6.0 the deployment sets either (plan item R-I3).
+     * adds: the {@code oidf.attestation.required.claims} system property, else {@code OIDF_ATTESTATION_REQUIRED_CLAIMS},
+     * space- or comma-separated, read through the entry's sources in their order - or null when neither names one. A
+     * list of nothing (a comma alone) is refused (plan item ST-5). The image used to set the property to
+     * {@code workload}; from 0.6.0 the deployment sets either (plan item R-I3).
+     *
+     * @throws com.pingidentity.ps.oidf.platform.settings.SettingRefused for a list of nothing
      */
-    static Set<String> requiredClaimsDefault(java.util.function.Function<String, String> props,
-            java.util.function.Function<String, String> env) {
-        String value = props.apply("oidf.attestation.required.claims");
-        if (value == null || value.isBlank()) {
-            value = env.apply("OIDF_ATTESTATION_REQUIRED_CLAIMS");
-        }
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        LinkedHashSet<String> result = new LinkedHashSet<>();
-        for (String token : value.split(",")) {
-            String trimmed = token.trim();
-            if (!trimmed.isEmpty()) {
-                result.add(trimmed);
-            }
-        }
-        return result.isEmpty() ? null : result;
+    public static Set<String> requiredClaimsDefault(Sources sources) {
+        Settings settings = endpointSettings(sources);
+        return settings.words(REQUIRED_CLAIMS);
     }
 
+    /** The global attestation-endpoint settings, read from {@code sources}. */
+    static Settings endpointSettings(Sources sources) {
+        return Settings.load(ClientAttestationUtils.class.getClassLoader(), ENDPOINT_SETTINGS).with(sources);
+    }
+
+    /**
+     * The per-client {@code trust_chain_request_max_age} for an attester's chain: the same property, and the same default,
+     * as the OGNL chain criterion's ({@link OIDFederationUtils#trustChainRequestMaxAge}), F-0198.
+     */
     private static long trustChainEntryMaxAge(Map inParameters) {
-        Long value = ClientAttestationUtils.longProp(inParameters, "extproperties.trust_chain_request_max_age");
-        return value != null ? value : -1L;
+        return OIDFederationUtils.trustChainRequestMaxAge(inParameters);
     }
 
     /**
@@ -962,37 +967,6 @@ public final class ClientAttestationUtils {
             return ((AttributeValue) value).getValue();
         }
         return null;
-    }
-
-    private static String stringProp(Map inParameters, String key) {
-        if (!inParameters.containsKey(key)) {
-            return null;
-        }
-        // PF's issuance-criteria context maps the extended-property key even when the client has no value:
-        // unwrap an AttributeValue, and treat Java null / the literal "null" (from String.valueOf(null)) /
-        // blank as "not set" so callers fall back to defaults instead of a bogus "null" token.
-        Object raw = inParameters.get(key);
-        if (raw instanceof AttributeValue) {
-            raw = ((AttributeValue) raw).getValue();
-        }
-        if (raw == null) {
-            return null;
-        }
-        String value = String.valueOf(raw).trim();
-        return value.isEmpty() || "null".equalsIgnoreCase(value) ? null : value;
-    }
-
-    private static Long longProp(Map inParameters, String key) {
-        String value = ClientAttestationUtils.stringProp(inParameters, key);
-        if (value == null) {
-            return null;
-        }
-        try {
-            return Long.parseLong(value);
-        } catch (NumberFormatException e) {
-            LOGGER.warn((Object) (key + " is not an integer (\"" + value + "\"); ignoring"));
-            return null;
-        }
     }
 
 }

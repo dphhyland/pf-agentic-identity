@@ -10,8 +10,8 @@
       "kind": "env",
       "type": "words",
       "default": null,
-      "description": "The clients the FAPI 2.0 filter holds to issuer-only assertion audiences and PS256, ES256 or EdDSA DPoP proofs, comma-separated; * is every client",
-      "when_wrong": {"effect": "not-checked", "detail": "An id that names no client holds nobody"},
+      "description": "The clients the FAPI 2.0 filter holds to issuer-only assertion audiences and PS256, ES256 or EdDSA DPoP proofs, space- or comma-separated; * is every client",
+      "when_wrong": {"effect": "doesnt-start", "detail": "A list of nothing (a comma alone): FAPI does not start. An id that names no client holds nobody"},
       "profile": "any",
       "security": true,
       "sources": [

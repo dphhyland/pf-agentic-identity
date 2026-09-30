@@ -31,7 +31,12 @@ import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings;
 import com.pingidentity.ps.oidf.pf.PfTracking;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
-import com.pingidentity.ps.oidf.pf.PfDataSources;
+import com.pingidentity.ps.oidf.pf.AuthorityDataSource;
+import com.pingidentity.ps.oidf.platform.profile.AcceptedRisk;
+import com.pingidentity.ps.oidf.platform.profile.ProfileRefusals;
+import com.pingidentity.ps.oidf.platform.settings.Secret;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -80,6 +85,11 @@ public class HostedEntityServlet extends RequestScopedServlet {
     private static final Pattern SLUG = Pattern.compile("^[a-z0-9][a-z0-9-]{0,63}$");
     /** The history's reason for a revocation through {@code DELETE}. */
     static final String REVOKED_REASON = "revoked via the hosted-entity API";
+    /** This authority's Entity Identifier; unset, it hosts nothing. */
+    static final String AUTHORITY_ENTITY_ID = "OIDF_AUTHORITY_ENTITY_ID";
+    /** OpenBao's address and token on this servlet, used together; either unset, {@code OIDF_OPENBAO_URL} and its token. */
+    static final String OPENBAO_URL_PARAM = "openBaoUrl";
+    static final String OPENBAO_TOKEN_PARAM = "openBaoToken";
 
     /** Who may enrol and revoke: this webapp's operator authenticator (plan item S8b). */
     private transient OperatorAuthenticator authenticator;
@@ -137,7 +147,11 @@ public class HostedEntityServlet extends RequestScopedServlet {
      * @return false when no authority entity id is configured: this deployment hosts nothing
      */
     static boolean configureAuthority(java.util.function.Function<String, String> initParams) {
-        String authorityEntityId = setting(initParams, "authorityEntityId", "oidf.authority.entity_id", "OIDF_AUTHORITY_ENTITY_ID");
+        // Each setting through its hosted-entities catalogue entry: the init-param, then the system property, then the
+        // environment variable (plan item ST-5), as AuthorityDataSource reads the store for the servlets without them.
+        Sources sources = initParams == null ? Sources.process() : Sources.process().withInitParams(initParams);
+        Settings settings = AuthorityDataSource.settings(sources);
+        String authorityEntityId = settings.string(AUTHORITY_ENTITY_ID);
         if (authorityEntityId == null) {
             return false;
         }
@@ -146,21 +160,21 @@ public class HostedEntityServlet extends RequestScopedServlet {
         // or not at all - and a later attempt (the supervisor's, or another servlet's) starts from nothing. The policy
         // alone is harmless: nothing reads it until signing is published, and the next attempt sets it again.
         // SurfaceGateTest.aStoreIsNotPublishedWhenALaterStepOfTheAuthorityFails pins this order.
-        javax.sql.DataSource store = null;
-        String jdbcUrl = setting(initParams, "jdbcUrl", "oidf.authority.jdbc.url", "OIDF_AUTHORITY_JDBC_URL");
-        if (jdbcUrl != null) {
-            store = PfDataSources.direct(jdbcUrl, setting(initParams, "jdbcUsername", "oidf.authority.jdbc.username", "OIDF_AUTHORITY_JDBC_USERNAME"),
-                    setting(initParams, "jdbcPassword", "oidf.authority.jdbc.password", "OIDF_AUTHORITY_JDBC_PASSWORD"));
+        javax.sql.DataSource store = AuthorityDataSource.from(sources).orElse(null);
+        // PR-2 (Phase 3 plan, decisions 9, 10 and 15): under production a registry in memory needs the in-memory-state
+        // risk, and a store is PostgreSQL; under development each is a WARN.
+        if (store == null) {
+            ProfileRefusals.requireRisk(Startup.HOSTING, AcceptedRisk.IN_MEMORY_STATE, "the hosted-entity registry and its Trust"
+                    + " Mark grants are in memory (neither " + AuthorityDataSource.DATA_STORE_ID_ENV + " nor "
+                    + AuthorityDataSource.JDBC_URL_ENV + " is set)");
         } else {
-            String dataStoreId = setting(initParams, "dataStoreId", "oidf.authority.data_store_id", "OIDF_AUTHORITY_DATA_STORE_ID");
-            if (dataStoreId != null) {
-                store = PfDataSources.pfManaged(dataStoreId);
-            }
+            AuthorityDataSource.requirePostgreSql(Startup.HOSTING, store, "the hosted-entity registry");
         }
         AuthoritySupport.configureDomainDefaultMetadataPolicy(FederationRuntimeConfig.get().authorityMetadataPolicy());
-        String baoUrl = setting(initParams, "openBaoUrl", "oidf.openbao.url", "OIDF_OPENBAO_URL");
-        String baoToken = setting(initParams, "openBaoToken", "oidf.openbao.token", "OIDF_OPENBAO_TOKEN");
-        HostedEntitySigner signer = baoUrl != null && baoToken != null ? new RegistryHostedEntitySigner(baoUrl, baoToken)
+        // The servlet's two init-params together, else OIDF_OPENBAO_URL and OIDF_OPENBAO_TOKEN as every reader reads them.
+        String baoUrl = settings.string(OPENBAO_URL_PARAM);
+        Secret baoToken = settings.secret(OPENBAO_TOKEN_PARAM);
+        HostedEntitySigner signer = baoUrl != null && baoToken != null ? new RegistryHostedEntitySigner(baoUrl, baoToken.reveal())
                 : RegistryHostedEntitySigner.fromEnvironment();
         // The stores come before the signing: hosted lookups begin once signing is published, and one that found no store
         // would fall back to memory for good.
@@ -175,22 +189,6 @@ public class HostedEntityServlet extends RequestScopedServlet {
         // time it is actually used.
         AuthoritySupport.configureSigning(signer, authorityEntityId);
         return true;
-    }
-
-    /** An init-param, else a system property, else an environment variable; blank counts as unset at every level. */
-    private static String setting(java.util.function.Function<String, String> initParams, String initParam, String sysProp, String envVar) {
-        String value = initParams == null ? null : blankToNull(initParams.apply(initParam));
-        if (value == null) {
-            value = blankToNull(System.getProperty(sysProp));
-        }
-        if (value == null) {
-            value = blankToNull(System.getenv(envVar));
-        }
-        return value;
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
     }
 
     @Override
