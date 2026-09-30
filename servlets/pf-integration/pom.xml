@@ -515,6 +515,21 @@
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.configureAuthorityFrom(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.OIDFederationUtils.trustChainRequestMaxAge(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.requireHostedAgentSetting(*</include>
+                                        <!-- S4M (plan item S-4): the attestation members added to PingFederate's discovery documents. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.AttestationMetadataFilter.doFilter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.AttestationMetadataFilter.finish(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.AttestationMetadataFilter.extended(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.AttestationMetadataFilter.isJson(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.AttestationMetadataFilter.document(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.AttestationMetadataFilter.Held.encoded(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.AttestationMetadataFilter.Held.close(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.AttestationMetadataFilter.Held.write(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.AttestationMetadataFilter.Held.getOutputStream(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.AttestationMetadataFilter.Held.getWriter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.AttestationMetadataFilter.Held.flushBuffer(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.AttestationMetadataFilter.Held.setContentLengthLong(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.AttestationMetadataFilter.Held.passes(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.AttestationMetadataFilter.AsGet.getMethod(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

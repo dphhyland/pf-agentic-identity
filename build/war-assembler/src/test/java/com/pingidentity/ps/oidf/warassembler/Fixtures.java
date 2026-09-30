@@ -25,6 +25,7 @@ final class Fixtures {
         PFI + "clientregistration.TokenEndpointAutoRegistrationFilter",
         PFI + "clientregistration.IssuedDetailsBelt",
         PFI + "clientregistration.ClientAttestationAuthFilter",
+        PFI + "oauth.AttestationMetadataFilter",
     };
     static final String SSF_FILTER = PFI + "ssf.LogoutEventFilter";
     /** The listener filters.xml declares (plan item F-2), in platform-pf's jar. */
@@ -53,6 +54,15 @@ final class Fixtures {
             + "    <filter-class>" + PFI + "clientregistration.IssuedDetailsBelt</filter-class>\n  </filter>\n"
             + "  <filter-mapping>\n    <filter-name>IssuedDetailsBelt</filter-name>\n"
             + "    <url-pattern>/as/token.oauth2</url-pattern>\n  </filter-mapping>\n";
+    /**
+     * The attestation metadata filter and its mapping as the assembler writes them (plan item S-4, S4M, 2026-10-01): the
+     * last filter declared, so after ClientAttestationAuth's mapping and before F-2's listener.
+     */
+    static final String ATTESTATION_METADATA_BLOCK = "  <filter>\n    <filter-name>AttestationMetadata</filter-name>\n"
+            + "    <filter-class>" + PFI + "oauth.AttestationMetadataFilter</filter-class>\n  </filter>\n"
+            + "  <filter-mapping>\n    <filter-name>AttestationMetadata</filter-name>\n"
+            + "    <url-pattern>/.well-known/openid-configuration</url-pattern>\n"
+            + "    <url-pattern>/.well-known/oauth-authorization-server</url-pattern>\n  </filter-mapping>\n";
     /** Where ClientAttestationAuth's filter starts in the shell's additions: the belt goes in before it. */
     static final String CLIENT_ATTESTATION_FILTER_START = "  <filter>\n    <filter-name>ClientAttestationAuth</filter-name>\n";
     static final long TIME = 1_790_000_000_000L;

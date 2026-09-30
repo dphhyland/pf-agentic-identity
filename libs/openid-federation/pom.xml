@@ -380,6 +380,12 @@
                                         <include>com.pingidentity.ps.oidf.federation.FederationConfiguration.hostInLowerCase(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.FederationConfiguration.ignoreSslErrors(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.AttestationMetadataConfig.from(*</include>
+                                        <!-- S4M (plan item S-4): one attestation member set wherever the authorization server's metadata is served. -->
+                                        <include>com.pingidentity.ps.oidf.federation.AttestationMetadataConfig.extend(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.AttestationMetadataConfig.attestationMethods(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.AttestationMetadataConfig.advertised(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.AttestationMetadataConfig.current(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.AttestationMetadataConfig.tokenEndpointAuthMethodsSupported(*</include>
                                         <include>com.pingidentity.ps.oidf.authority.RegistryHostedEntitySigner.from(*</include>
                                     </includes>
                                     <limits>
