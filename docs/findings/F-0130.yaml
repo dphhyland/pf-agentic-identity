@@ -7,7 +7,7 @@ status: open
 plan_items: [F-1]
 prs: []
 verification: ''
-target_release: 0.6.0
+target_release: 0.7.0
 notes: >
   Package F1 (2026-09-28) copied rar-model's Json into libs/platform as com.pingidentity.ps.oidf.platform.json.Json,
   with rar-model's limits (nesting 32, number literals of 128 characters, 64 digits written out), its messages,
@@ -18,3 +18,8 @@ notes: >
   after PR-1 has made the RAR plugin shade and relocate platform, so that rar-model can depend on platform and
   drop its copy without adding a jar to the plugin. Its proof is that RarModelVectorsTest and the model
   fingerprint are unchanged.
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  libs/platform and libs/rar-model each still carry Json.java. Unifying them touches rar-model's fingerprinted
+  semantics, which no Phase 3 package took on (Phase 3 PLAN.md, "What should move"). The programme plan gives it no
+  later item of its own, so David schedules it.

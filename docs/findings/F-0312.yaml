@@ -7,7 +7,7 @@ status: open
 plan_items: [S8b, S9b]
 prs: [75]
 verification: ''
-target_release: 0.6.0
+target_release: 0.7.0
 notes: >
   Found by package S8B (2026-09-30). ComponentSwitches.PRESENCE (libs/platform, S9A's) makes OPERATOR_API present
   when OIDF_AUTHORITY_ADMIN_TOKEN is set. From S8B the operator API is configured by the operator-auth catalogue
@@ -18,3 +18,8 @@ notes: >
   reason, and the authenticator answers 503 with it either way). Nothing is left open by it: an operator request
   still needs a token the authenticator accepts. Fix: PRESENCE and components.json's description name
   OIDF_OPERATOR_AUDIENCE, OIDF_OPERATOR_BASE_URL and the static bearer - the component package's owner (S9B, wave 4).
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  ComponentSwitches.PRESENCE still makes OPERATOR_API present on OIDF_AUTHORITY_ADMIN_TOKEN alone
+  (ComponentSwitches.java line 77); S9B did not change it. Nothing is left open by it. The programme plan gives it
+  no later item of its own, so David schedules it.

@@ -7,7 +7,7 @@ status: open
 plan_items: [R-CI10]
 prs: []
 verification: ''
-target_release: 0.6.0
+target_release: 0.7.0
 notes: >
   SECURITY.md sends a reporter to GitHub's private vulnerability reporting, which the repository does not have
   on (`gh api repos/dphhyland/pf-agentic-identity/private-vulnerability-reporting` answers `enabled: false`,
@@ -29,3 +29,8 @@ notes: >
   Retargeted from 0.5.0 to 0.6.0 on 2026-09-29, still open: turning the feature on is an owner action, and `gh api
   repos/dphhyland/pf-agentic-identity/private-vulnerability-reporting` still answered `{"enabled":false}` that day
   (00:16Z), so SECURITY.md's interim paragraph stays.
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  turning private vulnerability reporting on is David's action, and `gh api
+  repos/dphhyland/pf-agentic-identity/private-vulnerability-reporting` still answered {"enabled":false} on
+  2026-10-01. SECURITY.md's interim paragraph stays and now names 0.7.0.

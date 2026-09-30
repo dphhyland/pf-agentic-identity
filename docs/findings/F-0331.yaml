@@ -7,7 +7,7 @@ status: open
 plan_items: [ST-5, H-SSF-1]
 prs: [82]
 verification: ''
-target_release: 0.6.0
+target_release: 0.7.0
 notes: >
   Found by ST5C (2026-09-30). The package's specification asked for a JWKS that cannot be reached to be
   FAILED_DEPENDENCY. The receiver's JWKS (OIDF_SSF_RECEIVER_JWKS_URL) is fetched by JwksHttpSource on the first SET
@@ -16,3 +16,7 @@ notes: >
   transmitter being up, which is a choice for the receiver's owner, and the fetch is S5D's to move onto
   OutboundHttp. The transmitter's own keys are PingFederate's, read in process. Who and when: HSSF1 (Phase 3, wave 4),
   which owns the receiver, decides whether the start fetches the JWKS once.
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  HSSF1 did not make the receiver's JWKS a start-up dependency; the JWKS is still fetched on the first SET. Whether
+  the receiver's readiness should depend on the transmitter is the receiver's owner's decision, S-10 (Phase 4).

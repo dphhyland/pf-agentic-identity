@@ -7,7 +7,7 @@ status: open
 plan_items: [ST-5, H-SSF-7]
 prs: [82]
 verification: ''
-target_release: 0.6.0
+target_release: 0.7.0
 notes: >
   Found by ST5C (2026-09-30), read in the code. SsfSupport.buildPublisher catches what KafkaSetPublisher.create
   throws, logs "SSF Kafka publisher disabled" at ERROR and uses the no-op publisher, so with
@@ -15,3 +15,8 @@ notes: >
   Kafka; health does not show it. ST5C left it alone because the Kafka publisher and its settings are HSSF3's (plan
   decision 17 and the wave table). Who and when: HSSF3 (Phase 3, wave 6), with the Kafka TLS settings: a publisher
   switched on that cannot be built is FAILED_CONFIG, or DEGRADED with its reason, rather than READY.
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  HSSF3 made a Kafka publisher in clear refuse SSF under production, but SsfSupport.buildPublisher still logs "SSF
+  Kafka publisher disabled" and falls back to the no-op publisher for any other failure (SsfSupport.java line 249),
+  leaving SSF READY. S-10 (Phase 4) owns SSF's delivery.

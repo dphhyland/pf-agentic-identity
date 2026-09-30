@@ -3,10 +3,23 @@ title: 'Configurability: undocumented keys, lenient parsing, unreachable init-pa
 severity: medium
 area: platform
 source: review-2026-09-26
-status: open
+status: closed
 plan_items: [ST-1, ST-2, ST-3, ST-4, ST-5, ST-6, ST-7, PR-1, PR-2, PR-3, PR-5]
-prs: [43, 47, 50, 52, 54, 62, 63, 64]
-verification: ''
+prs: [43, 47, 50, 52, 54, 62, 63, 64, 76, 77, 80, 82, 85, 91, 92, 100, 101]
+verification: >
+  Closed 2026-10-01 by the v0.6.0 release package on origin/main 600fa6b5, once its restart-only part was split into
+  F-0435, which no Phase 3 item addresses. Undocumented keys: every shipped module's settings are catalogued (`java
+  -jar oidf-preflight.jar --list`: 28 catalogues, 363 settings), and under production an OIDF_ name in a catalogue's
+  family that no catalogue declares refuses that family's components (PR5, PR #77). Lenient parsing: the readers
+  moved onto their catalogues and parse strictly - ST5A #80, ST5C #82, ST5F #91 and ST5S #85, with S4C #76 for a
+  client's attestation_* properties and PLG #92 for the RAR plugin's fields - keeping only decision 11's development
+  escape for a switch's legacy spellings. Direct reads and unreachable init-params: ST6 (PR #100) fails CI on a
+  direct read outside platform; on origin/main 600fa6b5 `python3 tools/direct-read-scan.py` and `--check-allow-list`
+  are clean with 61 reads admitted by 37 entries of tools/direct-read-allow.txt, each with a reason or an open
+  finding. Insecure switches are refused in production (PR5), and oidf-preflight.jar judges an env file against
+  every catalogue before an upgrade (ST7, PR #101). Leftovers under their own ids: F-0296, F-0297, F-0311, F-0312
+  and F-0341 (catalogue texts and components, 0.7.0), F-0420 to F-0424 (the reads the allow-list admits, 0.7.0),
+  F-0425 to F-0427 (what the preflight cannot judge, 0.7.0) and F-0435 (restart-only settings).
 target_release: 0.6.0
 notes: >
   The review's configurability class, as one finding: settings read by name in ~114 places and ~70 system
@@ -26,3 +39,10 @@ notes: >
   platform.settings, reading the platform-redis catalogue. Still open: every other reader still reads for itself,
   lenient readers remain (listed in libs/platform's README as ST-5's worklist), unknown keys and unaccepted risks are
   listed and never refused (ST-5 to ST-7, PR-2, PR-3, PR-5, Phase 3).
+
+  Phase 3 (0.6.0, recorded 2026-10-01 by the release package): ST5A #80, ST5C #82, ST5F #91 and ST5S #85 (strict
+  readers, plan item ST-5), S4C #76 and PLG #92 (the per-client properties and the RAR plugin's fields), PR5 #77
+  (the profile enforced, PR-2 and PR-5), ST6 #100 (the direct-read ratchet, ST-6) and ST7 #101 (oidf-preflight.jar,
+  ST-7). The title's "restart-only settings" has no Phase 3 item - the programme plan maps the whole class to ST-1
+  to ST-7 and PR-1 to PR-5, none of which makes a setting take effect without a restart - so it is split into F-0435
+  and this finding is closed.

@@ -7,7 +7,7 @@ status: open
 plan_items: [PR-2]
 prs: [80]
 verification: ''
-target_release: 0.6.0
+target_release: 0.7.0
 notes: >
   Found by ST5A (2026-09-30) while wiring PR-2's in-memory rule. AttestationSupport.requireSharedState(namespace) is
   the rule (Phase 3 plan, decisions 9 and 15), and ST5A calls it from the parts that own the attestation namespaces:
@@ -28,3 +28,7 @@ notes: >
   (ProfileRefusals.CODE), so the rule the challenge endpoint enforces in the servlet's copy never sees the engine
   copy's in-memory replay and challenge stores; that copy needs its own requireSharedState(AS) where the criterion's
   stores are first built, or the token-endpoint filter's start function.
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  the OGNL criterion's copy and the federation endpoints' stores still take no in-memory-state check. C-1 (Phase 4)
+  owns in-memory state once topology is known (decision 9).

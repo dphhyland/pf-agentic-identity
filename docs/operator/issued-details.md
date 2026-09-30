@@ -9,7 +9,7 @@ in the token response. The criterion also sends a bare refresh of a payment or a
 Why both. The ceiling used to be checked only against the token request's own `authorization_details` parameter, but
 the code, CIBA and device grants issue the details stored earlier - at PAR, at `/as/bc-auth.ciba`, at the device
 endpoint - and a refresh issues the grant's. Since 0.6.0 ClientAttestationAuth holds the details where they are stored
-([S4D1's release note](../releases/unreleased/S4D1.md)); these two hold what is actually issued, whatever path it took.
+([S4D1's release note](../releases/0.6.0.md#package-s4d1-attestation-on-every-endpoint-that-authenticates-a-client-and-details-held-to-the-ceiling-where-they-arrive)); these two hold what is actually issued, whatever path it took.
 CAS §7.1 asks exactly that of the authorization server: it "MUST, when authenticating a client via an attestation
 containing authorization_details, ensure that any authority granted in issued tokens is a subset of the attestation's
 authorization_details".

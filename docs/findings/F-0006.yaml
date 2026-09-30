@@ -5,7 +5,7 @@ area: ci, release
 source: review-2026-09-26
 status: open
 plan_items: [P0-3, P0-5, P0-6, P0-8, R-CI1, R-CI2, R-CI3, R-CI4, R-CI5, R-CI6, R-CI7, R-CI10]
-prs: [10, 11, 14, 33, 40, 58]
+prs: [10, 11, 14, 33, 40, 58, 67, 68, 101]
 verification: >
   In progress, checked 2026-09-27: release.yml runs `mvn -B verify` and requires a green Build on the tagged
   commit (PR #10, merged as 11e9780 on 2026-09-26), and its 0.3.0 dry run was green (run 36234516459 on
@@ -33,3 +33,14 @@ notes: >
   2026-09-29: booting the image under a licence in CI (R-CI7, Phase 4); `gh secret list` is empty, so the licensed
   conformance workflow has never run; main answers "Branch not protected"; private vulnerability reporting is off
   (F-0068) (R-CI10).
+
+  Phase 3 (0.6.0, recorded 2026-10-01 by the release package): RELREPRO (PR #67) sets project.build.outputTimestamp
+  in every pom through tools/set-version.py, so a rebuild of one commit makes the same jars and wars, and the
+  release now makes the rebuild its deploy will make and compares it with dist/ byte for byte before any draft or
+  package exists (the dry run runs the same comparison). v0.5.0's run compared only after the deploy, failed there
+  on 12 of 14 jars, and was published by hand on 2026-09-29; v0.6.0 is the first release through the fixed order -
+  its dry run on the release branch runs the comparison, and the release run David starts at the tag confirms it.
+  RI3 (PR #68) records the commit in the build and the image's OCI labels and gives the image a HEALTHCHECK; ST7 (PR
+  #101) adds oidf-preflight.jar to the release's assets and SHA256SUMS. Still open on 2026-10-01: booting the image
+  under a licence in CI (R-CI7, Phase 4); `gh secret list` is empty; main answers "Branch not protected" (the branch
+  protection API, 2026-10-01); private vulnerability reporting is off (F-0068, retargeted to 0.7.0).
