@@ -1,0 +1,19 @@
+id: F-0306
+title: A full in-memory replay store forgets a live jti, so a flood of proofs can reopen a spent one
+severity: medium
+area: client-attestation
+source: design
+status: open
+plan_items: [PR-2]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found by S4CP on 2026-09-30. InMemoryAttestationReplayCache is one map for every client, bounded at 8192 entries
+  (replayCacheMaxEntries) with least-recently-used eviction. S4CP makes a full store drop expired entries first,
+  but when every entry is still inside its window the eldest live one goes, and its proof can then be accepted
+  again until its own window ends. A client holding a valid attestation (or, at the attester, valid evidence)
+  can push 8192 of its own fresh jtis through the store and then replay another client's intercepted proof inside
+  that proof's window. Redis has no such limit. The fix is either to refuse when the store is full of live entries
+  (503, trading availability for the replay) or to key the bound per client; ST5A's refusal of in-memory stores in
+  production without the in-memory-state accepted risk (PLAN decision 9) narrows where it applies.
