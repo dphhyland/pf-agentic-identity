@@ -209,6 +209,25 @@ class OperatorApiRoutesTest {
         assertEquals("from-init-param", OperatorApi.authenticator(config).withStaticBearer(null) == null ? null : "from-init-param");
     }
 
+    @Test
+    void anAuthenticatorThatCannotBeBuiltIsNullAndEveryOperatorRouteAnswers503() throws Exception {
+        assertEquals(null, OperatorApi.authenticator(() -> {
+            throw new NoClassDefFoundError("com/pingidentity/ps/oidf/rs/JwksSource");
+        }));
+        assertEquals(null, OperatorApi.authenticator(() -> {
+            throw new IllegalStateException("no Redis");
+        }));
+        jakarta.servlet.http.HttpServletResponse response = org.mockito.Mockito.mock(jakarta.servlet.http.HttpServletResponse.class);
+        assertEquals(null, OperatorApi.authorise(null, org.mockito.Mockito.mock(jakarta.servlet.http.HttpServletRequest.class),
+                response, OperatorApi.REGISTERED_CLIENTS.match("GET", "/federation/registered-clients").orElseThrow()));
+        org.mockito.Mockito.verify(response).setStatus(503);
+        org.mockito.Mockito.verify(response).setHeader("Cache-Control", "no-store");
+        com.pingidentity.ps.oidf.platform.health.ComponentParts.Part part =
+                com.pingidentity.ps.oidf.platform.health.Startup.begin("S8B_OPERATOR_TEST", "OperatorUnbuildable");
+        assertFalse(com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServletAccess.operatorConfigured(part, null));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, part.status().state());
+    }
+
     /** A token with {@code oidf.admin.read} reads and changes nothing: no mutation anywhere asks only for it. */
     @Test
     void noChangeIsOpenedByTheReadScope() throws Exception {

@@ -162,6 +162,10 @@ public class FederationAdminServlet extends RequestScopedServlet {
      * {@code FAILED_CONFIG} when the PingFederate token settings are there but cannot authenticate anyone.
      */
     static boolean operatorConfigured(ComponentParts.Part part, OperatorAuthenticator authenticator) {
+        if (authenticator == null) {
+            part.failedConfig("the operator authenticator could not be built (server.log says why)");
+            return false;
+        }
         String refusal = authenticator.productionRefusal();
         if (refusal != null) {
             part.refused(refusal);

@@ -78,7 +78,9 @@ public class HealthServlet extends HttpServlet {
     private final transient Supplier<OperatorAuthenticator> authenticator;
 
     public HealthServlet() {
-        this(OperatorAuthenticator::shared, System::getenv, () -> BuildInfo.read(HealthServlet.class.getClassLoader()));
+        // A lambda, not a method reference: nothing resolves OperatorAuthenticator until a detail or info request, so
+        // a war without rs-validation still constructs this servlet and answers live and ready.
+        this(() -> OperatorAuthenticator.shared(), System::getenv, () -> BuildInfo.read(HealthServlet.class.getClassLoader()));
     }
 
     HealthServlet(Supplier<OperatorAuthenticator> authenticator, Function<String, String> environment,

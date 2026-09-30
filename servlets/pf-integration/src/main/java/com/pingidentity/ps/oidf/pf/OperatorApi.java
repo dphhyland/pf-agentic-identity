@@ -37,6 +37,7 @@ import java.util.Optional;
  * a method of a mapped path that is in neither.
  */
 public final class OperatorApi {
+    private static final org.apache.commons.logging.Log LOG = org.apache.commons.logging.LogFactory.getLog(OperatorApi.class);
 
     private OperatorApi() {
     }
@@ -106,9 +107,35 @@ public final class OperatorApi {
         return setting(config, "adminToken", OperatorAuthenticator.STATIC_BEARER_PROPERTY, OperatorAuthenticator.STATIC_BEARER_ENV);
     }
 
-    /** This webapp's operator authenticator with {@code config}'s static bearer ({@link #staticBearer}). */
+    /**
+     * This webapp's operator authenticator with {@code config}'s static bearer ({@link #staticBearer}), or null when it
+     * cannot be built - a Redis client that cannot be made, or rs-validation missing beside platform-pf - which is
+     * logged, and on which every operator route answers 503: a surface's init never fails on it, so hosting's public
+     * resolution keeps serving.
+     */
     public static OperatorAuthenticator authenticator(ServletConfig config) {
-        return OperatorAuthenticator.shared().withStaticBearer(staticBearer(config));
+        return authenticator(() -> OperatorAuthenticator.shared().withStaticBearer(staticBearer(config)));
+    }
+
+    /** {@link #authenticator(ServletConfig)}'s rule over {@code build}. */
+    static OperatorAuthenticator authenticator(java.util.function.Supplier<OperatorAuthenticator> build) {
+        try {
+            return build.get();
+        } catch (RuntimeException | LinkageError e) {
+            LOG.error("The operator authenticator could not be built, so every operator route answers 503: " + e, e);
+            return null;
+        }
+    }
+
+    /**
+     * {@link #authorise(OperatorAuthenticator, HttpServletRequest, HttpServletResponse, OperatorRoute)} with no
+     * authenticator: 503, {@code Cache-Control: no-store}, no body.
+     */
+    private static Operator unavailable(HttpServletResponse response) {
+        response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+        response.setHeader("Cache-Control", "no-store");
+        response.setContentLength(0);
+        return null;
     }
 
     /** Init-param, then system property, then environment variable - the module's usual precedence; blank is unset. */
@@ -139,6 +166,9 @@ public final class OperatorApi {
      */
     public static Operator authorise(OperatorAuthenticator authenticator, HttpServletRequest request,
                                      HttpServletResponse response, OperatorRoute route) {
+        if (authenticator == null) {
+            return unavailable(response);
+        }
         if (!authenticator.authorise(request, response, route)) {
             return null;
         }
