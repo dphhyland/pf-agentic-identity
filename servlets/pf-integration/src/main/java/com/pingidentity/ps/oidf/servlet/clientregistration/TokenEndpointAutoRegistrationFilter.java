@@ -4,7 +4,9 @@ import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfRequestScope;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter;
 import java.io.IOException;
@@ -61,6 +63,8 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
     private volatile RegistrationService service;
     private final Function<HttpServletRequest, String> issuerResolver;
     private volatile boolean failClosed = true;
+    /** This filter's part of AUTO_REGISTRATION, from init; null when a test's constructor made it and init never ran. */
+    private volatile ComponentParts.Part part;
 
     public TokenEndpointAutoRegistrationFilter() {
         this.issuerResolver = TokenEndpointAutoRegistrationFilter::defaultIssuer;
@@ -94,64 +98,70 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
 
     @Override
     public void init(FilterConfig config) throws ServletException {
-        var part = Startup.begin(Startup.AUTO_REGISTRATION, "TokenEndpointAutoRegistrationFilter");
-        try {
-            PfAuditEventSink.install();
-            if (this.service != null) {
-                return;
-            }
-            // The trust controller is deployment-wide (FederationRuntimeConfig), not per-filter. This used
-            // to read the env itself and then pass the bare host as BOTH host and base URL, which - via
-            // the statics the constructor wrote - silently replaced any context-path base URL the
-            // registration servlet had established. Only the per-component sizing knobs come from
-            // init-params now.
-            FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
-            if (runtime.isTrustControllerConfigured() && !runtime.hasTrustAnchors()) {
-                // Refuse, but do not take the web app down. The modules are merged into pf-runtime.war, so a
-                // failed init here would also stop this entity's own /.well-known/openid-federation - and a
-                // PF that is its own trust anchor has to serve that before anyone can capture the keys to
-                // pin. Every automatic registration is skipped until the keys are set; the token request
-                // then meets PF's own client authentication, which knows no such client.
-                LOGGER.error((Object)("TokenEndpointAutoRegistrationFilter: " + FederationRuntimeConfig.HOST_ENV + " names "
-                        + runtime.trustControllerHost() + " but " + FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV
-                        + " is unset - automatic registration (OpenID Federation 1.0 §12.1) is refused for every request until the"
-                        + " trust anchor's keys are pinned (§4: they are distributed out of band, not fetched)"));
-                part.failedConfig(FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV + " is unset: automatic registration at the token"
-                        + " endpoint is refused for every request until the trust anchor's keys are pinned");
-                return;
-            }
-            // Building the service builds the validator, and the validator needs the anchor's out-of-band
-            // keys (FederationRuntimeConfig.trustAnchor). No trust controller at all, or a JWKS that is set
-            // but is not a usable public key set, is a deployment error that no request can fix: refuse to
-            // start, naming what to set. (The "no trust controller" case already failed init before the
-            // anchor keys existed - the old validator constructor threw on a blank anchor - but as an
-            // unchecked exception, which a container does not reliably surface from init.) So is an init-param
-            // that does not parse: it used to mean the default, quietly.
-            try {
-                this.service = new RegistrationService(RegistrationConfiguration.forFilter(runtime, config));
-            }
-            catch (RuntimeException e) {
-                throw new ServletException("OpenID Federation automatic registration: " + e.getMessage(), e);
-            }
-            this.failClosed = runtime.registration().failClosed();
-            if (!this.failClosed) {
-                LOGGER.warn((Object)(FederationRuntimeConfig.AUTO_REGISTRATION_FAIL_CLOSED_ENV + "=false: a token request whose federation"
-                        + " registration fails, or whose registration has expired, is passed on to PingFederate rather than refused"));
-            }
-            new RegistrationExpirySweeper(new com.pingidentity.ps.oidf.pf.PfMgmtClientStore(), this.service.lifetime())
-                    .startOnce(runtime.registration().sweepIntervalSeconds());
-            LOGGER.info((Object)("TokenEndpointAutoRegistrationFilter initialised (trust controller "
-                    + runtime.trustControllerHost() + ")"));
-        } catch (ServletException | RuntimeException | Error e) {
-            part.failed(e);
-            throw e;
-        } finally {
-            part.finish();
+        boolean injected = this.service != null;
+        ComponentParts.Part part = Startup.begin(Startup.AUTO_REGISTRATION, "TokenEndpointAutoRegistrationFilter");
+        this.part = part;
+        part.start(() -> this.init(config, part, injected));
+    }
+
+    /**
+     * The start function: what {@code init} did before S-9, run by {@link ComponentParts.Part#start} at deploy and again
+     * by each supervisor retry after a dependency failure. What it throws is the part's state, never the container's.
+     */
+    private void init(FilterConfig config, ComponentParts.Part part, boolean injected) throws ServletException {
+        PfAuditEventSink.install();
+        if (injected) {
+            return;
         }
+        // The trust controller is deployment-wide (FederationRuntimeConfig), not per-filter. This used
+        // to read the env itself and then pass the bare host as BOTH host and base URL, which - via
+        // the statics the constructor wrote - silently replaced any context-path base URL the
+        // registration servlet had established. Only the per-component sizing knobs come from
+        // init-params now.
+        FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+        if (runtime.isTrustControllerConfigured() && !runtime.hasTrustAnchors()) {
+            // Refuse, but do not take the web app down. The modules are merged into pf-runtime.war, so a
+            // failed init here would also stop this entity's own /.well-known/openid-federation - and a
+            // PF that is its own trust anchor has to serve that before anyone can capture the keys to
+            // pin. The component is FAILED_CONFIG until the keys are set: the gate answers a request that
+            // names a federation client 503, and passes every other token request to PingFederate.
+            LOGGER.error((Object)("TokenEndpointAutoRegistrationFilter: " + FederationRuntimeConfig.HOST_ENV + " names "
+                    + runtime.trustControllerHost() + " but " + FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV
+                    + " is unset - automatic registration (OpenID Federation 1.0 §12.1) is refused for every request until the"
+                    + " trust anchor's keys are pinned (§4: they are distributed out of band, not fetched)"));
+            part.failedConfig(FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV + " is unset: automatic registration at the token"
+                    + " endpoint is refused for every request until the trust anchor's keys are pinned");
+            return;
+        }
+        // Building the service builds the validator, and the validator needs the anchor's out-of-band
+        // keys (FederationRuntimeConfig.trustAnchor). No trust controller at all, or a JWKS that is set
+        // but is not a usable public key set, is a deployment error that no request can fix: refuse to
+        // start, naming what to set - FAILED_CONFIG, with the war still serving. (The "no trust controller" case already failed init before the
+        // anchor keys existed - the old validator constructor threw on a blank anchor - but as an
+        // unchecked exception, which a container does not reliably surface from init.) So is an init-param
+        // that does not parse: it used to mean the default, quietly.
+        try {
+            this.service = new RegistrationService(RegistrationConfiguration.forFilter(runtime, config));
+        }
+        catch (RuntimeException e) {
+            throw new ServletException("OpenID Federation automatic registration: " + e.getMessage(), e);
+        }
+        this.failClosed = runtime.registration().failClosed();
+        if (!this.failClosed) {
+            LOGGER.warn((Object)(FederationRuntimeConfig.AUTO_REGISTRATION_FAIL_CLOSED_ENV + "=false: a token request whose federation"
+                    + " registration fails, or whose registration has expired, is passed on to PingFederate rather than refused"));
+        }
+        new RegistrationExpirySweeper(new com.pingidentity.ps.oidf.pf.PfMgmtClientStore(), this.service.lifetime())
+                .startOnce(runtime.registration().sweepIntervalSeconds());
+        LOGGER.info((Object)("TokenEndpointAutoRegistrationFilter initialised (trust controller "
+                + runtime.trustControllerHost() + ")"));
     }
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
+        if (ComponentGate.filter(this.part, request, response, chain, ComponentGate::federationClientTraffic)) {
+            return;
+        }
         // No service means init refused automatic registration (no pinned anchor keys); pass through.
         if (!(request instanceof HttpServletRequest http) || !(response instanceof HttpServletResponse httpResponse) || this.service == null) {
             chain.doFilter(request, response);

@@ -389,8 +389,11 @@ class FrontChannelAutoRegistrationFilterTest {
         pinAnchor();
         System.setProperty("oidf.federation.error.page", "/nonexistent/oidf-error.html");
 
-        ServletException e = assertThrows(ServletException.class, () -> new FrontChannelAutoRegistrationFilter().init(mock(FilterConfig.class)));
-        assertTrue(e.getMessage().contains(FederationRuntimeConfig.FEDERATION_ERROR_PAGE_ENV), e.getMessage());
+        // A file that cannot be read is an I/O failure - a volume not mounted yet, say - so the supervisor retries it.
+        assertDoesNotThrow(() -> new FrontChannelAutoRegistrationFilter().init(mock(FilterConfig.class)));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_DEPENDENCY, com.pingidentity.ps.oidf.servlet.GateTesting.part("FrontChannelAutoRegistrationFilter").state());
+        String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("FrontChannelAutoRegistrationFilter").reason();
+        assertTrue(eReason.contains(FederationRuntimeConfig.FEDERATION_ERROR_PAGE_ENV), eReason);
     }
 
     @Test
@@ -399,8 +402,10 @@ class FrontChannelAutoRegistrationFilterTest {
         FilterConfig config = mock(FilterConfig.class);
         when(config.getInitParameter("subordinateStatementCacheMaxEntries")).thenReturn("lots");
 
-        ServletException e = assertThrows(ServletException.class, () -> new FrontChannelAutoRegistrationFilter().init(config));
-        assertTrue(e.getMessage().contains("subordinateStatementCacheMaxEntries"), e.getMessage());
+        assertDoesNotThrow(() -> new FrontChannelAutoRegistrationFilter().init(config));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("FrontChannelAutoRegistrationFilter").state());
+        String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("FrontChannelAutoRegistrationFilter").reason();
+        assertTrue(eReason.contains("subordinateStatementCacheMaxEntries"), eReason);
     }
 
     @Test
@@ -434,8 +439,10 @@ class FrontChannelAutoRegistrationFilterTest {
 
     @Test
     void withNoTrustControllerAtAllTheFilterDoesNotStart() {
-        ServletException e = assertThrows(ServletException.class, () -> new FrontChannelAutoRegistrationFilter().init(mock(FilterConfig.class)));
-        assertTrue(e.getMessage().contains("automatic registration"), e.getMessage());
+        assertDoesNotThrow(() -> new FrontChannelAutoRegistrationFilter().init(mock(FilterConfig.class)));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("FrontChannelAutoRegistrationFilter").state());
+        String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("FrontChannelAutoRegistrationFilter").reason();
+        assertTrue(eReason.contains("automatic registration"), eReason);
     }
 
     @Test

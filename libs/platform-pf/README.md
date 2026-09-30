@@ -117,6 +117,30 @@ service's health beside the service. Its readiness is UP until gm-api registers 
 gm-api's `init` (a component name of its own, such as `GM_API`, since S-9 names none) so that a gm-api that failed
 to start reads DOWN. The detail and info take the same bearer: the token is JVM-wide.
 
+<!-- component (S9a): this package's section -->
+## component
+
+`ComponentGate` is the fail-closed floor of plan item S-9 (S9a, Phase 3): the first statement of every request
+method of a component's servlets and filters, so a surface whose `init` no longer throws does not serve
+half-configured. It reads the surface's own part ([libs/platform, health](../platform/README.md#health)), and the
+component only when a part of it is `REFUSED` (the programme's decision 4).
+
+| The part | `ComponentGate.servlet(part, response)` | `ComponentGate.filter(part, request, response, chain, traffic)` |
+|---|---|---|
+| `READY`, `DEGRADED`, no part of the component `REFUSED` | `false`: the servlet serves | `false`: the filter runs |
+| `STARTING`, `FAILED_CONFIG`, `FAILED_DEPENDENCY`, `REFUSED`, or a part of the component `REFUSED` | 503 `{"error":"temporarily_unavailable","error_description":"<COMPONENT> is not available"}`, `true` | the same 503 when `traffic` says the request is the component's; otherwise the request goes on down `chain`; `true` either way |
+| `DISABLED` | 404 `{"error":"not_found",...}`, `true` | the request goes on down `chain`, `true` |
+| none (`init` never ran) | `false` | `false` |
+
+A filter's `traffic` is its own trigger read from the request alone: `federationClientTraffic` (a `client_id`, or a
+`client_assertion` whose `sub` is, an https URL with a host, an assertion with a `trust_chain` header, or an
+assertion it cannot read, so that the floor fails closed),
+`attestationTraffic` (`OAuth-Client-Attestation` or its PoP) or `everyRequest` (FAPI, which cannot tell its clients
+from the rest without the list it failed to read). The body is OpenID Federation 1.0 §8.9's and RFC 6749 §5.2's
+error shape, with `Cache-Control: no-store`. What operators see is in
+[docs/operator/components.md](../../docs/operator/components.md). S9b (Phase 3, wave 4) replaces the floor with each
+surface's own rule.
+
 <!-- lifecycle (F-2): add this package's section below this line -->
 ## lifecycle
 
@@ -253,6 +277,34 @@ whatever the package; `pf-protocolengine.jar` is PingFederate's own engine.
 The scanner does not see names in strings: servlets/ssf's `SsfAuditLogSource` names five of PingFederate's audit
 logger classes (`org.sourceid.websso.profiles.idp.IdpAuditLogger` and four more) as log4j logger names, which
 change with nothing linking them.
+
+
+<!-- auth (S8a): add this package's section below this line -->
+## auth
+
+`OperatorAuthenticator` decides who may use an operator API (plan item S8a; the programme's decision 1): a
+PingFederate-issued access token, verified against PingFederate's JWKS (`jwt` mode) or its introspection endpoint
+(`introspection` mode, platform's `TokenIntrospector`), whose `iss` is PingFederate's issuer through
+`PfInternals.issuer` (in introspection mode only when the answer carries one: RFC 7662 §2.2 makes it optional, and
+PingFederate 13.1.3's answer for a reference token has none), whose `aud` holds `OIDF_OPERATOR_AUDIENCE`, bound in production by DPoP or a client
+certificate, and carrying the route's scope. The actor is the token's `sub`, never a header. Each request it lets
+through or refuses emits `admin.request.authorised` or `admin.request.refused` from the `operator` event catalogue.
+Failed authentications are limited to 10 a minute per client address and changes to 60 a minute per actor, in Redis
+when `OIDF_REDIS_URL` names one. The scopes are `OperatorScopes`, one per surface; a surface names its routes in an
+`OperatorRoutes` table and calls `authorise(request, response, route)`, going on only when it answers true.
+
+DPoP is checked in one place (Phase 3 decision 8): the authenticator hands the token, the proof, the method, the
+configured base URL plus the path, and the container's client certificate to rs-validation's
+`DelegatedTokenValidator`, which uses oidf-jose's `DpopProofValidator`. So platform-pf depends on rs-validation,
+declared optional so that a war bundling platform-pf does not take it until it uses the authenticator;
+stage-modules.sh stages its jar into PingFederate beside this one.
+
+Nothing calls it in this release: plan item S8b moves the operator surfaces onto it. The settings (the
+`operator-auth` catalogue), what each request goes through, every refusal and what PingFederate needs are in
+[docs/operator/operator-authentication.md](../../docs/operator/operator-authentication.md).
+`OperatorAuthenticatorRigTest` runs it against a running PingFederate when `OIDF_TEST_OPERATOR_RIG` names a file of
+tokens minted there; `OperatorRateLimitTest` runs the limits and the replay store on Redis when
+`OIDF_TEST_REDIS_URL` is set, as build.yml's java job sets it.
 
 
 ## Build

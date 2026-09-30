@@ -87,8 +87,8 @@
 
                         Gated per METHOD, not per class, so the members whose remaining branches are
                         genuinely untested stay honestly out of scope rather than being hidden behind
-                        a class-level average. StaticAttesterKeyResolver's file and trust-chain paths, and DpopProofValidator.normalizeHtu's URL edge cases
-                        are the next work queue; adding a method here is how that work gets banked.
+                        a class-level average. StaticAttesterKeyResolver's file and trust-chain paths are the next work queue
+                        (DpopProofValidator moved to oidf-jose, with its gate); adding a method here is how that work gets banked.
                     -->
                     <execution>
                         <id>coverage-gate</id>
@@ -138,11 +138,6 @@
                                         <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.verifyPopMode(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.requireSoleAudience(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.verifyDpopMode(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.requireHtu(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.normalizeHtu(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.normalizePercentEncoding(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.removeDotSegments(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.shown(*</include>
                                         <!-- S3a: which store each surface gets and the remembered refusal of plaintext or of
                                              a Redis setting, the holder a conflict names, and the challenge endpoint's 503.
                                              Which CA a rediss:// connection trusts, the transport rule and the redaction

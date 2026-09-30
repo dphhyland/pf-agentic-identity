@@ -16,7 +16,9 @@ import com.pingidentity.ps.oidf.keyhistory.KeyHistory;
 import com.pingidentity.ps.oidf.keyhistory.KeyHistorySupport;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkAuditEntry;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkGrant;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkRegistry;
@@ -72,12 +74,15 @@ import org.jose4j.json.JsonUtil;
  * eight hex digits of the token's SHA-256, with the {@code X-Federation-Actor} header after it when one is sent (for
  * accountability; it grants nothing) - in the grant's history and in PingFederate's audit log.
  */
-@WebServlet(urlPatterns = {"/federation/admin/*"})
+// loadOnStartup: OPERATOR_API's part registers at deploy, not on the first request (finding F-0193); its init never throws.
+@WebServlet(urlPatterns = {"/federation/admin/*"}, loadOnStartup = 1)
 public class FederationAdminServlet extends RequestScopedServlet {
     private static final long serialVersionUID = 1L;
     private static final int MAX_ACTOR_LENGTH = 128;
 
     private transient String adminToken;
+    /** This servlet's part of OPERATOR_API, from init; null when a test's constructor made it and init never ran. */
+    private transient volatile ComponentParts.Part part;
     private transient Map<String, TrustMarkType> types;
     private transient TrustMarkRegistry registry;
     private transient Predicate<String> activeHostedEntity;
@@ -100,43 +105,64 @@ public class FederationAdminServlet extends RequestScopedServlet {
 
     @Override
     public void init(ServletConfig config) throws ServletException {
-        var part = Startup.begin(Startup.OPERATOR_API, "FederationAdminServlet");
-        try {
-            super.init(config);
-            PfAuditEventSink.install();
-            if (this.registry != null) {
-                return;
-            }
-            this.adminToken = AdminBearer.resolveToken(config, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
-            if (this.adminToken == null) {
-                part.disabled();
-            }
-            try {
-                HostedEntityServlet.configureAuthority(config::getInitParameter);
-            } catch (RuntimeException e) {
-                // The entity routes then answer that nothing is hosted; the rest of the API still works.
-                log("Hosting could not be configured for the admin API", e);
-            }
-            FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
-            this.types = runtime.trustMarkIssuing().types();
-            if (!TrustMarkSupport.isConfigured()) {
-                AuthorityDataSource.fromEnvironment().ifPresent(TrustMarkSupport::configureJdbcRegistry);
-            }
-            this.registry = TrustMarkSupport.shared();
-            this.activeHostedEntity = AuthoritySupport::isActiveHostedEntity;
-            this.clock = Clock.systemUTC();
-            if (runtime.keyHistory().enabled()) {
-                if (!KeyHistorySupport.isConfigured()) {
-                    AuthorityDataSource.fromEnvironment().ifPresent(KeyHistorySupport::configureJdbcStore);
-                }
-                this.keyHistory = new KeyHistory(KeyHistorySupport.shared(), this.clock, Duration.ofSeconds(runtime.keyHistory().graceSeconds()));
-            }
-        } catch (ServletException | RuntimeException | Error e) {
-            part.failed(e);
-            throw e;
-        } finally {
-            part.finish();
+        super.init(config);
+        boolean injected = this.registry != null;
+        ComponentParts.Part part = Startup.begin(Startup.OPERATOR_API, "FederationAdminServlet");
+        this.part = part;
+        part.start(() -> this.init(config, part, injected));
+    }
+
+    /**
+     * The start function: what {@code init} did before S-9, run by {@link ComponentParts.Part#start} at deploy and again
+     * by each supervisor retry after a dependency failure. What it throws is the part's state, never the container's.
+     */
+    private void init(ServletConfig config, ComponentParts.Part part, boolean injected) throws ServletException {
+        PfAuditEventSink.install();
+        if (injected) {
+            return;
         }
+        String adminToken = AdminBearer.resolveToken(config, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
+        if (adminToken == null) {
+            // No token, no caller: the API is off - or FAILED_CONFIG when OIDF_OPERATOR_API_ENABLED=true.
+            part.notConfigured("OIDF_AUTHORITY_ADMIN_TOKEN is unset");
+            return;
+        }
+        try {
+            if (Startup.mayStart(Startup.HOSTING)) {
+                HostedEntityServlet.configureAuthority(config::getInitParameter);
+            }
+        } catch (RuntimeException e) {
+            // The entity routes then answer that nothing is hosted; the rest of the API still works.
+            log("Hosting could not be configured for the admin API", e);
+        }
+        FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+        Map<String, TrustMarkType> types = runtime.trustMarkIssuing().types();
+        if (!TrustMarkSupport.isConfigured()) {
+            AuthorityDataSource.fromEnvironment().ifPresent(TrustMarkSupport::configureJdbcRegistry);
+        }
+        Clock clock = Clock.systemUTC();
+        KeyHistory keyHistory = null;
+        if (runtime.keyHistory().enabled()) {
+            if (!KeyHistorySupport.isConfigured()) {
+                AuthorityDataSource.fromEnvironment().ifPresent(KeyHistorySupport::configureJdbcStore);
+            }
+            keyHistory = new KeyHistory(KeyHistorySupport.shared(), clock, Duration.ofSeconds(runtime.keyHistory().graceSeconds()));
+        }
+        // Published last, once everything above resolved; the gate keeps requests out until the part is ready.
+        this.adminToken = adminToken;
+        this.types = types;
+        this.clock = clock;
+        this.keyHistory = keyHistory;
+        this.activeHostedEntity = AuthoritySupport::isActiveHostedEntity;
+        this.registry = TrustMarkSupport.shared();
+    }
+
+    @Override
+    protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        if (ComponentGate.servlet(this.part, resp)) {
+            return;
+        }
+        super.service(req, resp);
     }
 
     @Override
