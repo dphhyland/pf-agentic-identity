@@ -176,10 +176,10 @@ footer{max-width:1080px;margin:0 auto;padding:0 24px 40px;color:var(--faint);fon
     <li><b>Nothing marked critical is unknown.</b></li>
   </ol>
   <p>A chain lasts as long as its shortest-lived statement, and nothing built on it lasts longer. Working one out
-  is bounded - at most 24 fetches, over https, never to a private address - so a stranger can't make PingFederate
+  is bounded - at most 24 requests and 45 seconds by default, over https, never to a private address - so a stranger can't make PingFederate
   crawl the internet for them.</p>
   <a class="src" href="../docs/federation/how-it-works.md">docs/federation/how-it-works.md</a>
-  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/TrustChainValidator.java" data-lines="233-270">TrustChainValidator.java:233-270</a>
+  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/TrustChainValidator.java" data-lines="255-292">TrustChainValidator.java:255-292</a>
   <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/EntityStatementChecks.java" data-lines="15-57">EntityStatementChecks.java:15-57</a>
 </section>
 
@@ -238,7 +238,7 @@ OIDF_FEDERATION_SELF_ANCHOR=https://pf.example.com</code></pre>
   mark, the issuer's own chain reaches the same anchor, and the signature checks out - and, if you ask it to, when
   the issuer still says the mark is active. A mark that fails is simply ignored. A deployment can require marks
   before it registers anyone; PingFederate can issue them too, to the entities an operator grants them to.</p>
-  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/TrustMarkValidator.java" data-lines="119-155">TrustMarkValidator.java:119-155</a>
+  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/TrustMarkValidator.java" data-lines="125-170">TrustMarkValidator.java:125-170</a>
   <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/trustmark/TrustMarkIssuer.java" data-lines="73-159">TrustMarkIssuer.java:73-159</a>
 </section>
 

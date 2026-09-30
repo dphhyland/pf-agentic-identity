@@ -116,6 +116,10 @@
                                         <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.send(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.failure(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.headerMap(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpGetClient.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.HttpGetClient.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.HttpPostClient.post(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.HttpPostClient.postForm(*</include>
                                         <!-- The DPoP proof checks, moved here from client-attestation with their gate (F-0225). -->
                                         <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.validate(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.requireHtu(*</include>
