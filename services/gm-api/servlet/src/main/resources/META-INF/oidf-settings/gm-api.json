@@ -10,10 +10,10 @@
       "kind": "init-param",
       "type": "url",
       "default": null,
-      "description": "The AuthZEN PDP's base URL for the grants and MCP servlets; /access/v1/evaluation is appended. Then AUTHZEN_BASE_URL; the shipped web.xml sets it, so AUTHZEN_BASE_URL is never read unless web.xml is edited (F-0238)",
+      "description": "The AuthZEN PDP's base URL for the grants and MCP servlets; /access/v1/evaluation is appended. Then AUTHZEN_BASE_URL; the shipped web.xml sets it (http://host.docker.internal:9099), so AUTHZEN_BASE_URL is never read unless web.xml is edited (F-0238). It must be https unless OIDF_DEPLOYMENT_PROFILE=development: the PDP's answers decide every evaluation and its bearer token travels with each request",
       "when_wrong": {
         "effect": "doesnt-start",
-        "detail": "Unset: the servlet does not start"
+        "detail": "Unset, or not an http or https URL: the servlet does not start. http under the production profile: GM_API is FAILED_CONFIG, the reason naming pdpUrl, and its endpoints answer 503"
       },
       "profile": "any",
       "security": true,
@@ -131,8 +131,8 @@
       "default": null,
       "description": "The grant_management_endpoint the metadata servlet advertises; <request base>/gm-api/grants when unset",
       "when_wrong": {
-        "effect": "not-checked",
-        "detail": "Advertised as written"
+        "effect": "doesnt-start",
+        "detail": "Not an http or https URL: the metadata servlet does not start, naming it; otherwise advertised as written"
       },
       "profile": "any",
       "security": false,

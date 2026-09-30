@@ -2,12 +2,17 @@ id: U-0029
 title: Whether token responses are compressed
 area: pf-integration
 source: design
-status: open
+status: closed
 plan_items: [S4d]
-prs: []
+prs: [84]
 recorded_in: the plan, To verify before relying on it, booted PingFederate item 15
 verify_by: >
   On the rig: a token request with Accept-Encoding, and the response's Content-Encoding. The response belt
   buffers the body and must see it uncompressed.
-verification: ''
+verification: >
+  Verified by S4D3 on the rig on 2026-09-30 (pfai-p3-s4d3, PingFederate 13.1.3): token requests with Accept-Encoding
+  gzip, br, deflate, "gzip, deflate, br" and * - over HTTP/2 and HTTP/1.1 on the HTTPS listener and HTTP/1.1 on the
+  plain listener - and an error response came back with no Content-Encoding, the body plain JSON and Content-Length
+  its plain length; /pf/JWKS and the discovery document the same. PingFederate 13.1.3 compresses no token response.
+  IssuedDetailsBelt passes a body with a Content-Encoding on as it came, and logs it.
 notes: ''

@@ -3,10 +3,20 @@ title: A federation misconfiguration takes PingFederate down
 severity: high
 area: pf-integration
 source: review-2026-09-26
-status: open
+status: closed
 plan_items: [S-9, S9a, S9b]
-prs: []
-verification: ''
+prs: [72, 86]
+verification: >
+  2026-09-30, PRs #72 (S9a) and #86 (S9b). Every servlet's and filter's init returns whatever happened, and each
+  surface of a disabled or failed component follows S-9's table (docs/operator/components.md, "Each surface's rule"):
+  federation endpoints 404 or 503, automatic registration and attestation closed only to their own traffic, FAPI to the
+  clients it names, OGNL criteria false, the logout always passing; ready is 503 only for an enabled component that is
+  neither READY nor DEGRADED. On the rig (slot 1, PingFederate 13.1.3.0 on java 21.0.12.1, development profile, the
+  branch at 428acf93) conformance/fail-soft-matrix.sh booted once per component with its failure injected - FEDERATION,
+  AUTO_REGISTRATION, ATTESTATION_AUTH, ATTESTATION_ISSUER, HOSTING, SSF, SSF_RECEIVER, OPERATOR_API and FAPI each
+  FAILED_CONFIG, a bootstrap trust anchor, and AUTO_REGISTRATION FAILED_DEPENDENCY retried to READY with no restart -
+  and in every case PingFederate's own client was issued a token, the component's surfaces answered as the table says,
+  and ready was 503 exactly while an enabled component was failed: 0 of 44 rows failed.
 target_release: 0.6.0
 notes: >
   A component that fails to initialise fails the merged pf-runtime.war, and PingFederate's own SSO and OAuth

@@ -1,6 +1,7 @@
 package au.com.idpartners.gm.servlet;
 
 import com.pingidentity.access.AccessGrantManagerAccessor;
+import com.pingidentity.ps.oidf.platform.events.Events;
 import com.pingidentity.sdk.accessgrant.AccessGrantManager;
 
 import java.util.List;
@@ -25,12 +26,29 @@ final class GrantOperations {
 
     private static final Logger LOG = Logger.getLogger(GrantOperations.class.getName());
 
+    /** The event catalogue this class emits into (META-INF/oidf-events/gm.json; plan item O-2). */
+    static final String EVENTS = "gm";
+    static final String EVALUATED = "gm.grant.evaluated";
+    static final String REFUSED = "gm.grant.refused";
+    static final String REVOKED = "gm.grant.revoked";
+
     private final PfTokenVerifier verifier;
     private final PdpClient pdp;
+    private final Revoker revoker;
+
+    /** Ends a grant in the store: PingFederate's access grant manager, or a stand-in in a test. */
+    interface Revoker {
+        void revoke(String grantId) throws Exception;
+    }
 
     GrantOperations(PfTokenVerifier verifier, PdpClient pdp) {
+        this(verifier, pdp, grantId -> AccessGrantManagerAccessor.getAccessGrantManager().revokeGrant(grantId));
+    }
+
+    GrantOperations(PfTokenVerifier verifier, PdpClient pdp, Revoker revoker) {
         this.verifier = verifier;
         this.pdp = pdp;
+        this.revoker = revoker;
     }
 
     PdpClient pdp() {
@@ -128,10 +146,12 @@ final class GrantOperations {
             throws GrantEvaluator.RefusedException, UnavailableException {
         GrantEvaluator.authorise(grant, token, GrantEvaluator.SCOPE_REVOKE);
         try {
-            AccessGrantManagerAccessor.getAccessGrantManager().revokeGrant(grant.guid());
+            revoker.revoke(grant.guid());
         } catch (Exception e) {
             throw new UnavailableException("the grant could not be revoked", e);
         }
+        Events.event(EVENTS, REVOKED).success().field("grant_id", grant.guid()).field("client_id", token.getClientId())
+                .audit().emit();
     }
 
     /**
@@ -151,6 +171,9 @@ final class GrantOperations {
         } catch (GrantEvaluator.RefusedException e) {
             // Section 8.4.2: refused by the AS before the PDP was consulted.
             LOG.info("refused: " + e.refusal.code + ": " + e.getMessage());
+            Events.event(EVENTS, REFUSED).failure(e.refusal.code).field("grant_id", grant == null ? null : grant.guid())
+                    .field("client_id", token.getClientId()).field("reason_id", e.refusal.code)
+                    .audit().emit();
             return new Decision(false, e.refusal.code, e.refusal.userMessage, false);
         }
 
@@ -170,6 +193,8 @@ final class GrantOperations {
         List<Map<String, Object>> reasons = userReasonsOf(decision);
         String id = reasons.isEmpty() ? "" : String.valueOf(reasons.get(0).get("id"));
         String message = reasons.isEmpty() ? "" : String.valueOf(reasons.get(0).get("message"));
+        Events.event(EVENTS, EVALUATED).success().field("grant_id", grant.guid()).field("client_id", token.getClientId())
+                .field("decision", permitted ? "permit" : "deny").field("reason_id", id.isEmpty() ? null : id).audit().emit();
         return new Decision(permitted, id, message, true);
     }
 

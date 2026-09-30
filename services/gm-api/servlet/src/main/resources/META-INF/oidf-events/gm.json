@@ -1,0 +1,69 @@
+{
+  "component": "gm",
+  "module": "services/gm-api/servlet",
+  "description": "The Grant Management API's decisions, over REST and MCP alike (GrantOperations): a grant evaluated by the PDP, one refused by the authorization server before the PDP was asked, and one revoked. Never a token, a consent's contents or the PDP's messages.",
+  "logger": "com.pingidentity.ps.oidf.gm.event",
+  "auditProtocol": "Grant Management",
+  "fields": {
+    "grant_id": {
+      "pii": "PSEUDONYMOUS_ID",
+      "description": "The grant asked about: PingFederate's grant guid, as the path carried it. Absent when the request named no grant the store holds."
+    },
+    "client_id": {
+      "pii": "PSEUDONYMOUS_ID",
+      "description": "The OAuth client the access token was issued to."
+    },
+    "decision": {
+      "pii": "OPERATIONAL",
+      "description": "What the PDP answered: permit or deny."
+    },
+    "reason_id": {
+      "pii": "OPERATIONAL",
+      "description": "The stable reason id: the PDP's first user-facing reason for an evaluation (consent_covers_request, subject_not_entitled), or the authorization server's refusal code (grant_not_found, unauthorized, insufficient_scope, grant_expired). Never the message."
+    }
+  },
+  "events": {
+    "gm.grant.evaluated": {
+      "description": "The PDP answered an evaluation (section 6.7) of a grant the caller may act on: permit or deny, with its reason id. An unreachable PDP is not an answer and emits nothing here.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "grant_id",
+        "client_id",
+        "decision",
+        "reason_id"
+      ],
+      "declaredOnly": false
+    },
+    "gm.grant.refused": {
+      "description": "The authorization server refused an evaluation before the PDP was asked (section 8.4.2): no such grant, another client's grant, an expired grant, a missing scope or resource, or a grant with no subject. The reason is the refusal code.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "grant_id",
+        "client_id",
+        "reason_id"
+      ],
+      "declaredOnly": false
+    },
+    "gm.grant.revoked": {
+      "description": "A client revoked a grant it holds (section 6.3), with grant_management_revoke.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "grant_id",
+        "client_id"
+      ],
+      "declaredOnly": false
+    }
+  }
+}

@@ -214,7 +214,7 @@ public class AttestationIssuanceServlet extends HttpServlet {
 
     @Override
     protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        if (ComponentGate.servlet(this.part, resp)) {
+        if (ComponentGate.oauthEndpoint(this.part, resp)) {
             return;
         }
         super.service(req, resp);

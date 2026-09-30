@@ -152,7 +152,7 @@ public abstract class ChallengeEndpointServlet extends HttpServlet {
     /** The endpoint's one method issues a challenge; any other is refused before the cap or the store is touched. */
     @Override
     protected void service(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        if (ComponentGate.servlet(this.part, resp)) {
+        if (ComponentGate.oauthEndpoint(this.part, resp)) {
             return;
         }
         if (this.method.equals(req.getMethod())) {

@@ -125,10 +125,22 @@
                                         <include>com.pingidentity.ps.oidf.platform.pf.ognl.CriterionGuard.oneLine(*</include>
                                         <!-- component (S-9): add gate includes below this line -->
                                         <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.action(*</include>
-                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.servlet(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.filter(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.attestationTraffic(*</include>
-                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.federationClientTraffic(*</include>
+                                        <!-- component (S-9, S9B): the per-surface rules and the criteria's rule -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.federationEndpoint(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.oauthEndpoint(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.autoRegistration(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.namesFederationClient(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.lookUp(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.attestedClient(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.attestation(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.challenge(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.emits(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.unavailable(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.CriterionGate.serves(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.CriterionGate.answer(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.CriterionGate.engine(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.entityIdentifier(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.jwtPart(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.write(*</include>

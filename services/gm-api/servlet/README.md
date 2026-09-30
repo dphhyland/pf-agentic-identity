@@ -102,15 +102,24 @@ docker cp target/gm-api.war gm-pingfederate:/opt/out/instance/server/default/dep
 docker restart gm-pingfederate
 ```
 
-`web.xml` init-params, with env fallbacks (`McpServlet.ServletConfigs`, shared by both servlets):
+`web.xml` init-params, with env fallbacks, read through the `gm-api` settings catalogue
+([docs/configuration/gm-api.md](../../../docs/configuration/gm-api.md)) by `McpServlet.ServletConfigs`, shared by both
+servlets. Each value is read strictly: one that does not parse stops the servlet, naming it, and GM_API is
+`FAILED_CONFIG`. The shipped `web.xml` sets `pdpUrl` and `audience`, so their variables are read only once `web.xml`
+is edited (F-0238, X-C02's to fix).
 
 | Param | Env | Meaning |
 |---|---|---|
-| `pdpUrl` | `AUTHZEN_BASE_URL` | AuthZEN PDP base URL; `/access/v1/evaluation` is appended. **Required** |
+| `pdpUrl` | `AUTHZEN_BASE_URL` | AuthZEN PDP base URL; `/access/v1/evaluation` is appended. **Required**. From 0.6.0 it must be `https` unless `OIDF_DEPLOYMENT_PROFILE=development`: an `http` URL under the production profile leaves GM_API `FAILED_CONFIG`, the reason naming `pdpUrl`. The shipped `web.xml`'s `http://host.docker.internal:9099` is a demo value, so a production deployment edits it |
 | `audience` | `GM_AUDIENCE` | the `aud` this API answers to (the token manager's audience claim). **REQUIRED** — the servlet refuses to start without it, because unset would accept any token this server signed, including one minted for a different API |
 | `pdpToken` | `AUTHZEN_BEARER_TOKEN` | credential for a protected PDP |
 | `pdpTimeoutMs` | — | default 10000 |
-| `issuer`, `grantManagementEndpoint` (metadata servlet) | — | what `/.well-known/grant-management-configuration` advertises; endpoint defaults to `<base>/gm-api/grants` |
+| `issuer`, `grantManagementEndpoint` (metadata servlet) | — | what `/.well-known/grant-management-configuration` advertises; endpoint defaults to `<base>/gm-api/grants`, and one that is not an http or https URL stops the metadata servlet |
+
+Events: every evaluation the PDP answers is `gm.grant.evaluated` (permit or deny, with the reason id), one the
+authorization server refuses before asking the PDP is `gm.grant.refused`, and a revocation is `gm.grant.revoked` - all
+three in PingFederate's audit log as well as `server.log`, counted in `oidf_events_total`, and catalogued in
+`src/main/resources/META-INF/oidf-events/gm.json`. None carries a token, a consent's contents or the PDP's messages.
 
 Confirm it started: `Started ContextHandler{Grant Management API,/gm-api,...,a=AVAILABLE}` (the `display-name` in `web.xml`) —
 `a=UNAVAILABLE` means the context failed; check `web.xml` parsed.

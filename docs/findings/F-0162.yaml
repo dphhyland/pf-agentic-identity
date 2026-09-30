@@ -3,10 +3,15 @@ title: The attestation flow harness turns off the JDK's hostname check for the w
 severity: low
 area: harness
 source: design
-status: open
+status: closed
 plan_items: [PR-3]
-prs: []
-verification: ''
+prs: [85]
+verification: >
+  Fixed by package ST5S (2026-09-30). AttestationFlowHarness.main sets
+  jdk.internal.httpclient.disableHostnameVerification through InsecureTls only when OIDF_HARNESS_INSECURE_TLS is true,
+  read strictly with platform's Parsers, and records it under that switch; without it a live run checks the
+  certificate's chain and its name. AttestationFlowHarnessInsecureTlsTest sees the property unset after a run without
+  the switch and set after one with it.
 target_release: 0.6.0
 notes: >
   services/harness AttestationFlowHarness.main sets jdk.internal.httpclient.disableHostnameVerification=true

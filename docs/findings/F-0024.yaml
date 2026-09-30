@@ -3,10 +3,17 @@ title: REQUIRE_COMPLIANT_DEVICE is parsed leniently
 severity: medium
 area: device-enrolment
 source: review-2026-09-26
-status: open
+status: closed
 plan_items: [ST-5, PR-3]
-prs: []
-verification: ''
+prs: [85]
+verification: >
+  Fixed by package ST5S (2026-09-30). services/device-enrolment's Main reads every setting through the
+  device-enrolment catalogue with platform's Settings, so REQUIRE_COMPLIANT_DEVICE is true or false in any case and
+  anything else stops the service naming it (under the development profile a legacy spelling such as yes is read as
+  false with a warning). Before anything is wired Main runs ProfileAudit over its own catalogue, and under the
+  production profile REQUIRE_COMPLIANT_DEVICE=false - or a value of it that does not parse - stops the process with
+  exit status 1 and every violation on stderr. MainStartupTest drives both, and runs Main in a child JVM to see the
+  exit status and stderr, on JDK 20, 17 and 21.
 target_release: 0.6.0
 notes: >
   A value that is not exactly `true` reads as off, so a typo disables the check silently. ST-5 makes every

@@ -334,4 +334,77 @@ class ComponentPartsTest {
         assertEquals(ComponentState.READY, com.pingidentity.ps.oidf.platform.component.Components.status(Startup.OPERATOR_API)
                 .orElseThrow().state());
     }
+    @Test
+    void theGraceIsTheSupervisorsFirstTwoCeilings() {
+        assertEquals(java.time.Duration.ofSeconds(15), ComponentParts.GRACE);
+    }
+
+    @Test
+    void aServingComponentThatFailsOnADependencyIsGracedWhileItIsRetriedAndOnlyForTheGrace() {
+        ComponentParts.Part part = this.parts.begin("SSF", "SsfConfigurationServlet");
+        part.ready();
+        assertFalse(this.parts.graced("SSF"));
+        part.failedDependency("the database dropped");
+        assertTrue(this.parts.graced("SSF"), "a blip: it was serving");
+        // The supervisor's retries go through STARTING and back; the blip holds from when it began.
+        this.clock.now = this.clock.now.plusSeconds(6);
+        this.parts.move("SSF", "SsfConfigurationServlet", generation(part), ComponentState.STARTING, null, null);
+        assertTrue(this.parts.graced("SSF"));
+        part.failedDependency("still down");
+        this.clock.now = this.clock.now.plusSeconds(8);
+        assertTrue(this.parts.graced("SSF"), "14 s in");
+        this.clock.now = this.clock.now.plusSeconds(1);
+        assertFalse(this.parts.graced("SSF"), "15 s in: the grace is over and ready counts it");
+        // Back: the blip ends, and a later blip starts its own grace.
+        part.ready();
+        assertFalse(this.parts.graced("SSF"));
+        part.degraded("slow");
+        part.failedDependency("dropped again");
+        assertTrue(this.parts.graced("SSF"), "DEGRADED was serving too");
+    }
+
+    @Test
+    void noGraceForAComponentThatNeverServedOrFailedOnAnythingButADependency() {
+        ComponentParts.Part boot = this.parts.begin("SSF", "SsfConfigurationServlet");
+        boot.failedDependency("the database is not there at boot");
+        assertFalse(this.parts.graced("SSF"), "it never served");
+
+        ComponentParts.Part config = this.parts.begin("FEDERATION", "OpenIdFederationServlet");
+        config.ready();
+        config.failedConfig("a bad setting");
+        assertFalse(this.parts.graced("FEDERATION"));
+
+        ComponentParts.Part dep = this.parts.begin("HOSTING", "HostedEntityServlet");
+        dep.ready();
+        dep.failedDependency("dropped");
+        assertTrue(this.parts.graced("HOSTING"));
+        dep.failedConfig("and then refused its configuration");
+        assertFalse(this.parts.graced("HOSTING"), "a blip ends with anything but a retry");
+        assertFalse(this.parts.graced("NOT_REGISTERED"));
+    }
+
+    @Test
+    void theGateViewIsPublishedOnEveryChangeWithTheComponentsRefusal() {
+        ComponentParts.Part a = this.parts.begin("FEDERATION", "A");
+        assertEquals(new ComponentParts.GateView(ComponentState.STARTING, false), a.gateView());
+        a.ready();
+        assertEquals(new ComponentParts.GateView(ComponentState.READY, false), a.gateView());
+        ComponentParts.Part b = this.parts.begin("FEDERATION", "B");
+        b.refused("a forbidden setting");
+        assertEquals(new ComponentParts.GateView(ComponentState.READY, true), a.gateView());
+        assertEquals(new ComponentParts.GateView(ComponentState.REFUSED, true), b.gateView());
+        b.disabled();
+        assertEquals(new ComponentParts.GateView(ComponentState.DISABLED, false), b.gateView());
+        assertEquals(new ComponentParts.GateView(ComponentState.READY, false), a.gateView());
+    }
+
+    private static long generation(ComponentParts.Part part) {
+        try {
+            java.lang.reflect.Field f = ComponentParts.Part.class.getDeclaredField("generation");
+            f.setAccessible(true);
+            return f.getLong(part);
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+        }
+    }
 }

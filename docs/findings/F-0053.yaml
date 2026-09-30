@@ -3,10 +3,26 @@ title: 'SSF receiver: complex, did, uri and aliases subjects; the poll token by 
 severity: medium
 area: ssf
 source: reviewer-report
-status: open
+status: closed
 plan_items: [H-SSF-1]
-prs: []
-verification: ''
+prs: [87]
+verification: >
+  Closed 2026-09-30 by package HSSF1 (plan item H-SSF-1). Subjects: the receiver's verifier takes RFC 9493's did,
+  uri and aliases and SSF 1.0's complex subject (SsfSubjects.RECEIVER_FORMATS); SsfSubjects.userKey and deviceId map
+  each to a user key or device id, an iss_sub only when its iss is the SET's issuer, this PingFederate's
+  OIDF_SSF_ISSUER or one in OIDF_SSF_RECEIVER_SUBJECT_ISSUERS, aliases by the order iss_sub, email, account,
+  phone_number, opaque, did, uri, a complex subject by its user and device members; anything else is refused with
+  a named reason and counted (ssf.receiver.subject_unmapped). ReceiverSubjectMappingTest,
+  ReceiverSubjectFormatsTest, ReceiverActionHandlerTest, InstanceRegistryReceiverHandlerTest. Token:
+  ClientCredentialsToken (client_secret_basic or private_key_jwt, kept until 30 s or a tenth of its lifetime before
+  expires_in, fetched again after a 401) - ClientCredentialsTokenTest against a stub server, and on the rig
+  (2026-09-30, PingFederate 13.1.3, slot 4) the receiver's private_key_jwt assertion was accepted by PingFederate's
+  token endpoint for conformance-ssf-receiver. Stream: ReceiverStreamClient.ensure is wired through ReceiverStream
+  into the SSF_RECEIVER start; on the rig the receiver was FAILED_DEPENDENCY while PingFederate was not yet
+  listening ("HTTP connect timed out"), the supervisor ran it again 4 s later, it created its poll stream and went
+  READY, and three CAEP events raised by suite/trigger-caep-events.py were polled, verified against PingFederate's
+  JWKS and acted on ("revoked 0 grant(s) for 'example.user@example.com'"). ReceiverStreamSetupTest,
+  SsfComponentsTest.
 target_release: 0.6.0
 notes: >
   From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the

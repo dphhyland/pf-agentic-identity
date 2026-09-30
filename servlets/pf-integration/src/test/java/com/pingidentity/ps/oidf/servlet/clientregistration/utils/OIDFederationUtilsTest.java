@@ -42,6 +42,12 @@ import org.sourceid.saml20.adapter.attribute.AttributeValue;
  * pinned anchor or the criterion answers false - and either way one event records it.
  */
 class OIDFederationUtilsTest {
+
+    /** The criteria run only while their component serves (S9b); another test in this JVM may have left it failed. */
+    @BeforeEach
+    void componentServes() {
+        com.pingidentity.ps.oidf.servlet.GateTesting.serving(com.pingidentity.ps.oidf.platform.health.Startup.FEDERATION);
+    }
     private static final String TA = "https://ta.example.com";
     private static final String INT = "https://int.example.com";
     private static final String RP = "https://rp.example.com";

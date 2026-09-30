@@ -49,7 +49,7 @@ final class SsfHttp {
      * Answers 503 while SSF is starting, failed or refused, and 404 while it is off; true when it has answered.
      */
     static boolean gate(HttpServletResponse resp) throws IOException {
-        return ComponentGate.servlet(SsfComponents.transmitterPart(), resp);
+        return ComponentGate.oauthEndpoint(SsfComponents.transmitterPart(), resp);
     }
 
     /**
@@ -124,7 +124,8 @@ final class SsfHttp {
             return;
         }
         if (SsfSupport.configuration().receiverActionsEnabled()) {
-            receiver.addHandler(new com.pingidentity.ps.oidf.ssf.ReceiverActionHandler(new PfReceiverActions()));
+            receiver.addHandler(new com.pingidentity.ps.oidf.ssf.ReceiverActionHandler(new PfReceiverActions(),
+                    SsfSupport.configuration().receiverLocalIssuers()));
         }
         SsfSupport.startReceiverPolling();
         receiverWired = true;

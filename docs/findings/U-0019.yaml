@@ -2,14 +2,18 @@ id: U-0019
 title: The code grant ignores a narrower authorization_details parameter at the token endpoint
 area: pf-integration
 source: design
-status: open
+status: closed
 plan_items: [S4d]
-prs: [81]
+prs: [81, 84]
 recorded_in: the plan, To verify before relying on it, booted PingFederate item 4
 verify_by: >
   On the rig: authorize with one set of details, redeem the code with a narrower set, and read what the token
   carries.
-verification: ''
+verification: >
+  S4D1's rig run of 2026-09-30 (above; PR #81) showed the code and CIBA grants ignore a token-time
+  authorization_details parameter in both directions, and S4D3's of the same day (pfai-p3-s4d3) saw the code grant
+  redeemed with no parameter and the device grant - its verification page driven headless for the first time - each
+  issue what was stored. The belt and the criterion rest on it: what is issued is held, wherever it was stored.
 notes: >
   S4D1 drove it on the rig on 2026-09-30 (pfai-p3-s4d1, PingFederate 13.1.3), with the bridge assertion and no
   attestation filter in the way: PAR with sales_agent [EMEA, AMER] up to 500, the code redeemed with

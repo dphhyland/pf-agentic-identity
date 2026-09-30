@@ -1128,12 +1128,12 @@
       "kind": "env",
       "type": "secret",
       "default": null,
-      "description": "The bearer token the receiver's poll presents",
+      "description": "A static bearer token for the receiver's poll and stream calls, for development only: it never expires or rotates, and the receiver cannot fetch a new one when the transmitter refuses it; production uses a client (OIDF_SSF_RECEIVER_TOKEN_ENDPOINT)",
       "when_wrong": {
         "effect": "not-checked",
-        "detail": "Wrong: each poll fails and is logged"
+        "detail": "Wrong: each poll fails and is logged. Set beside OIDF_SSF_RECEIVER_TOKEN_ENDPOINT: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
       },
-      "profile": "any",
+      "profile": "forbidden-in-production",
       "security": true,
       "sources": [
         {
@@ -1310,6 +1310,371 @@
       ],
       "aliases": [],
       "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_TOKEN_ENDPOINT",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "The transmitter's authorization server token endpoint, where the receiver gets its poll and stream token by client credentials",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not an http or https URL with a host, or set without OIDF_SSF_RECEIVER_CLIENT_ID and one of its secret or key: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The wrong endpoint: each poll fails and is logged, and a managed stream leaves SSF_RECEIVER FAILED_DEPENDENCY. An http URL under the production profile refuses SSF_RECEIVER: the client's credentials and the token it gets would cross the network in clear (RFC 6749 §3.2: the authorization server \"MUST require the use of TLS\" at the token endpoint)"
+      },
+      "profile": "forbidden-in-production",
+      "governed": {
+        "schemes": [
+          "http"
+        ]
+      },
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverTokenEndpoint"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverTokenEndpoint"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_TOKEN_ENDPOINT"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_CLIENT_ID",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The receiver's client id at the transmitter's authorization server",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Set without OIDF_SSF_RECEIVER_TOKEN_ENDPOINT: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. Wrong: the token endpoint refuses it, each poll fails and is logged"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverClientId"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverClientId"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_CLIENT_ID"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_CLIENT_SECRET",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The receiver client's secret, sent as client_secret_basic; set this or OIDF_SSF_RECEIVER_CLIENT_KEY",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Set with OIDF_SSF_RECEIVER_CLIENT_KEY, or without OIDF_SSF_RECEIVER_TOKEN_ENDPOINT: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. Wrong: the token endpoint refuses it, each poll fails and is logged"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverClientSecret"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverClientSecret"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_CLIENT_SECRET"
+        }
+      ],
+      "aliases": [],
+      "file": true,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_CLIENT_KEY",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The receiver client's private key as a JWK, signing a private_key_jwt assertion; set this or OIDF_SSF_RECEIVER_CLIENT_SECRET",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a private RSA, EC or OKP JWK, set with OIDF_SSF_RECEIVER_CLIENT_SECRET, or without OIDF_SSF_RECEIVER_TOKEN_ENDPOINT: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. A key the server does not know: each poll fails and is logged"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverClientKey"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverClientKey"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_CLIENT_KEY"
+        }
+      ],
+      "aliases": [],
+      "file": true,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_CLIENT_SCOPE",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The scope the receiver asks for with its client credentials; unset, it asks for none and takes the server's default",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Wrong: the token lacks what the transmitter asks for, each poll fails and is logged"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverClientScope"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverClientScope"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_CLIENT_SCOPE"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "The transmitter's configuration metadata (its /.well-known/ssf-configuration); set, the receiver creates or finds its own stream there at start-up and keeps it in step with its settings",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not an http or https URL with a host, set with OIDF_SSF_RECEIVER_POLL_URL, or set with no token (OIDF_SSF_RECEIVER_TOKEN_ENDPOINT or, in development, OIDF_SSF_RECEIVER_POLL_TOKEN): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. A transmitter that cannot be reached or refuses: SSF_RECEIVER is FAILED_DEPENDENCY and retried; one whose issuer or stream audience is not the receiver's: SSF_RECEIVER is FAILED_CONFIG. An http URL under the production profile refuses SSF_RECEIVER: the receiver's token, and a push stream's endpoint token, would cross the network in clear; the transmitter's endpoints must then be https too (SSF 1.0 §7.1)"
+      },
+      "profile": "forbidden-in-production",
+      "governed": {
+        "schemes": [
+          "http"
+        ]
+      },
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverTransmitterConfigurationUrl"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverTransmitterConfigurationUrl"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "Where the transmitter should push to - this receiver's public /ssf/receiver/events URL - for the stream the receiver manages; unset, the stream is a poll stream",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not an http or https URL with a host, or set without OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The wrong URL: nothing arrives. An http URL under the production profile refuses SSF_RECEIVER: the transmitter would push SETs and present the receiver's endpoint token in clear"
+      },
+      "profile": "forbidden-in-production",
+      "governed": {
+        "schemes": [
+          "http"
+        ]
+      },
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverPushEndpointUrl"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverPushEndpointUrl"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_EVENTS_REQUESTED",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "The event types the receiver's managed stream asks for, comma-separated; unset, the five its handlers act on (CAEP session-revoked, credential-change and device-compliance-change, RISC account-disabled and account-credential-change-required)",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Set to nothing but separators: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. A type the transmitter does not deliver: it is left out of events_delivered and never arrives"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverEventsRequested"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverEventsRequested"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_EVENTS_REQUESTED"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_POLL_MAX_EVENTS_CAP",
+      "kind": "env",
+      "type": "int",
+      "default": 100,
+      "min": 1,
+      "max": 1000,
+      "description": "The most SETs one poll answer carries, whatever maxEvents the receiver asks for (RFC 8936 lets the transmitter return fewer, with moreAvailable)",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number from 1 to 1000: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "pollMaxEventsCap"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.pollMaxEventsCap"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_POLL_MAX_EVENTS_CAP"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_POLL_LONG_POLL_WAIT_SECONDS",
+      "kind": "env",
+      "type": "int",
+      "default": 10,
+      "min": 0,
+      "max": 30,
+      "description": "How long a poll with returnImmediately false (or absent, RFC 8936's default) is held when there is nothing to return; 0 answers at once",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number from 0 to 30: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "pollLongPollWaitSeconds"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.pollLongPollWaitSeconds"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_POLL_LONG_POLL_WAIT_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_SUBJECT_ISSUERS",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "The issuers, besides the transmitter's own and this PingFederate's SSF issuer, whose iss_sub subjects name a user here (an identity provider the transmitter speaks for), comma-separated; an iss_sub from any other issuer maps to no one",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Set to nothing but separators: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. An issuer missing: SETs about its users are logged as unmapped and acted on by no handler"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverSubjectIssuers"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverSubjectIssuers"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_SUBJECT_ISSUERS"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
     }
   ],
   "removed": []

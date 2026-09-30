@@ -59,8 +59,8 @@ account-enabled - the first three are the CAEP Interop Profile's (see [CAEP Inte
 |---|---|---|
 | `GET /.well-known/ssf-configuration`, `/ssf/.well-known/ssf-configuration` | `SsfConfigurationServlet` (`loadOnStartup=1`) | Transmitter metadata; also the servlet that starts the transmitter at deploy ([Start-up](#start-up)), so the logout filter can emit immediately and the [push loop](#push-delivery) runs before any request arrives. |
 | `POST/GET/PATCH/PUT/DELETE /ssf/streams`, `/ssf/status`, `/ssf/subjects:add`, `/ssf/subjects:remove`, `/ssf/verify` | `SsfStreamManagementServlet` | Stream Management API. `aud` is assigned from the caller's `client_id` when the create names none; `GET` without `stream_id` returns a bare array; PATCH and PUT take `stream_id` in the body (PATCH still reads the query parameter); PUT cannot change `delivery.method`; add-subject answers 200, remove-subject and verify 204. Every operation is scoped to the caller's own streams; another receiver's stream is a 404, and a create from a token naming no client a 403. |
-| `POST /ssf/poll?stream_id=` | `SsfPollServlet` | RFC 8936 poll: `maxEvents` (0 = acknowledge only), `returnImmediately`, `ack`. Only the stream's owner can poll it; anyone else gets a 404 and acknowledges nothing. |
-| `POST/GET /ssf/receiver/events` | `SsfReceiverServlet` | RFC 8935 receiver (`application/secevent+jwt`; 202 on accept, 400 with `err` on failure). Active only when `receiverExpectedIssuer` is set. |
+| `POST /ssf/poll?stream_id=` | `SsfPollServlet` | RFC 8936 poll: `maxEvents` (0 = acknowledge only; capped at `pollMaxEventsCap`), `returnImmediately` (absent is `false`, a long poll), `ack`, `setErrs`. A stream that is not enabled returns nothing. Only the stream's owner can poll it; anyone else gets a 404 and acknowledges nothing. See [Poll delivery](#poll-delivery). |
+| `POST/GET /ssf/receiver/events` | `SsfReceiverServlet` | RFC 8935 receiver (`application/secevent+jwt`; 202 on accept, 400 with `err`, `description` and `Content-Language` on failure - a SET carrying `exp` or `sub` among them). Active only when `receiverExpectedIssuer` is set. See [The receiver](#the-receiver). |
 | `POST/PUT/PATCH/DELETE /ssf/scim/v2/Users[/*]` | `SsfScimSubjectServlet` | SCIM 2.0 `/Users` mapping provisioning to stream membership (`urn:ietf:params:scim:schemas:extension:ssf:2.0:Subject`); `active:false`/`DELETE` emits RISC account-disabled. Bearer must hold `provisionerScope` (unset by default = 403 for everyone; the receiver scope is refused). A provisioner acts across every receiver's streams. |
 | `POST /ssf/events:emit` | `SsfEventEmitServlet` | Raise an event the transmitter did not observe itself: `{"event_type", "subject", "event"?, "stream_id"?}` (`EmitRequest`). Bearer must hold `provisionerScope`, like SCIM and for the same reason - the transmitter signs a SET about a subject of the caller's choosing to every receiver. It admits nothing the emitter does not: a stream still has to subscribe (`SsfEventEmitter.subscribes`), and `stream_id` only narrows the fan-out (404 if absent). For the three interop events the subject is `email` or `iss_sub`, `reason_admin` is supplied if absent, and `credential_type`/`change_type`/`previous_status`/`current_status` take only their defined values (400 otherwise). Answers `{"event_type", "emitted":[{stream_id, jti, delivery}], "count"}`; a count of 0 is nothing subscribed, not an error. |
 | filter `SsfLogoutSignal` over `/idp/init_logout.openid` | `LogoutEventFilter` | Emits CAEP session-revoked after PF processes an OIDC logout. Not annotated - registered in `pf-runtime.war`'s `web.xml` by `build/pingfederate/assemble-pf-runtime-war.sh`. Fail-open, fail-quiet: logout always proceeds. |
@@ -96,10 +96,10 @@ development profile reads a switch's legacy spelling (`yes`, `no`, `1`, `0`, `on
 
 | Group | Settings (defaults) |
 |---|---|
-| Transmitter | `signingAlgorithm` (RS256/PS256), `basePath` (`/ssf`), `setTtlSeconds` (7 days), `defaultEventTypes`, `defaultSubjects` (`NONE`; `ALL` = every enabled stream hears every subject without an add-subject, SSF §7.1.1, and is what [CAEP Interop](#caep-interop) needs), `verificationEventEnabled` (true), `pollMaxEvents` (100), `pushRetryMaxAttempts` (5), `pushRetryBackoffSeconds` (5) |
+| Transmitter | `signingAlgorithm` (RS256/PS256), `basePath` (`/ssf`), `setTtlSeconds` (7 days), `defaultEventTypes`, `defaultSubjects` (`NONE`; `ALL` = every enabled stream hears every subject without an add-subject, SSF §7.1.1, and is what [CAEP Interop](#caep-interop) needs), `verificationEventEnabled` (true), `pollMaxEvents` (100), `pollMaxEventsCap` (100, 1-1000), `pollLongPollWaitSeconds` (10, 0-30), `pushRetryMaxAttempts` (5), `pushRetryBackoffSeconds` (5) |
 | Store | `dataStoreId` (PF JDBC data store id, on PostgreSQL) or `jdbcUrl`+`jdbcUsername`+`jdbcPassword`; `storeDialect` (`tables` \| `ldm`); blank = in-memory, which production allows only with the `in-memory-state` risk accepted |
 | Receiver auth | `receiverScope` (`ssf.manage`), `provisionerScope` (unset - nobody may use SCIM; suggested `ssf.provision`, must differ from `receiverScope` or SSF is `FAILED_CONFIG`), `allowedAudiences` (`clientA=aud1,aud2;clientB=aud3` - the `aud` values a client may name on create besides its own id, see [What the transmitter signs](#what-the-transmitter-signs)), `unownedStreamOwner` (unset - see [Stream ownership](#stream-ownership)), `introspectionEndpoint` (`<issuer>/as/introspect.oauth2`), `introspectionClientId`/`introspectionClientSecret` (deployed as secrets), `introspectionInsecureTls` (false; `true` trusts any certificate chain on the introspection call through libs/platform's `InsecureTls`, which warns once - the host name is still checked; refused in production) |
-| Receiver | `receiverExpectedIssuer` (turns the receiver on), `receiverJwksUrl`, `receiverAudience` and `receiverEndpointAuthToken` (**both required once the receiver is on** - missing either, `SSF_RECEIVER` is `FAILED_CONFIG` and an ERROR says which),  `receiverJwksCacheSeconds` (300), `receiverInsecureTls` (false; `true` trusts any certificate chain on the JWKS fetch, the poll and the stream calls through libs/platform's `InsecureTls`, which warns once - the host name is still checked; refused in production), `receiverPollUrl`/`receiverPollToken`/`receiverPollIntervalSeconds` (10), `receiverActionsEnabled` (true) |
+| Receiver | `receiverExpectedIssuer` (turns the receiver on), `receiverJwksUrl`, `receiverAudience` and `receiverEndpointAuthToken` (**both required once the receiver is on** - missing either, `SSF_RECEIVER` is `FAILED_CONFIG` and an ERROR says which),  `receiverJwksCacheSeconds` (300), `receiverInsecureTls` (false; `true` trusts any certificate chain on the JWKS fetch, the poll and the stream calls through libs/platform's `InsecureTls`, which warns once - the host name is still checked; refused in production), `receiverPollUrl`/`receiverPollIntervalSeconds` (10), `receiverPollToken` (development only; refused in production), `receiverTokenEndpoint`/`receiverClientId`/`receiverClientSecret` or `receiverClientKey`/`receiverClientScope` (the receiver's token by client credentials), `receiverTransmitterConfigurationUrl`/`receiverPushEndpointUrl`/`receiverEventsRequested` (the receiver's own stream), `receiverSubjectIssuers`, `receiverActionsEnabled` (true) - see [The receiver](#the-receiver) |
 | Sources | `auditEventsEnabled` (true), `auditEventMap` |
 | Kafka | `kafkaEnabled` (false), `kafkaBootstrapServers`, `kafkaTopic` (`sse-events`), `kafkaSecurityProtocol` (`PLAINTEXT`), `kafkaSaslMechanism`/`kafkaSaslUsername`/`kafkaSaslPassword` |
 
@@ -175,6 +175,85 @@ a stream that is not enabled, so every event raised while it is paused is lost, 
 S10d). Push delivery has still not been run against the conformance suite: it needs a suite PingFederate
 can call back ([conformance/README.md](../../conformance/README.md)).
 
+## The receiver
+
+The receiver takes SETs pushed to `/ssf/receiver/events` (RFC 8935) and, with a poll URL or a stream of its own,
+polls a transmitter for them (RFC 8936, `PollReceiverClient`). Each goes through `SsfReceiverService`: refused,
+discarded or verified, deduplicated by `jti`, and handed to the handlers - `ReceiverActionHandler` revokes the
+subject's PingFederate grants, `InstanceRegistryReceiverHandler` suspends or revokes agent instances. From 0.6.0
+(plan item H-SSF-1):
+
+- **Subjects.** An inbound `sub_id` may be any of the five formats as before, RFC 9493's `did`, `uri` and `aliases`,
+  or SSF 1.0 §3.3's complex subject (`SsfSubjects.RECEIVER_FORMATS`); SSF 1.0's `jwt_id`, `saml_assertion_id` and
+  `ip-addresses` name a token or an address and stay refused as `invalid_request`. `SsfSubjects` maps a subject to
+  the user key or device id a handler acts on: an `iss_sub` to its `sub` only when its `iss` is the SET's issuer,
+  this PingFederate's `OIDF_SSF_ISSUER` or one in `receiverSubjectIssuers` (RFC 7519 §4.1.2 scopes a subject "to be
+  locally unique in the context of the issuer"); `email`, `phone_number`, `opaque`, `account`, `did` and `uri` to
+  their one member; `aliases` by the first identifier that maps, in the order `iss_sub`, `email`, `account`,
+  `phone_number`, `opaque`, `did`, `uri`; a complex subject by its `user` member for a user and its `device` member
+  for a device, the instance registry trying the device first. A subject that maps to no one is logged with the
+  reason and counted (`ssf.receiver.subject_unmapped`), and nothing is acted on.
+- **`exp` and `sub` refused** (finding F-0246). SSF 1.0 §4.1.7: "The "exp" claim MUST NOT be used in SETs"; §4.1.2:
+  "The JWT "sub" claim MUST NOT be present in any SET containing an SSF event". A SET carrying either is refused
+  as `invalid_request` with a description naming the claim - a 400 on push, a `setErrs` entry on poll - and counted
+  (`ssf.receiver.set_refused`, reason the error code). The check is the receiver's own; libs/shared-signals'
+  `SetVerifier` still honours an `exp` for its other users.
+- **Critical subject members.** SSF 1.0 §3.6: "An SSF Receiver MUST discard any event that contains a Subject with a
+  Critical member that it is unable to process". The transmitter's `critical_subject_members`, read when the
+  receiver sets up its stream, are held against the members the handlers act on (`user`, `device`): an event whose
+  complex subject carries another critical member is accepted (202, acknowledged) and not acted on
+  (`ssf.receiver.set_discarded`).
+- **The token.** The poll and stream calls present a bearer from the transmitter's authorization server, by client
+  credentials (`ClientCredentialsToken`): `receiverTokenEndpoint`, `receiverClientId`, and `receiverClientSecret`
+  (`client_secret_basic`) or `receiverClientKey` (a private JWK, `private_key_jwt`), with `receiverClientScope`. It is
+  kept until 30 seconds (or a tenth of its lifetime) before `expires_in` runs out, and a call answered 401 fetches a
+  new one and is made once more. `receiverPollToken`, a static token, stays for development and is refused in
+  production: it never expires or rotates, and a transmitter that stops taking it cannot be answered with another.
+- **Its own stream.** With `receiverTransmitterConfigurationUrl` (the transmitter's `/.well-known/ssf-configuration`)
+  the receiver manages its stream there (`ReceiverStream`, `ReceiverStreamClient.ensure`): at start-up it reads the
+  metadata, finds its stream in the configuration endpoint's list - a push stream to `receiverPushEndpointUrl`, or its
+  poll stream when that is unset - or creates one, and brings its `events_requested` (and a push stream's delivery
+  and `authorization_header`, the receiver's endpoint token) into step with `receiverEventsRequested` (the five the
+  handlers act on, by default). It checks what SSF 1.0 has a receiver check - §7.2.4, the metadata's `issuer` is the
+  one the receiver expects, and §8.1.1.1-§8.1.1.3, the stream's `iss` - and that the stream's `aud` holds
+  `receiverAudience`; a stream it created and cannot accept it deletes again. A poll stream is polled at the
+  `endpoint_url` the transmitter gave it, so `receiverPollUrl` is refused beside this. The receiver's token goes only
+  to https URLs the transmitter names: a `configuration_endpoint` or poll `endpoint_url` that is not https is
+  `FAILED_CONFIG` (SSF 1.0 §7.1: "If present, this URL MUST use HTTP over TLS [RFC9110]"; RFC 8936 §3: "based upon
+  HTTP over TLS [RFC2818]"), unless the configuration URL is itself http, which only the development profile allows;
+  production refuses an http `receiverTokenEndpoint`, `receiverTransmitterConfigurationUrl` or
+  `receiverPushEndpointUrl`.
+
+Where `SSF_RECEIVER` stands while it sets its stream up is under [Start-up](#start-up).
+
+## Poll delivery
+
+`POST /ssf/poll?stream_id=` is the transmitter's RFC 8936 endpoint. From 0.6.0 (plan item H-SSF-2):
+
+- **`maxEvents` is capped** at `pollMaxEventsCap` (100 by default, 1-1000); unset, it is `pollMaxEvents`, under the
+  same cap. RFC 8936 §2.2 has the transmitter "SHOULD NOT send more SETs than the specified maximum" and lets it pick
+  which come first; `moreAvailable` says there are more. `maxEvents: 0` acknowledges only.
+- **`setErrs` is recorded.** Each entry (RFC 8936 §2.2: "the "jti" values of invalid SETs received", each with `err`
+  and `description`) is logged at WARN with the receiver's description (made log-safe), counted as
+  `ssf.poll.set_error` under its RFC 8935 error code (`other` for any code the registry does not have), and the SET
+  released - removed from the queue like an acknowledged one, since redelivering a SET its receiver cannot validate
+  cannot succeed. Nothing records it once released; a dead-letter record is S-10's (Phase 4). A `setErrs` that is not
+  an object of objects is a 400.
+- **A stream that is not enabled returns nothing.** SSF 1.0 §8.1.2.1: `paused` - "The Transmitter MUST NOT transmit
+  events over the stream" (the SETs already queued stay and are returned once it is enabled, but nothing new is
+  queued while it is paused - see F-0017 above); `disabled` - "The Transmitter MUST
+  NOT transmit events over the stream and will not hold any events for later transmission". The poll still
+  acknowledges and records `setErrs`, and answers `{"sets": {}, "moreAvailable": false}` at once.
+- **Long polling.** RFC 8936 §2.2: `returnImmediately` "The default value is "false", which indicates the request is
+  to be treated as an HTTP long poll"; §2.5: the transmitter "SHALL delay responding until a SET is available or the
+  timeout interval has elapsed". A poll that is not `returnImmediately: true`, asks for SETs and finds none is held
+  for up to `pollLongPollWaitSeconds` (10 by default, 0-30; 0 answers at once) - in async mode, so no request thread
+  waits: one managed executor (`oidf-ssf-long-poll-1`) checks every held poll each 250 ms with a one-row read of the
+  store, answers it with a fresh poll when a SET is queued - on any node, since it reads the shared store - and with
+  no SETs when the wait runs out. Async needs every filter in front of the servlet to allow it; where one does not,
+  the poll is answered at once and an INFO line says so once. Before 0.6.0 an absent `returnImmediately` was read as
+  `true`.
+
 ## Start-up
 
 `SsfConfigurationServlet.init` registers the `SSF` part and hands `SsfComponents.transmitter` to
@@ -213,7 +292,11 @@ receiver: `FAILED_DEPENDENCY` while the transmitter is starting or failed on a d
 `DISABLED` when the transmitter is off or no `OIDF_SSF_RECEIVER_EXPECTED_ISSUER` is set (or `FAILED_CONFIG` with
 `OIDF_SSF_RECEIVER_ENABLED=true`), `FAILED_CONFIG` when the transmitter failed on its configuration or was refused,
 or the receiver's audience or endpoint token is missing. `OIDF_SSF_RECEIVER_ENABLED=false` keeps the transmitter
-from building the receiver at all. The receiver's JWKS is fetched on the first SET, not at start-up, so a JWKS that
+from building the receiver at all. A receiver that manages its own stream ([The receiver](#the-receiver)) is not
+ready until the stream is set up: a transmitter that cannot be reached or refuses a call leaves it
+`FAILED_DEPENDENCY`, with a WARN naming the cause, and the supervisor runs the start again; metadata or a stream whose
+issuer or audience is not the receiver's is `FAILED_CONFIG`, with an ERROR. Its poll loop polls nothing until the
+stream is set up. The receiver's JWKS is fetched on the first SET, not at start-up, so a JWKS that
 is down is not a start-up failure: each SET is refused until it answers.
 
 Until 0.6.0 SSF kept its own boot retry (every 30 s) and every SSF servlet's `init` started the transmitter, a

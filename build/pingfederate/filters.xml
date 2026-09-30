@@ -92,6 +92,18 @@
     <url-pattern>/as/token.oauth2</url-pattern>
   </filter>
 
+  <!-- IssuedDetailsBelt (IssuedDetailsBelt) over /as/token.oauth2: the response belt (plan item S4d, F-0032). For a
+       request whose attestation ClientAttestationAuth verified - the attribute it publishes - the token response is
+       held (up to 64 KiB) until its authorization_details, where RFC 9396 section 7 puts them, are known to be within
+       the attestation's, and replaced with 400 invalid_authorization_details when they are not; a larger success is
+       500, since it cannot be checked. Every other request passes untouched and unbuffered. The access-token mapping
+       criterion IssuedDetailsCriterion.withinCeiling holds the same details before the token is made; this is the
+       fallback for a mapping without it (docs/operator/issued-details.md). Mapped before ClientAttestationAuth (the
+       <order> rules below). -->
+  <filter name="IssuedDetailsBelt" class="com.pingidentity.ps.oidf.servlet.clientregistration.IssuedDetailsBelt">
+    <url-pattern>/as/token.oauth2</url-pattern>
+  </filter>
+
   <!-- ClientAttestationAuth (ClientAttestationAuthFilter) over every PF endpoint that authenticates a client:
        implements attest_jwt_client_auth (draft-ietf-oauth-attestation-based-client-auth). It verifies the
        OAuth-Client-Attestation(+PoP) headers and forwards the request authenticated to PF via a bridge
@@ -126,7 +138,8 @@
   </filter>
 
   <!-- The order is load-bearing, not cosmetic. The first four are the shell assembler's three checks (the
-       last was one check of two pairs); the last two came with ClientAttestationAuth's wider mapping. -->
+       last was one check of two pairs); the next two came with ClientAttestationAuth's wider mapping, and the last with
+       the response belt. -->
   <order filter="OidfAutoRegistration" before="ClientAttestationAuth">
     ClientAttestationAuth replaces client_assertion with a bridge assertion that carries no trust_chain
     header, so if it ran first automatic registration would find nothing to register from, and §12.1 could
@@ -153,6 +166,11 @@
     PF's client store, and front-channel registration is what puts a federation RP there with its
     attestation_required; run first, ClientAttestationAuth would find no client and let a first request's
     authorization_details through unheld.
+  </order>
+  <order filter="IssuedDetailsBelt" before="ClientAttestationAuth">
+    the belt must hold every token response written for a request ClientAttestationAuth verified: mapped outside that
+    filter, nothing it hands the request to - PingFederate, or a filter mapped after it - writes a response the belt
+    does not see.
   </order>
 
   <!-- The lifecycle listener (plan item F-2, libs/platform-pf, "lifecycle"): marks the webapp's copy of platform

@@ -14,6 +14,9 @@ What is here now:
   you deploy it that way: from 0.4.0, one PingFederate node only until 0.7.0, and the device path until 0.9.0.
 - [health.md](health.md) - the health endpoints, `/agentic-identity/health/{live,ready}`, the detail and
   `/agentic-identity/info`: what ready means and who may read the detail.
+- [issued-details.md](issued-details.md) - from 0.6.0, what holds the `authorization_details` a token carries to the
+  client attestation's ceiling: the issuance criterion to add to your access-token mappings, the token endpoint's
+  response belt, the refresh that must repeat its details, and what each refuses.
 - [operator-authentication.md](operator-authentication.md) - how the operator APIs will take PingFederate-issued,
   DPoP-bound access tokens with a scope per surface (built in 0.6.0, used from plan item S8b): what PingFederate
   needs, the settings, every refusal.

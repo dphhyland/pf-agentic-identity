@@ -44,9 +44,6 @@ INSECURE_TLS = "libs/platform/src/main/java/com/pingidentity/ps/oidf/platform/tl
 # Path, relative to the root -> why its hits are allowed.
 EXEMPT = {
     INSECURE_TLS: "the one trust-all: every other main source asks it",
-    "services/gm-api/examples/java/GrantManagementClient.java":
-        "a single-file example run as `java GrantManagementClient.java`, outside the reactor and not shipped: it"
-        " cannot import platform, and its trust-all is opt-in (--insecure) for a demo PingFederate (F-0163)",
     "tools/trust-scan.py": "carries the patterns it looks for",
 }
 

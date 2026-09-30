@@ -30,7 +30,7 @@ written by hand is this page, outside its generated list.
 | [hosted-entity-signing](hosted-entity-signing.md) | `libs/openid-federation` | `com.pingidentity.ps.oidf.authority` | 2 |
 | [operator-auth](operator-auth.md) | `libs/platform-pf` | `com.pingidentity.ps.oidf.platform.pf.auth` | 11 |
 | [pf-audit](pf-audit.md) | `libs/platform-pf` | `com.pingidentity.ps.oidf.platform.pf.audit` | 2 |
-| [attestation-token-endpoint](attestation-token-endpoint.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.clientregistration` | 3 |
+| [attestation-token-endpoint](attestation-token-endpoint.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.clientregistration` | 4 |
 | [client-properties](client-properties.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.clientregistration` | 22 |
 | [fapi2-profile](fapi2-profile.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.fapi2` | 1 |
 | [federation-runtime](federation-runtime.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.pf` | 54 |
@@ -40,9 +40,9 @@ written by hand is this page, outside its generated list.
 | [evidence-policy](evidence-policy.md) | `servlets/attestation-issuer` | `com.pingidentity.ps.oidf.issuer` | 13 |
 | [issuance-client-properties](issuance-client-properties.md) | `servlets/attestation-issuer` | `com.pingidentity.ps.oidf.servlet.attestation` | 12 |
 | [ssf-logout-signal](ssf-logout-signal.md) | `servlets/ssf` | `com.pingidentity.ps.oidf.servlet.ssf` | 1 |
-| [ssf-transmitter](ssf-transmitter.md) | `servlets/ssf` | `com.pingidentity.ps.oidf.ssf` | 43 |
+| [ssf-transmitter](ssf-transmitter.md) | `servlets/ssf` | `com.pingidentity.ps.oidf.ssf` | 54 |
 | [rar-pdp-processor](rar-pdp-processor.md) | `plugins/rar-paz-plugin` | `com.pingidentity.ps.oidf.rar` | 24 |
-| [instance-registry](instance-registry.md) | `plugins/instance-registry-datasource` | `com.pingidentity.ps.oidf.registry` | 3 |
+| [instance-registry](instance-registry.md) | `plugins/instance-registry-datasource` | `com.pingidentity.ps.oidf.registry` | 4 |
 | [ciba-simulator](ciba-simulator.md) | `plugins/ciba-sim` | `com.pingidentity.ps.oidf.cibasim` | 2 |
 | [device-enrolment](device-enrolment.md) | `services/device-enrolment` | `com.pingidentity.ps.oidf.enrolment` | 35 |
 | [gm-api](gm-api.md) | `services/gm-api/servlet` | `au.com.idpartners.gm.servlet` | 6 |

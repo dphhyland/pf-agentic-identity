@@ -5,11 +5,14 @@ package com.pingidentity.ps.oidf.ssf;
 
 import com.pingidentity.ps.oidf.device.CaepSignalApplier;
 import com.pingidentity.ps.oidf.device.RegistryException;
+import com.pingidentity.ps.oidf.platform.events.Events;
+import com.pingidentity.ps.oidf.platform.events.LogSafe;
 import com.pingidentity.ps.oidf.signals.ReceivedSet;
 import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -25,15 +28,32 @@ import org.apache.commons.logging.LogFactory;
  * with {@code services/device-enrolment}'s direct compliance endpoint so both transports apply CAEP
  * identically. Best-effort like {@link ReceiverActionHandler}: action failures are logged, never thrown
  * — a broken instance action must not fail grant revocation or cause SET redelivery loops.
+ *
+ * <p>Subjects are mapped by {@link SsfSubjects}: a device by {@link SsfSubjects#deviceId} (an {@code opaque} subject,
+ * a complex subject's {@code device} member, or an aliases subject's {@code opaque} identifier), and, for a
+ * {@code session-revoked} with no device, a user by {@link SsfSubjects#userKey} (a complex subject's {@code user}
+ * member), in that order. A subject that maps to neither is logged with the reason and counted
+ * ({@value #SUBJECT_UNMAPPED}).
  */
 public final class InstanceRegistryReceiverHandler implements SsfReceiverService.ReceivedSetHandler {
 
     private static final Log LOGGER = LogFactory.getLog(InstanceRegistryReceiverHandler.class);
 
-    private final CaepSignalApplier applier;
+    static final String EVENTS = "ssf-receiver";
+    static final String SUBJECT_UNMAPPED = "ssf.receiver.subject_unmapped";
 
+    private final CaepSignalApplier applier;
+    private final Set<String> localIssuers;
+
+    /** A handler that honours only the SET's own issuer in an {@code iss_sub} subject. */
     public InstanceRegistryReceiverHandler(CaepSignalApplier applier) {
+        this(applier, Set.of());
+    }
+
+    /** @param localIssuers the issuers, besides the SET's own, whose {@code iss_sub} subjects name a user here */
+    public InstanceRegistryReceiverHandler(CaepSignalApplier applier, Set<String> localIssuers) {
         this.applier = Objects.requireNonNull(applier, "applier");
+        this.localIssuers = Set.copyOf(localIssuers);
     }
 
     @Override
@@ -48,7 +68,7 @@ public final class InstanceRegistryReceiverHandler implements SsfReceiverService
                 continue;
             }
             try {
-                List<String> affected = applyOne(shortType, subject, set.eventPayload(eventType));
+                List<String> affected = applyOne(shortType, set, set.eventPayload(eventType));
                 if (!affected.isEmpty()) {
                     LOGGER.info((Object) ("SSF receiver: instance registry " + shortType + " affected "
                             + affected + " (jti " + set.jti() + ")"));
@@ -60,23 +80,24 @@ public final class InstanceRegistryReceiverHandler implements SsfReceiverService
         }
     }
 
-    private List<String> applyOne(String shortType, SubjectId subject, Map<String, Object> event)
+    private List<String> applyOne(String shortType, ReceivedSet set, Map<String, Object> event)
             throws RegistryException {
+        SubjectId subject = set.subjectId();
         return switch (shortType) {
             case "device-compliance-change" -> deviceComplianceChange(subject, event);
-            case "session-revoked" -> sessionRevoked(subject);
-            case "credential-change" -> credentialChange(subject, event);
-            default -> List.of();
+            case "session-revoked" -> sessionRevoked(set);
+            default -> credentialChange(subject, event);
         };
     }
 
     private List<String> deviceComplianceChange(SubjectId subject, Map<String, Object> event)
             throws RegistryException {
-        String deviceId = deviceIdOf(subject);
-        if (deviceId == null) {
-            LOGGER.warn((Object) "device-compliance-change: subject is not device-scoped (opaque); ignoring");
+        SsfSubjects.Mapping device = SsfSubjects.deviceId(subject);
+        if (!device.mapped()) {
+            unmapped("device-compliance-change", subject, device.refusal());
             return List.of();
         }
+        String deviceId = device.value();
         String current = stringField(event, "current_status");
         if (current == null) {
             LOGGER.warn((Object) "device-compliance-change: no current_status; ignoring");
@@ -85,33 +106,35 @@ public final class InstanceRegistryReceiverHandler implements SsfReceiverService
         return this.applier.deviceComplianceChange(deviceId, current);
     }
 
-    private List<String> sessionRevoked(SubjectId subject) throws RegistryException {
-        String deviceId = deviceIdOf(subject);
-        if (deviceId != null) {
-            return this.applier.sessionRevokedForDevice(deviceId);
+    private List<String> sessionRevoked(ReceivedSet set) throws RegistryException {
+        SubjectId subject = set.subjectId();
+        SsfSubjects.Mapping device = SsfSubjects.deviceId(subject);
+        if (device.mapped()) {
+            return this.applier.sessionRevokedForDevice(device.value());
         }
-        String pingOneSubject = ReceiverActionHandler.userKeyOf(subject);
-        if (pingOneSubject == null) {
+        SsfSubjects.Mapping owner = SsfSubjects.userKey(subject, ReceiverActionHandler.issuers(set, this.localIssuers));
+        if (!owner.mapped()) {
+            unmapped("session-revoked", subject, device.refusal() + "; " + owner.refusal());
             return List.of();
         }
-        return this.applier.sessionRevokedForOwner(pingOneSubject);
+        return this.applier.sessionRevokedForOwner(owner.value());
     }
 
     private List<String> credentialChange(SubjectId subject, Map<String, Object> event) throws RegistryException {
-        String deviceId = deviceIdOf(subject);
-        if (deviceId == null) {
+        SsfSubjects.Mapping device = SsfSubjects.deviceId(subject);
+        if (!device.mapped()) {
+            unmapped("credential-change", subject, device.refusal());
             return List.of();
         }
-        return this.applier.credentialChange(deviceId, stringField(event, "change_type"),
+        return this.applier.credentialChange(device.value(), stringField(event, "change_type"),
                 stringField(event, "credential_type"));
     }
 
-    /** The registry's device id, when the subject names a device directly ({@code opaque.id}). */
-    private static String deviceIdOf(SubjectId subject) {
-        if (!SubjectId.FORMAT_OPAQUE.equals(subject.format())) {
-            return null;
-        }
-        return stringField(subject.toMap(), "id");
+    private static void unmapped(String eventType, SubjectId subject, String reason) {
+        LOGGER.warn((Object) (eventType + ": the subject names no device or owner here (" + LogSafe.value(reason)
+                + "); ignoring"));
+        Events.event(EVENTS, SUBJECT_UNMAPPED).failure("unmapped").field("handler", "instance_registry")
+                .field("format", subject.format()).emit();
     }
 
     private static boolean isHandled(String shortType) {

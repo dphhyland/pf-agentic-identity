@@ -8,7 +8,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
+import com.pingidentity.ps.oidf.platform.profile.AcceptedRisks;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import com.pingidentity.ps.oidf.platform.settings.Catalogue;
+import com.pingidentity.ps.oidf.platform.settings.ProfileAudit;
 import com.pingidentity.ps.oidf.platform.settings.ProfileRefused;
 import com.pingidentity.ps.oidf.platform.settings.Setting;
 import com.pingidentity.ps.oidf.platform.settings.SettingRefused;
@@ -46,6 +50,18 @@ class SsfSettingsTest {
     }
 
     private static final Map<String, Case> CASES = new LinkedHashMap<>();
+
+    /** A private JWK for the receiver's client key. */
+    static final String CLIENT_JWK = newClientJwk();
+
+    private static String newClientJwk() {
+        try {
+            org.jose4j.jwk.RsaJsonWebKey k = org.jose4j.jwk.RsaJwkGenerator.generateJwk(2048);
+            return k.toJson(org.jose4j.jwk.JsonWebKey.OutputControlLevel.INCLUDE_PRIVATE);
+        } catch (org.jose4j.lang.JoseException e) {
+            throw new IllegalStateException(e);
+        }
+    }
 
     private static void add(String name, String value, Function<SsfConfiguration, Object> read, Object expected) {
         CASES.put(name, new Case(value, read, expected));
@@ -96,7 +112,23 @@ class SsfSettingsTest {
         add("OIDF_SSF_RECEIVER_INSTANCE_REGISTRY", "true", SsfConfiguration::receiverInstanceRegistry, true);
         add("OIDF_SSF_AUDIT_EVENTS_ENABLED", "false", SsfConfiguration::auditEventsEnabled, false);
         add("OIDF_SSF_AUDIT_EVENT_MAP", "LOGOUT=session-revoked", SsfConfiguration::auditEventMap, "LOGOUT=session-revoked");
+        add("OIDF_SSF_RECEIVER_TOKEN_ENDPOINT", "https://as.example.com/token", SsfConfiguration::receiverTokenEndpoint,
+                "https://as.example.com/token");
+        add("OIDF_SSF_RECEIVER_CLIENT_ID", "rx", SsfConfiguration::receiverClientId, "rx");
+        add("OIDF_SSF_RECEIVER_CLIENT_SECRET", "cs", SsfConfiguration::receiverClientSecret, "cs");
+        add("OIDF_SSF_RECEIVER_CLIENT_KEY", CLIENT_JWK, SsfConfiguration::receiverClientKey, CLIENT_JWK);
+        add("OIDF_SSF_RECEIVER_CLIENT_SCOPE", "ssf.manage", SsfConfiguration::receiverClientScope, "ssf.manage");
+        add("OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL", "https://tx.example.com/.well-known/ssf-configuration",
+                SsfConfiguration::receiverTransmitterConfigurationUrl, "https://tx.example.com/.well-known/ssf-configuration");
+        add("OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL", "https://me.example.com/ssf/receiver/events",
+                SsfConfiguration::receiverPushEndpointUrl, "https://me.example.com/ssf/receiver/events");
+        add("OIDF_SSF_RECEIVER_EVENTS_REQUESTED", "urn:a,urn:b", SsfConfiguration::receiverEventsRequested, List.of("urn:a", "urn:b"));
+        add("OIDF_SSF_POLL_MAX_EVENTS_CAP", "500", SsfConfiguration::pollMaxEventsCap, 500);
+        add("OIDF_SSF_POLL_LONG_POLL_WAIT_SECONDS", "0", SsfConfiguration::pollLongPollWaitSeconds, 0);
+        add("OIDF_SSF_RECEIVER_SUBJECT_ISSUERS", "https://idp.example.com", c -> c.receiverLocalIssuers(),
+                Set.of("https://idp.example.com", "https://op.example.com"));
     }
+
 
     /** The seven switches, strict since 0.6.0 (finding F-0237). */
     private static final List<String> SWITCHES = List.of("OIDF_SSF_KAFKA_ENABLED", "OIDF_SSF_INTROSPECTION_INSECURE_TLS",
@@ -116,6 +148,21 @@ class SsfSettingsTest {
         if (!under.equals("OIDF_SSF_ISSUER")) {
             env.put("OIDF_SSF_ISSUER", "https://op.example.com");
         }
+        // The receiver's client and managed stream settings come in sets (SsfConfiguration.refuseReceiverCombinations).
+        if (Set.of("OIDF_SSF_RECEIVER_TOKEN_ENDPOINT", "OIDF_SSF_RECEIVER_CLIENT_ID", "OIDF_SSF_RECEIVER_CLIENT_SECRET",
+                "OIDF_SSF_RECEIVER_CLIENT_KEY").contains(under)) {
+            env.put("OIDF_SSF_RECEIVER_TOKEN_ENDPOINT", "https://as.example.com/token");
+            env.put("OIDF_SSF_RECEIVER_CLIENT_ID", "rx");
+            if (!under.equals("OIDF_SSF_RECEIVER_CLIENT_KEY")) {
+                env.put("OIDF_SSF_RECEIVER_CLIENT_SECRET", "cs");
+            }
+            env.remove(under);
+        }
+        if (Set.of("OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL", "OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL").contains(under)) {
+            env.put("OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL", "https://tx.example.com/.well-known/ssf-configuration");
+            env.put("OIDF_SSF_RECEIVER_POLL_TOKEN", "pt");
+            env.remove(under);
+        }
         if (!under.equals("OIDF_SSF_KAFKA_BOOTSTRAP_SERVERS")) {
             env.put("OIDF_SSF_KAFKA_BOOTSTRAP_SERVERS", "kafka:9092");
         }
@@ -133,7 +180,7 @@ class SsfSettingsTest {
             entries.add(s.name());
         }
         assertEquals(entries, new TreeSet<>(CASES.keySet()));
-        assertEquals(43, entries.size());
+        assertEquals(54, entries.size());
     }
 
     /**
@@ -182,7 +229,8 @@ class SsfSettingsTest {
 
     /** The five secrets, each of which may be given as a file through each source's {@code _FILE} variant. */
     private static final List<String> SECRETS = List.of("OIDF_SSF_JDBC_PASSWORD", "OIDF_SSF_KAFKA_SASL_PASSWORD",
-            "OIDF_SSF_INTROSPECTION_CLIENT_SECRET", "OIDF_SSF_RECEIVER_ENDPOINT_AUTH_TOKEN", "OIDF_SSF_RECEIVER_POLL_TOKEN");
+            "OIDF_SSF_INTROSPECTION_CLIENT_SECRET", "OIDF_SSF_RECEIVER_ENDPOINT_AUTH_TOKEN", "OIDF_SSF_RECEIVER_POLL_TOKEN",
+            "OIDF_SSF_RECEIVER_CLIENT_SECRET", "OIDF_SSF_RECEIVER_CLIENT_KEY");
 
     /**
      * Each secret read from a file named by its {@code _FILE} variant in each source ({@code X_FILE},
@@ -203,7 +251,8 @@ class SsfSettingsTest {
             assertEquals(3, s.fileVariants().size(), name);
             assertTrue(CATALOGUE.declaredEnvironmentNames().contains(name + "_FILE"), name);
             Path file = dir.resolve(name.toLowerCase(java.util.Locale.ROOT));
-            Files.writeString(file, "from-" + name + "\n");
+            String content = name.equals("OIDF_SSF_RECEIVER_CLIENT_KEY") ? CLIENT_JWK : "from-" + name;
+            Files.writeString(file, content + "\n");
             for (SourceName variant : s.fileVariants()) {
                 Map<String, String> env = base(name);
                 Map<String, String> props = new HashMap<>();
@@ -213,7 +262,7 @@ class SsfSettingsTest {
                 if (source != Source.ENV) {
                     env.put("OIDF_DEPLOYMENT_PROFILE", DEVELOPMENT);
                 }
-                assertEquals("from-" + name, CASES.get(name).read().apply(read(env, props, init)), name + " from " + variant.name());
+                assertEquals(content, CASES.get(name).read().apply(read(env, props, init)), name + " from " + variant.name());
             }
         }
     }
@@ -266,7 +315,7 @@ class SsfSettingsTest {
             assertTrue(e.getMessage().contains(s.name()), e.getMessage());
             refused++;
         }
-        assertEquals(20, refused, "the switches, the numbers, the choices, the URLs and the event types");
+        assertEquals(27, refused, "the switches, the numbers, the choices, the URLs, the event types and the issuers");
     }
 
     @Test
@@ -288,6 +337,80 @@ class SsfSettingsTest {
         Map<String, String> audiences = Map.of("OIDF_SSF_ISSUER", "https://op.example.com", "OIDF_SSF_ALLOWED_AUDIENCES", "https://a.example.com");
         e = assertThrows(SettingRefused.class, () -> read(audiences, Map.of(), Map.of()));
         assertEquals("OIDF_SSF_ALLOWED_AUDIENCES", e.setting());
+    }
+
+    /** The receiver's client and managed stream settings come in sets; each wrong set names the setting to change. */
+    @Test
+    void theReceiversClientAndStreamSettingsAreRefusedOutOfTheirSets() {
+        String token = "OIDF_SSF_RECEIVER_TOKEN_ENDPOINT";
+        String id = "OIDF_SSF_RECEIVER_CLIENT_ID";
+        String secret = "OIDF_SSF_RECEIVER_CLIENT_SECRET";
+        String key = "OIDF_SSF_RECEIVER_CLIENT_KEY";
+        String config = "OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL";
+        String[][] cases = {
+            {id, "rx", "", "", token, "OIDF_SSF_RECEIVER_TOKEN_ENDPOINT is required when the receiver has a client"},
+            {secret, "s", "", "", token, null},
+            {key, CLIENT_JWK, "", "", token, null},
+            {token, "https://as.example.com/t", "", "", id, "OIDF_SSF_RECEIVER_CLIENT_ID is required with OIDF_SSF_RECEIVER_TOKEN_ENDPOINT"},
+            {token, "https://as.example.com/t", id, "rx", secret, "set one of OIDF_SSF_RECEIVER_CLIENT_SECRET and"
+                    + " OIDF_SSF_RECEIVER_CLIENT_KEY with OIDF_SSF_RECEIVER_TOKEN_ENDPOINT, not neither"},
+            {key, "{\"kty\":\"oct\",\"k\":\"AAAA\"}", token, "https://as.example.com/t", key, null},
+            {config, "https://tx.example.com/.well-known/ssf-configuration", "", "", config, null},
+            {"OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL", "https://me.example.com/events", "", "", "OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL", null},
+        };
+        for (String[] c : cases) {
+            Map<String, String> env = new HashMap<>(Map.of("OIDF_SSF_ISSUER", "https://op.example.com", c[0], c[1]));
+            if (!c[2].isEmpty()) {
+                env.put(c[2], c[3]);
+            }
+            if (c[0].equals(key) && !c[2].isEmpty()) {
+                env.put(id, "rx");
+            }
+            SettingRefused e = assertThrows(SettingRefused.class, () -> read(env, Map.of(), Map.of()), c[0]);
+            assertEquals(c[4], e.setting(), c[0]);
+            if (c[5] != null) {
+                assertTrue(e.getMessage().startsWith(c[5]), e.getMessage());
+            }
+        }
+        Map<String, String> both = new HashMap<>(Map.of("OIDF_SSF_ISSUER", "https://op.example.com", token, "https://as.example.com/t",
+                id, "rx", secret, "s", key, CLIENT_JWK));
+        assertEquals(secret, assertThrows(SettingRefused.class, () -> read(both, Map.of(), Map.of())).setting());
+        both.remove(key);
+        both.put("OIDF_SSF_RECEIVER_POLL_TOKEN", "pt");
+        assertEquals("OIDF_SSF_RECEIVER_POLL_TOKEN", assertThrows(SettingRefused.class, () -> read(both, Map.of(), Map.of())).setting());
+        both.put("OIDF_SSF_RECEIVER_POLL_TOKEN", " ");
+        assertEquals("rx", read(both, Map.of(), Map.of()).receiverClientId(), "a blank poll token is none");
+        both.put(config, "https://tx.example.com/.well-known/ssf-configuration");
+        both.put("OIDF_SSF_RECEIVER_POLL_URL", "https://tx.example.com/poll");
+        assertEquals("OIDF_SSF_RECEIVER_POLL_URL", assertThrows(SettingRefused.class, () -> read(both, Map.of(), Map.of())).setting());
+        both.remove("OIDF_SSF_RECEIVER_POLL_URL");
+        both.put("OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL", "https://me.example.com/events");
+        assertEquals("https://me.example.com/events", read(both, Map.of(), Map.of()).receiverPushEndpointUrl());
+        Map<String, String> devToken = new HashMap<>(Map.of("OIDF_SSF_ISSUER", "https://op.example.com", config,
+                "https://tx.example.com/.well-known/ssf-configuration", "OIDF_SSF_RECEIVER_POLL_TOKEN", " "));
+        assertEquals(config, assertThrows(SettingRefused.class, () -> read(devToken, Map.of(), Map.of())).setting());
+        devToken.put("OIDF_SSF_RECEIVER_POLL_TOKEN", "pt");
+        assertEquals(SsfConfiguration.RECEIVER_DEFAULT_EVENTS, read(devToken, Map.of(), Map.of()).receiverEventsRequested());
+    }
+
+    /**
+     * The URLs the receiver sends its tokens to or through are https in production: RFC 6749 §3.2, the authorization
+     * server "MUST require the use of TLS as described in Section 1.6 when sending requests to the token endpoint";
+     * SSF 1.0 §7.1, configuration_endpoint: "If present, this URL MUST use HTTP over TLS [RFC9110]". Development only
+     * warns, for a rig.
+     */
+    @Test
+    @Requirement("SSF §7.1")
+    void theReceiversUrlsAreHttpsInProduction() {
+        for (String name : List.of("OIDF_SSF_RECEIVER_TOKEN_ENDPOINT", "OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL",
+                "OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL")) {
+            List<ProfileAudit.Violation> plain = ProfileAudit.evaluate(Sources.of(Map.of(name, "http://tx.example.com/x"),
+                    Map.of()), List.of(CATALOGUE), DeploymentProfile.PRODUCTION, AcceptedRisks.none()).violations();
+            assertEquals(List.of(name), plain.stream().map(ProfileAudit.Violation::setting).toList(), name);
+            assertEquals(List.of("SSF_RECEIVER"), plain.get(0).components(), name);
+            assertEquals(List.of(), ProfileAudit.evaluate(Sources.of(Map.of(name, "https://tx.example.com/x"), Map.of()),
+                    List.of(CATALOGUE), DeploymentProfile.PRODUCTION, AcceptedRisks.none()).violations(), name);
+        }
     }
 
     /**

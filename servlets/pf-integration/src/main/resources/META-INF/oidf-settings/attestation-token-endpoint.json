@@ -49,6 +49,21 @@
       ],
       "aliases": [],
       "file": false
+    },
+    {
+      "name": "OIDF_ATTESTATION_REDECIDE_ON_REFRESH_TYPES",
+      "kind": "env",
+      "type": "words",
+      "default": "payment_initiation,account_information",
+      "description": "The authorization_details types, comma-separated, whose refresh must repeat its authorization_details: the issued-details criterion (IssuedDetailsCriterion.withinCeiling on an access-token mapping) refuses a refresh that sends none for a grant holding a detail of one of them, so the client asks again with its details and PingFederate calls the RAR processor's enrich, and so the PDP, again. PingFederate reissues a bare refresh's stored details without asking (F-0105). Only mappings that carry the criterion apply it; blank sends no refresh back",
+      "when_wrong": {"effect": "not-checked", "detail": "Read as given; a type no grant holds sends nothing back"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "env", "name": "OIDF_ATTESTATION_REDECIDE_ON_REFRESH_TYPES"}
+      ],
+      "aliases": [],
+      "file": false
     }
   ],
   "removed": []

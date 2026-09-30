@@ -62,7 +62,10 @@ public class SimOobAuthenticator implements OOBAuthPlugin {
     private DecisionStore store() throws OOBAuthGeneralException {
         String refusal = SimulatorGate.refusal(this.env);
         if (refusal != null) {
-            LOGGER.warn((Object) ("CIBA simulator: authenticator refused - " + refusal));
+            if (!SimulatorGate.isProduction(this.env)) {
+                // In production the gate has logged its one ERROR; every request would say the same.
+                LOGGER.warn((Object) ("CIBA simulator: authenticator refused - " + refusal));
+            }
             throw new OOBAuthGeneralException("the CIBA simulator may not run here: " + refusal);
         }
         return this.stores.apply(SimulatorGate.directory(this.env));
