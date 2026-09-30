@@ -12,8 +12,8 @@
       "default": false,
       "description": "Whether the logout filter takes the subject from an unverified sub parameter when no token verifies, for a development rig; any caller can then aim a session-revoked signal at any subject",
       "when_wrong": {
-        "effect": "not-checked",
-        "detail": "Read leniently: anything but true, in any case, means false"
+        "effect": "per-request",
+        "detail": "Anything but true or false (in any case): an ERROR at each logout naming the setting, and the sub parameter is not taken. The development profile reads a legacy spelling (yes, no, 1, 0, on, off) as false, with a warning naming the strict spelling"
       },
       "profile": "forbidden-in-production",
       "security": true,

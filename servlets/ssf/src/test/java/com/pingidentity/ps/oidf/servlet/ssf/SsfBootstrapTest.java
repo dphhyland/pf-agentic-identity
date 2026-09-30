@@ -1,5 +1,5 @@
 /*
- * Fail-soft servlet bootstrap: unconfigured SSF returns false (never throws); configured returns true.
+ * The SSF servlets with no part of their own start nothing: their init answers whether the transmitter is up.
  */
 package com.pingidentity.ps.oidf.servlet.ssf;
 
@@ -8,29 +8,39 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.SsfSupport;
+import com.pingidentity.ps.oidf.ssf.SsfSupportTestAccess;
 import jakarta.servlet.ServletConfig;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class SsfBootstrapTest {
 
-    @Test
-    void unconfiguredReturnsFalseAndDoesNotThrow() {
-        System.clearProperty("oidf.ssf.issuer"); // ensure no ambient config
-        ServletConfig cfg = mock(ServletConfig.class); // all init-params null
-        assertFalse(SsfHttp.bootstrap(cfg), "no issuer -> SSF stays disabled, bootstrap returns false");
+    @BeforeEach
+    @AfterEach
+    void fresh() {
+        SsfSupportTestAccess.reset();
     }
 
     /**
-     * The push loop is the bootstrap's to start, so it runs from the first servlet to initialise - at boot,
-     * {@code SsfConfigurationServlet} (loadOnStartup = 1) - and not, as until 0.4.0, from the stream
-     * management servlet's lazy init, which no request may reach for hours (B5).
+     * Before 0.6.0 every SSF servlet's init started the transmitter from its own init-params; now only the
+     * {@code SSF} part does, once, so an init-param on the poll servlet configures nothing.
      */
     @Test
-    void configuredReturnsTrueAndThePushLoopIsRunning() {
+    void aServletWithNoPartStartsNothing() {
         ServletConfig cfg = mock(ServletConfig.class);
         when(cfg.getInitParameter("issuer")).thenReturn("https://op.example.com");
-        assertTrue(SsfHttp.bootstrap(cfg), "issuer present -> transmitter configured");
-        assertTrue(SsfSupport.pushDeliveryService().isRunning(), "started by the bootstrap, not by a management request");
+
+        assertFalse(SsfHttp.bootstrap(cfg), "the transmitter starts from its part, not from here");
+        assertFalse(SsfSupport.isConfigured());
+    }
+
+    @Test
+    void itAnswersWhetherTheTransmitterIsUp() {
+        SsfSupport.configure(new SsfConfiguration.Builder().issuer("https://op.example.com").build());
+
+        assertTrue(SsfHttp.bootstrap(null));
     }
 }

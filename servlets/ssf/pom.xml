@@ -146,12 +146,27 @@
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.send(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.CappedBody.onNext(*</include>
 
-                                        <!-- Boot never throws: start() is up, or logged and retried; scheduleBootRetry() keeps it to one retry;
-                                             logBootFailure() and describe() keep the jdbcUrl, which can carry a password, out of the log. -->
+                                        <!-- Start-up never throws and publishes all or nothing (S-9, ST-5): configure() builds the whole state
+                                             before its one write; the start functions turn every outcome into the part's state - a setting
+                                             refused (from(), read strictly through the catalogue) is FAILED_CONFIG, a store down is
+                                             FAILED_DEPENDENCY for the supervisor (dependency()), an in-memory or non-PostgreSQL store is
+                                             REFUSED in production (refuseTheStore(), checkDatabase()); logBootFailure() and describe() keep
+                                             the jdbcUrl, which can carry a password, out of the log; gate() closes the transmitter's servlets
+                                             while it is not serving. -->
                                         <include>com.pingidentity.ps.oidf.ssf.SsfSupport.start(*</include>
-                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.scheduleBootRetry(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.configure(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.SsfSupport.logBootFailure(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.SsfSupport.describe(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfConfiguration.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfComponents.transmitter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfComponents.receiver(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfComponents.receiverAllowed(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfComponents.refuseTheStore(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfComponents.dependency(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.PfJdbcStoreFactory.checkDatabase(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.PfJdbcStoreFactory.refuseDroppedProduct(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfHttp.gate(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.LogoutEventFilter.allowSubParameter(*</include>
 
                                         <!-- Inbound signals: which subject a received SET acts on. receiverVerifier() keeps an inbound
                                              sub_id to SsfSubjects' five formats, and parse() and fromCanonicalKey() refuse the rest

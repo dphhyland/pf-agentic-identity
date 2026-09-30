@@ -68,10 +68,11 @@ What counts as a read, in main Java code with comments removed:
                         method a helper): a read, of the kind the call reads, of the name computed from it - but a
                         name computed from a name the call itself derives or computes (a concatenated argument to a
                         helper that computes, such as param(config, "a" + "B")) is a read the scan cannot name.
-                        servlets/ssf's SsfConfiguration.param(config, "x") reads the init-param x,
+                        servlets/ssf's SsfConfiguration.param(config, "x"), before 0.6.0, read the init-param x,
                         System.getProperty("oidf.ssf." + x) and System.getenv("OIDF_SSF_" + camelToUpperSnake(x)), so
-                        param(config, "signingAlgorithm") reads init-param signingAlgorithm, system property
-                        oidf.ssf.signingAlgorithm and env OIDF_SSF_SIGNING_ALGORITHM.
+                        param(config, "signingAlgorithm") read init-param signingAlgorithm, system property
+                        oidf.ssf.signingAlgorithm and env OIDF_SSF_SIGNING_ALGORITHM; it reads through
+                        platform.settings now, and the rule stays for any helper of that shape.
   an extended property  a literal that is "extproperties.<name>" (how PingFederate's OGNL context names a client's
                         extended property) and each element of the lists in EXTENDED_PROPERTY_LISTS (the names a
                         module writes onto a client) - read as extended-property <name>.
@@ -91,9 +92,8 @@ above can tell from any other string.
 A call of a helper that computes a name reads one setting under every name the helper tries, so those names are
 checked as one: they are the sources, in the order the helper tries them, of one catalogue entry (of the reading
 module, when one of them is an init-param). Until 0.6.0 the format's system-property names were lower case, so 42 of
-SsfConfiguration's oidf.ssf.<camelCase> properties could not be catalogued (F-0235); PR-5 allows upper-case letters,
-and until ST5C catalogues them an entry that leaves out such a property still matches, the property counting as
-declared by it, and the scan says how many it matched this way.
+SsfConfiguration's oidf.ssf.<camelCase> properties could not be catalogued (F-0235); PR-5 allowed upper-case letters,
+and ST5C catalogued them and moved SsfConfiguration onto platform.settings, so no entry may leave one out.
 
 The exemption file, tools/settings-scan-exemptions.txt, lists modules the scan does not hold to code-to-catalogue
 yet, one per line under a `# group <name>` comment line for the package that will catalogue them, and a
@@ -1251,38 +1251,19 @@ def scan(root):
             problems.append(f"{kind} {name} is declared by {', '.join(paths)}; a name is catalogued once, by its owner")
 
     # Computed names: one call of a helper that computes names reads one setting, so they are one entry's sources in
-    # the order the helper tries them. A computed name the format cannot hold is left out of that comparison and is
-    # declared by the entry it matched (servlets/ssf's oidf.ssf.<camelCase> system properties - F-0235).
-    unholdable = {}
+    # the order the helper tries them. Until 0.6.0 an entry could leave out an upper-case system property the format
+    # could not hold (servlets/ssf's oidf.ssf.<camelCase> - F-0235); PR-5 allowed them, ST5C catalogued them, and an
+    # entry now names every one.
     for jf, line, text, names in reactor.computed:
         if jf.module in exempt:
             continue
         scoped = any(kind in SCOPED_KINDS for kind, _n in names)
-
-        def matching(sources):
-            return [(c, e) for c in catalogues if not scoped or c.module == jf.module for e in c.entries
-                    if e["kind"] in SOURCE_KINDS and [(s["from"], s["name"]) for s in e["sources"]] == sources]
-
-        # A system property with an upper-case letter (servlets/ssf's oidf.ssf.<camelCase>) could not be catalogued
-        # before PR-5 allowed them; until ST5C catalogues them (F-0235), an entry may still leave one out.
-        camel = [(kind, name) for kind, name in names if kind == "system-property" and name != name.lower()]
-        matches = matching(list(names))
-        left_out = []
-        if not matches and camel:
-            matches = matching([n for n in names if n not in camel])
-            left_out = camel if matches else []
+        matches = [(c, e) for c in catalogues if not scoped or c.module == jf.module for e in c.entries
+                   if e["kind"] in SOURCE_KINDS and [(s["from"], s["name"]) for s in e["sources"]] == list(names)]
         if not matches:
             read = ", ".join(f"{kind} {name}" for kind, name in names)
             problems.append(f"{jf.path}:{line}: {text} reads {read}, in that order, and no catalogue entry"
-                            f"{' of ' + jf.module if scoped else ''} has exactly those sources in that order"
-                            + (f" (with or without {', '.join(n for _k, n in camel)}, which F-0235 leaves uncatalogued"
-                               " until ST5C)" if camel else ""))
-            continue
-        for kind, name in left_out:
-            unholdable.setdefault((kind, name), set()).update(e["name"] for _c, e in matches)
-    if unholdable:
-        notes.append(f"{len(unholdable)} computed upper-case system propert(ies) no entry catalogues yet, matched to their"
-                     " entries by the helper's other names (F-0235; ST5C catalogues them)")
+                            f"{' of ' + jf.module if scoped else ''} has exactly those sources in that order")
     problems.extend(components_table_problems(root, catalogues))
 
     # Code to catalogue.
@@ -1309,8 +1290,7 @@ def scan(root):
             problems.append(f"{jf.path}:{line}: setting {name} is read through platform.settings but no catalogue has"
                             " an entry of that name")
             continue
-        if jf.module in exempt or (kind, name) in NOT_SETTINGS or (kind, name, scope(kind, jf.module)) in declared \
-                or (kind, name) in unholdable:
+        if jf.module in exempt or (kind, name) in NOT_SETTINGS or (kind, name, scope(kind, jf.module)) in declared:
             continue
         key = (kind, name, jf.module)
         if key in seen_missing:

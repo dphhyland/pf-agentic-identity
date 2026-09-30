@@ -3,7 +3,9 @@
  */
 package com.pingidentity.ps.oidf.servlet.ssf;
 
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.signals.SetVerifier;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.SsfReceiverService;
@@ -33,31 +35,36 @@ import org.jose4j.json.JsonUtil;
  * ({@code 401} otherwise).
  *
  * <p>{@code GET} serves a bounded recent-events summary for demos/inspection (same bearer).
- * The receiver is active only when {@code receiverExpectedIssuer} is set; otherwise both methods return 404.
+ * The receiver is active only when {@code receiverExpectedIssuer} is set; otherwise both methods return 404. Each
+ * method starts with the {@code SSF_RECEIVER} part's gate: 503 while the receiver is starting, failed or refused.
  */
-@WebServlet(urlPatterns = {"/ssf/receiver/events"})
+@WebServlet(urlPatterns = {"/ssf/receiver/events"}, loadOnStartup = 2)
 public class SsfReceiverServlet extends HttpServlet {
 
     private static final long serialVersionUID = 1L;
     private static final Log log = LogFactory.getLog(SsfReceiverServlet.class);
 
+    /** This servlet's part of the {@code SSF_RECEIVER} component. */
+    private transient volatile ComponentParts.Part part;
+
+    /**
+     * Registers the {@code SSF_RECEIVER} part at deploy - this servlet loads on start-up, after
+     * {@code SsfConfigurationServlet}, whose transmitter builds the receiver - and says what became of it
+     * ({@link SsfComponents#receiver}). Never throws.
+     */
     @Override
     public void init(ServletConfig config) throws ServletException {
-        var part = Startup.begin(Startup.SSF_RECEIVER, "SsfReceiverServlet");
-        try {
-            super.init(config);
-            // fail-soft: unconfigured SSF disables the endpoints
-            SsfComponents.receiver(part, SsfHttp.bootstrap(config), config);
-        } catch (ServletException | RuntimeException | Error e) {
-            part.failed(e);
-            throw e;
-        } finally {
-            part.finish();
-        }
+        super.init(config);
+        ComponentParts.Part part = Startup.begin(Startup.SSF_RECEIVER, "SsfReceiverServlet");
+        this.part = part;
+        part.start(() -> SsfComponents.receiver(part));
     }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (ComponentGate.servlet(this.part, resp)) {
+            return;
+        }
         SsfReceiverService receiver = SsfSupport.receiverService();
         if (receiver == null) {
             SsfHttp.writeError(resp, 404, "not_found", "SSF receiver is not configured");
@@ -90,6 +97,9 @@ public class SsfReceiverServlet extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (ComponentGate.servlet(this.part, resp)) {
+            return;
+        }
         SsfReceiverService receiver = SsfSupport.receiverService();
         if (receiver == null) {
             SsfHttp.writeError(resp, 404, "not_found", "SSF receiver is not configured");
