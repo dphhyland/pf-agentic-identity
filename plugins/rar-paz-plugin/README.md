@@ -93,6 +93,7 @@ array fields and let every other value through, is gone with its contract test.
 
 | When | What the plugin asks the model | A no, or a question the model cannot answer |
 |---|---|---|
+| `validate`, where the detail arrives | is the detail, markers stripped, one its type's model reads (`ModelGate.conformance`) | `invalid_authorization_details` at once, with the model's reason: at PAR, the authorization endpoint, CIBA's backchannel request, the device authorization endpoint, token exchange and the token endpoint |
 | `enrich`, before the PDP | is the requested detail, markers stripped, one its type's model reads | refused before any PDP call: an unmodelled type, an undeclared field, a value of the wrong shape (a flat `amount` without its `currency`, a negative limit, an empty array), a size limit |
 | `enrich`, after a PERMIT | is the detail the PDP's statements produced within the request (the model's `contains`, the request as the ceiling) | refused: the PDP may narrow a request, never widen it |
 | `isEqualOrSubset` | is the refresh's detail within the detail already granted (`contains`, the grant as the ceiling) | `false`, which PingFederate answers with `invalid_authorization_details` |
@@ -110,11 +111,36 @@ array fields and let every other value through, is gone with its contract test.
   agent - and then stripped before anything is asked; the model declares both forbidden, so a detail that reached
   it with either would be malformed.
 - **Failing open** grants only a detail the model has checked, since the check comes before the PDP call.
-- **Not at `validate`.** PingFederate calls the processor's `validate` at PAR and the authorization endpoint, at
-  CIBA's backchannel request, at the device authorization endpoint and at the token endpoint (`javap`, 13.1.3.0);
-  it still checks only that `type` is there. So a detail the model refuses is refused at the resume or at the
-  token endpoint, not at PAR. On the JWT-bearer grant, which calls `validate` and never `enrich`, the requested
-  details reach the token without the model or the PDP (F-0108).
+- **At `validate`, where the detail arrives.** PingFederate 13.1.3 calls the processor's `validate` at PAR and the
+  authorization endpoint (`AuthorizationRequestSupport.checkAuthorizationDetails`), at CIBA's backchannel request,
+  the device authorization endpoint, token exchange and the token endpoint, and on the JWT-bearer grant
+  (`javap`, 13.1.3.0), each time with a copy of the detail and an empty parameter map, and answers an invalid result
+  with `invalid_authorization_details` and its reason. From 0.6.0 `validate` strips the two markers and asks the
+  model, so a detail that does not conform is refused there - a PAR with an undeclared field fails at PAR, not at
+  the token endpoint after the user has logged in. RFC 9396 section 5 (RFC 9396, May 2023): "The AS MUST refuse to
+  process any unknown authorization details type or authorization details not conforming to the respective type
+  definition." `validate` is a shape check and nothing more: no PDP call, no principal, no attestation-context
+  fingerprint - `enrich` does those where PingFederate calls it. In order it refuses a detail with no `type`, a
+  detail bound to an instance whose `configure` threw, every detail when the models document did not load (the
+  client is told only that the model did not load; the reason is in the SEVERE line), a type the JWT-bearer grant
+  may not carry (below), and a detail the model refuses: an unmodelled type (in development the common-fields model
+  stands in, as it does for `enrich`), an undeclared field, a value of the wrong JSON type, a size limit. The reason
+  names the type and the field, never a value, and each refusal is logged at INFO as
+  `RAR validate: refusing type=<type> flow=<grant or endpoint> path=<path>: <reason>`.
+- **The JWT-bearer grant** (RFC 7523 section 2.1, `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`).
+  PingFederate calls `validate` on it and never `enrich`, so the PDP is never asked there (U-0017, driven on the
+  rig below). A detail of a type this processor holds is refused by `validate` with "authorization_details of this
+  type are not accepted on the JWT-bearer grant" unless "Types allowed on the JWT-bearer grant" lists the type
+  (default: none; F-0108). A listed type passes `validate`'s model check and is issued without a PDP decision.
+  The field refuses, on save and at configure, a type "Types requiring an authenticated principal" lists: no
+  principal can be established on that grant from inside the processor. What PingFederate 13.1.3 does on the grant,
+  read with `javap` and driven on the rig on 2026-09-30: on the plain RFC 7523 profile the token endpoint calls
+  `validate` on the request's `authorization_details` parameter before it looks at the assertion (a forged
+  assertion still reached `validate`), and the token it issues carries none of them (`"authorization_details": []`);
+  on the ID-JAG profile (an assertion whose `typ` is `oauth-id-jag+jwt`) the token endpoint skips the parameter,
+  `JwtGrantProcessor` verifies the assertion's signature and then calls `validate` on the assertion's own
+  `authorization_details` claim (a forged one never reached it), and the token carries those details as they are.
+  So the ID-JAG profile is where a listed type is issued, as the assertion's issuer wrote it.
 - **Types.** `OIDF_RAR_EXTRA_TYPES` still decides which types PingFederate may bind to the processor. A type
   named there without a model is refused in production (`UNMODELLED_TYPE`); with
   `OIDF_DEPLOYMENT_PROFILE=development` the library's common-fields model stands in. A type a models document
@@ -143,8 +169,8 @@ own before it asks the model anything:
   no request: nothing to compare, and the plugin decides as 0.4.0's principal work (PR #29) left it - the PDP is
   asked about the request alone, with no attested ceiling - with the model's checks above.
 
-The filter runs over the token endpoint and PAR. At PAR PingFederate calls only `validate`, which compares
-nothing; at the token endpoint it asks this processor to decide for client credentials and token exchange
+The filter runs over the token endpoint and PAR. At PAR PingFederate calls only `validate`, which holds the
+detail to the model and compares no fingerprint; at the token endpoint it asks this processor to decide for client credentials and token exchange
 (`enrich`) and for a refresh that restates `authorization_details` (`enrich`, then `isEqualOrSubset`). So this
 plugin beside an attestation filter from before 0.4.0 refuses those requests from every attested client, before
 the PDP is asked, with `invalid_authorization_details`: deploy the two from one release.
@@ -396,6 +422,7 @@ fail-open, timeout and the shared-secret header are dialect-independent.
 | AuthZEN batch URL | blank | `authzen` only; https unless development; refused with the governance-engine dialect |
 | Decision cache types / Decision cache TTL (s) | blank / 30 | never `payment_initiation` or a type requiring an authenticated principal; TTL 1-60 |
 | Circuit breaker failures / Circuit breaker open (s) | 5 / 30 | 1-1000 / 1-3600 |
+| Types allowed on the JWT-bearer grant | blank (none) | the types a JWT-bearer token request may carry; any other of this processor's types is refused by `validate` there. A listed type passes `validate`'s model check and is issued without a PDP decision. Never a type requiring an authenticated principal: refused on save and at configure |
 
 A switch missing from a stored configuration - an instance saved before the field existed (a 0.3.0 instance
 has no "Types requiring an authenticated principal"), or an archive written by hand that leaves it out -
@@ -529,8 +556,38 @@ received exactly one request, a `POST /access/v1/evaluations` with three evaluat
 nothing on the single-evaluation path. PingAuthorize's own AuthZEN servlet could not be run: the licence in the
 `paz/` profile expired on 2026-08-12 ([U-0302](../../docs/findings/U-0302.yaml)).
 
-Not verified there: the device flow's user key (U-0066), the JWT-bearer grant (U-0017; `javap` finds no call
-to enrich in `JwtGrantProcessor`), the `subject` recipe on an authentication *policy* contract rather than an
+**`validate` and the JWT-bearer grant on the rig (2026-09-30T06:38-06:50Z, PingFederate 13.1.3.0, this jar at
+0.6.0-SNAPSHOT).** The rig on slot 2 (`PF_RIG_NAME=pfai-p3-s4d2`), configured by `ONLY_CONFIGURE=1
+conformance/verify-rar-principal.sh`, with the probe client given the `EXTENSION` grant and an IdP connection added
+through the admin API for a test JWT issuer (an X.509 verification certificate, and `sub` mapped from the assertion
+to the access token manager). First, before any change, a jar that only logged each `validate` call: a signed plain
+JWT-bearer request with a `payment_initiation` parameter was issued a token whose `authorization_details` was `[]`,
+an ID-JAG assertion carrying the same detail was issued a token carrying it, and each logged one `validate` call and
+no `RAR governance: type=` line (no `enrich`); a forged plain assertion still reached `validate`, a forged ID-JAG one
+did not. Then this jar, with the field empty:
+
+| Request | Answer | Plugin |
+|---|---|---|
+| plain JWT-bearer, `payment_initiation` in the request | 400 `invalid_authorization_details`, "authorization_details of this type are not accepted on the JWT-bearer grant", no token | one `RAR validate: refusing` line; no `enrich`, no PDP call |
+| ID-JAG, `payment_initiation` in the assertion | the same | the same |
+| ID-JAG, `sales_agent` in the assertion | the same | the same |
+| plain JWT-bearer, no `authorization_details` | 200 | nothing asked |
+| PAR, `payment_initiation` with an undeclared `colour` | 400 at PAR: "... does not conform to its type's model (UNDECLARED_FIELD): requested authorization_details[0] carries 'colour', which type 'payment_initiation' does not declare" | refused at PAR |
+| PAR, `amount` a boolean | 400 at PAR, `MALFORMED`: "...amount must be a number or a plain decimal string" | refused at PAR |
+| PAR, a conforming `payment_initiation` | 201 | nothing refused |
+| CIBA backchannel request, `sales_agent` with an undeclared `tier` | 400 at `/as/bc-auth.ciba`, `UNDECLARED_FIELD` | refused there |
+| client credentials, a conforming `sales_agent` | 200, granted | `enrich` and one PDP call, as before |
+| client credentials, `sales_agent` with `tier` | 400 `UNDECLARED_FIELD` | refused by `validate`; no `enrich`, no PDP call |
+
+Saving the instance through the admin API with "Types allowed on the JWT-bearer grant" set to
+`sales_agent,payment_initiation` was refused (422, `plugin_validation_error`, naming `payment_initiation`); with
+`sales_agent` it saved, the configure line read `jwtBearerTypes=[sales_agent]`, an ID-JAG assertion carrying a
+`sales_agent` detail was issued a token carrying it with no `enrich` and no PDP call, one carrying an undeclared
+`tier` was refused with `UNDECLARED_FIELD`, and a plain JWT-bearer request with a `sales_agent` parameter was issued
+a token with `"authorization_details": []`. An instance created before the field existed read it back from the
+admin API as blank after the upgrade. The plugin's lines in `server.log` carry no detail value.
+
+Not verified there: the device flow's user key (U-0066), the `subject` recipe on an authentication *policy* contract rather than an
 adapter mapping (U-0067), and what PingFederate makes of an instance whose `configure` threw (U-0068; the rig
 runs as `development`, where a plaintext URL is allowed).
 

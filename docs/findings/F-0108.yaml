@@ -3,10 +3,25 @@ title: The RAR plugin's validate checks only the type, and the JWT-bearer grant 
 severity: high
 area: rar-paz-plugin
 source: pr-review
-status: open
+status: closed
 plan_items: [S-1, S4d]
 prs: []
-verification: ''
+verification: >
+  Closed 2026-09-30 by package S4D2 (route (a), the plan's recommended default; David has not yet chosen between
+  (a) and (b)). AttestationAwareRarProcessor.validate now strips the two markers and asks the model
+  (ModelGate.conformance): a detail with an unmodelled type (development: the common-fields model), an undeclared
+  field, a wrong JSON type or over the size limits is invalid with the model's reason, so PingFederate answers
+  invalid_authorization_details where it arrives; a models document that did not load, or an instance whose
+  configure threw, is invalid for every detail. On grant_type urn:ietf:params:oauth:grant-type:jwt-bearer a type not
+  listed in the new field "Types allowed on the JWT-bearer grant" (default empty) is invalid with "authorization_details
+  of this type are not accepted on the JWT-bearer grant"; a listed type passes the model check and is issued without a
+  PDP decision, and the field refuses, on save and at configure, a type "Types requiring an authenticated principal"
+  lists. ValidateTest holds each rule. On the rig the same day (slot 2, PingFederate 13.1.3.0, a test IdP connection
+  for a JWT issuer): a signed JWT-bearer request with a payment_initiation detail, in the request (plain RFC 7523) and
+  in an ID-JAG assertion, was answered 400 invalid_authorization_details with that description and no token, with no
+  enrich and no PDP call; a PAR carrying payment_initiation with an undeclared field was refused at PAR with
+  UNDECLARED_FIELD. Before the change the ID-JAG request was issued a token carrying the payment_initiation detail
+  with no enrich and no PDP call.
 target_release: 0.6.0
 notes: >
   Found by S1c's adversarial review on 2026-09-27 (PR #36) and read with javap -c of pf-protocolengine 13.1.3.0 the
@@ -28,3 +43,14 @@ notes: >
   the principal the grant's assertion names. S4d's issuance criterion on context.OAuthAuthorizationDetails would
   also hold what the JWT-bearer grant issues to the attested ceiling, for attested clients only. Until then, do not
   allow the JWT-bearer grant to a client that may send these types.
+  Driven on the rig on 2026-09-30 (S4D2), the grant has two profiles in PingFederate 13.1.3.0, and the bytecode says
+  why (javap -c of pf-protocolengine 13.1.3.0: TokenEndpointRequestHandler.validateParametersAgainstClient and
+  JwtGrantProcessor.processJwtRequestUsingNativeProcessor). Plain RFC 7523: the token endpoint calls validate on the
+  request's authorization_details parameter before the assertion is looked at (a forged assertion still reached
+  validate), and JwtGrantProcessor sets no details, so the token carried "authorization_details": []. ID-JAG (typ
+  oauth-id-jag+jwt): the token endpoint skips the parameter, JwtGrantProcessor verifies the assertion and then calls
+  validate on the assertion's own authorization_details claim (a forged one never reached validate), and the token
+  carried those details as they were - the bypass this finding describes. Route (b), asking the PDP from validate
+  with the assertion's sub as the principal, is therefore safe on the ID-JAG profile only, where PingFederate has
+  verified the assertion first; on the plain profile validate runs before the assertion is verified and its sub
+  cannot be trusted. Not built: it waits for David's choice.

@@ -142,8 +142,17 @@ question goes to the model.
     consent is reused ("bypass authorization for approved consents" on, the client not bypassing the
     approval page), whether the stored details are within the consent, and a no revokes the grant
     (javap, 13.1.3).
-16. **`validate` still checks only `type`.** On the JWT-bearer grant PingFederate calls `validate` and
-    never `enrich`, so those details reach the token without the model or the PDP (F-0108).
+16. **`validate` holds each detail to the model where it arrives, and refuses the plugin's types on the
+    JWT-bearer grant.** PingFederate calls `validate` at PAR, the authorization endpoint, CIBA, device, token
+    exchange and the token endpoint; an undeclared field, a wrong JSON type, an unmodelled type (development:
+    common fields) or a size limit is `invalid_authorization_details` there, with the model's reason and no
+    value; no PDP, no principal. On the JWT-bearer grant PingFederate never calls `enrich` (U-0017, rig
+    2026-09-30), so a type not listed in "Types allowed on the JWT-bearer grant" (default none) is refused
+    with "authorization_details of this type are not accepted on the JWT-bearer grant"; a listed type passes
+    `validate`'s model check and is issued without a PDP decision, and the field refuses a type requiring an
+    authenticated principal (F-0108). Plain RFC 7523: `validate` sees the request's details before the
+    assertion is verified, and PingFederate issues none of them; ID-JAG (`typ` `oauth-id-jag+jwt`): it sees
+    the assertion's own details after the signature is verified, and they are issued as they are.
 17. **One PDP decision per detail per HTTP request, and one call for all of them with a batch URL.**
     PingFederate calls `enrich` once per detail, in order, on the request's thread
     (`AuthorizationDetailsUtil.enrich`, a `List.forEach`; javap, 13.1.3). The memo, a request
