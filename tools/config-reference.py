@@ -14,7 +14,10 @@ loader, so the scan and the reference read the same files the same way. What it 
   docs/configuration/<component>.md   one page per component: a header naming the catalogue it came from, then the
                                       house table (docs/development/style-guide.md#settings) with two more columns,
                                       Setting | Default | What it does | When it's wrong | Profile | Security, in the
-                                      catalogue's order, and the component's removed names when it has any
+                                      catalogue's order, and the component's removed names when it has any; the
+                                      Profile column names the values the class acts on (the catalogue's governed
+                                      member, or the default rule) and the page names the components a violation
+                                      refuses
   docs/configuration/README.md        only the list of components between its GENERATED markers; the rest of the
                                       page is written by hand
   docs/extended-properties.json       every extended-property entry of every catalogue, in module order and then
@@ -196,10 +199,12 @@ def load(root):
     problems += check(catalogues)
     if problems:
         raise Refused(problems)
+    table = scan.components_table(root) or {}
     for c in catalogues:
         # The scan's Catalogue does not keep the families, which a page prints.
         with open(os.path.join(root, c.path), encoding="utf-8") as f:
             c.families = json.load(f)["families"]
+        c.refuses = c.components if c.components is not None else table.get(c.component, [])
     return catalogues
 
 
@@ -267,16 +272,34 @@ def default_cell(entry):
     return out + ("; " + ", ".join(notes) if notes else "")
 
 
-def profile_cell(profile):
+def governed_text(entry):
+    """What the profile class acts on, in words, as platform.settings' Governed describes it; None for any and required."""
+    governed = scan.governed_of(entry)
+    if governed is None:
+        return None
+    form, values = governed
+    if form == "values":
+        return " or ".join(code(v) for v in values)
+    if form == "schemes":
+        return "a " + " or ".join(code(v + "://") for v in values) + " URL"
+    return "any value"
+
+
+def profile_cell(entry):
+    profile = entry["profile"]
+    governed = governed_text(entry)
+    own = "; refuses " + ", ".join(code(c) for c in entry["components"]) if entry.get("components") else ""
     if profile.startswith("accepted-risk:"):
-        return "In production only as accepted risk " + code(profile.partition(":")[2])
-    return PROFILE_LABEL[profile]
+        return "In production only as accepted risk " + code(profile.partition(":")[2]) + ": " + governed + own
+    if governed is not None:
+        return PROFILE_LABEL[profile] + ": " + governed + own
+    return PROFILE_LABEL[profile] + own
 
 
 def row(entry):
     wrong = entry["when_wrong"]
     cells = [setting_cell(entry), default_cell(entry), entry["description"],
-             f"**{EFFECT_LABEL[wrong['effect']]}**: {wrong['detail']}", profile_cell(entry["profile"]),
+             f"**{EFFECT_LABEL[wrong['effect']]}**: {wrong['detail']}", profile_cell(entry),
              "Yes" if entry["security"] else "No"]
     return "| " + " | ".join(cell(c) for c in cells) + " |"
 
@@ -296,6 +319,10 @@ def page(catalogue):
     if catalogue.families:
         lines += ["", "Families: " + ", ".join(code(f) for f in catalogue.families) + ". A name under one of these that no"
                   " catalogue declares is an unknown key."]
+    refuses = getattr(catalogue, "refuses", [])
+    lines += ["", "Under the production profile a violation by one of these settings refuses "
+              + (", ".join(code(c) for c in refuses) if refuses else "no component")
+              + " ([components](../development/settings-catalogue.md#components))."]
     lines += ["", "| Setting | Default | What it does | When it's wrong | Profile | Security |",
               "|---|---|---|---|---|---|"]
     lines += [row(e) for e in catalogue.entries]

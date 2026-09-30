@@ -448,7 +448,7 @@ class BothWaysTest(unittest.TestCase):
         wrong = entry("OIDF_SSF_DATA_STORE_ID", sources=[{"from": "env", "name": "OIDF_SSF_DATA_STORE_ID"}])
         problems = Tree(self).module("servlets/ssf", reads, [catalogue("ssf", "servlets/ssf", "x", [wrong])]).problems()
         text = "\n".join(problems)
-        self.assertIn("leaving out oidf.ssf.dataStoreId, which a catalogue cannot name", text)
+        self.assertIn("(with or without oidf.ssf.dataStoreId, which F-0235 leaves uncatalogued until ST5C)", text)
         self.assertIn("system-property oidf.ssf.dataStoreId is read but no catalogue declares it", text)
         self.assertIn("init-param dataStoreId is read but no catalogue declares it", text)
 
@@ -483,6 +483,106 @@ class BothWaysTest(unittest.TestCase):
         tree = Tree(self).module("libs/a", READS_THING, [])
         tree.write(os.path.join("libs/a", scan.CATALOGUE_DIR, "thing.json"), '{"format": 1, "format": 1}')
         self.assertIn("written twice", tree.problems()[0])
+
+
+class ProfileFormatTest(unittest.TestCase):
+    """PR-5's members: optional, so a catalogue without them passes; governed by the loader's rule; components; the
+    components table; upper-case system properties; removed plugin fields."""
+
+    def problems_of(self, doc):
+        return scan.check_catalogue(doc, "x")
+
+    def test_the_new_members_are_optional_and_checked_when_present(self):
+        self.assertEqual([], self.problems_of(VALID))
+        self.assertEqual([], self.problems_of(dict(VALID, components=["SSF", "GM_API"])))
+        self.assertEqual(["x: the document: components are S-9 component names (SSF_RECEIVER), each once"],
+                         self.problems_of(dict(VALID, components=["ssf"])))
+        self.assertEqual(["x: the document: components are S-9 component names (SSF_RECEIVER), each once"],
+                         self.problems_of(dict(VALID, components=["SSF", "SSF"])))
+        self.assertEqual(["x: members ['extra'] are missing or unknown"], self.problems_of(dict(VALID, extra=1)))
+        one = catalogue("thing", "libs/a", "x", [entry("OIDF_THING", components=["FAPI"])])
+        self.assertEqual([], self.problems_of(one))
+        self.assertEqual(["x: settings[0] (OIDF_THING): an entry's components names at least one"],
+                         self.problems_of(catalogue("thing", "libs/a", "x", [entry("OIDF_THING", components=[])])))
+
+    def test_the_default_governed_rule_and_its_refusals(self):
+        def governed(**over):
+            return scan.governed_of(entry("OIDF_THING", **over))
+        self.assertIsNone(governed())
+        self.assertEqual(("values", ["true"]), governed(type="bool", default=False, profile="forbidden-in-production"))
+        self.assertEqual(("values", ["false"]), governed(type="bool", default=True, profile="accepted-risk:pkce-off"))
+        self.assertEqual(("values", ["any"]), governed(type="choice", default="Known", choices=["known", "any"],
+                                                       profile="accepted-risk:resolve-any"))
+        self.assertEqual(("any", []), governed(profile="forbidden-in-production"))
+        self.assertIsNone(governed(profile="required-in-production"))
+        for bad in (dict(type="choice", default="a", choices=["a", "b", "c"], profile="forbidden-in-production"),
+                    dict(type="int", default=1, min=0, max=9, profile="forbidden-in-production"),
+                    dict(profile="any", governed=["x"]),
+                    dict(type="bool", default=False, profile="forbidden-in-production", governed=["false"]),
+                    dict(type="bool", default=False, profile="forbidden-in-production", governed=["yes"]),
+                    dict(type="bool", default=False, profile="forbidden-in-production", governed=[]),
+                    dict(type="bool", default=False, profile="forbidden-in-production", governed={"schemes": ["x"]}),
+                    dict(profile="forbidden-in-production", governed={"schemes": ["Redis"]}),
+                    dict(profile="forbidden-in-production", governed={"schemes": ["a", "a"]}),
+                    dict(profile="forbidden-in-production", governed={"hosts": ["a"]}),
+                    dict(profile="forbidden-in-production", governed=["x"])):
+            with self.subTest(bad):
+                self.assertRaises(ValueError, lambda: governed(**bad))
+        self.assertEqual(("values", ["log", "disable"]), governed(type="choice", default="refuse",
+                                                                  choices=["refuse", "disable", "log"],
+                                                                  profile="accepted-risk:expiry-log-mode",
+                                                                  governed=["LOG", "disable"]))
+        self.assertEqual(("values", ["true"]), governed(type="bool", default=False, profile="forbidden-in-production",
+                                                        governed=[True]))
+        self.assertEqual(("schemes", ["redis"]), governed(type="secret", security=True, profile="forbidden-in-production",
+                                                          governed={"schemes": ["redis"]}))
+        problems = self.problems_of(catalogue("thing", "libs/a", "x", [entry("OIDF_THING", type="choice", default="a",
+                                                                             choices=["a", "b", "c"],
+                                                                             profile="forbidden-in-production")]))
+        self.assertEqual(["x: settings[0] (OIDF_THING): a choice with a default classed forbidden-in-production says in"
+                          " governed which values the profile acts on"], problems)
+
+    def test_a_system_property_may_carry_upper_case_letters_and_a_plugin_field_may_be_removed(self):
+        flag = entry("jdk.internal.httpclient.disableHostnameVerification", kind="system-property",
+                     profile="forbidden-in-production")
+        gone = {"name": "Old field", "from": "plugin-field", "replacement": None, "release": "0.6.0"}
+        self.assertEqual([], self.problems_of(catalogue("thing", "libs/a", "x", [flag], removed=[gone])))
+        self.assertEqual(["x: removed[0] is {name, from, replacement, release}"],
+                         self.problems_of(catalogue("thing", "libs/a", "x", [flag], removed=[dict(gone, **{"from": "extended-property"})])))
+        reads = {"x/A.java": java('void f() { System.getProperty("jdk.internal.httpclient.disableHostnameVerification"); }')}
+        self.assertEqual(["libs/a/src/main/java/x/A.java:3: system-property jdk.internal.httpclient.disableHostnameVerification"
+                          " is read but no catalogue declares it"], Tree(self).module("libs/a", reads, []).problems(),
+                         "no longer excused: platform's deployment-profile catalogues it (F-0195)")
+        self.assertEqual([], Tree(self).module("libs/a", reads, [catalogue("thing", "libs/a", "x", [flag])]).problems())
+
+    def table(self, rows):
+        return (scan.COMPONENTS_BEGIN + "\n| Catalogue | Components |\n|---|---|\n" + "".join(rows)
+                + scan.COMPONENTS_END + "\n")
+
+    def test_every_catalogue_is_in_the_components_table_or_names_its_own(self):
+        tree = Tree(self).module("libs/a", READS_THING, [VALID])
+        tree.write(scan.COMPONENTS_DOC, "# x\n\n" + self.table(["| `thing` | `FAPI` |\n", "| `gone` | none |\n"]))
+        self.assertEqual(["docs/development/settings-catalogue.md: the components table names gone, which no catalogue is"],
+                         tree.problems())
+        tree.write(scan.COMPONENTS_DOC, self.table([]))
+        self.assertEqual(["libs/a/src/main/resources/META-INF/oidf-settings/thing.json: names no components and is not in the"
+                          " components table of docs/development/settings-catalogue.md; add one or the other"], tree.problems())
+        own = Tree(self).module("libs/a", READS_THING, [dict(VALID, components=["FAPI"])])
+        own.write(scan.COMPONENTS_DOC, self.table(["| `thing` | `fapi` |\n"]))
+        self.assertEqual(["libs/a/src/main/resources/META-INF/oidf-settings/thing.json: names its own components, so its line"
+                          " in the components table of docs/development/settings-catalogue.md goes",
+                          "docs/development/settings-catalogue.md: thing: components are S-9 component names (SSF_RECEIVER),"
+                          " each once"], own.problems())
+        own.write(scan.COMPONENTS_DOC, "no table here")
+        self.assertEqual(["docs/development/settings-catalogue.md has no components table between its markers"], own.problems())
+        own.write(scan.COMPONENTS_DOC, self.table(["| `thing` | `FAPI` |\n", "| `thing` | `FAPI` |\n"]))
+        self.assertEqual(["docs/development/settings-catalogue.md: thing is in the components table twice"], own.problems())
+
+    def test_the_repositorys_table_covers_every_catalogue(self):
+        table = scan.components_table(REPO)
+        self.assertIn("ssf-transmitter", table)
+        self.assertEqual(["SSF", "SSF_RECEIVER"], table["ssf-transmitter"])
+        self.assertEqual([], table["components"], "none")
 
 
 class ExemptionsTest(unittest.TestCase):

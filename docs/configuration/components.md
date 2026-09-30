@@ -4,6 +4,8 @@
 
 The settings of the `components` component of `libs/platform`, read by package `com.pingidentity.ps.oidf.platform.component`: generated from its catalogue, [components.json](../../libs/platform/src/main/resources/META-INF/oidf-settings/components.json), by `tools/config-reference.py`, and checked in CI. [How to read a row](README.md#reading-a-row).
 
+Under the production profile a violation by one of these settings refuses no component ([components](../development/settings-catalogue.md#components)).
+
 | Setting | Default | What it does | When it's wrong | Profile | Security |
 |---|---|---|---|---|---|
 | `OIDF_FEDERATION_ENABLED` | Unset; one of `true`, `false` | Switches on the federation entity: its Entity Configuration, fetch, list, resolve, Trust Mark and historical-keys endpoints, and explicit registration: true or false; unset, inferred from its settings - always in development, and in production only while none of these is set: OIDF_FEDERATION_TRUST_ANCHORS, OIDF_FEDERATION_SUBORDINATES, OIDF_FEDERATION_TRUST_ANCHOR_JWKS, OIDF_FEDERATION_SELF_ANCHOR, OIDF_FEDERATION_TRUST_MARK_TYPES, OIDF_FEDERATION_ENDPOINT_AUTH | **Doesn't start**: Not true or false, unset in production while one of its settings is set, or true without the settings it needs: the component is FAILED_CONFIG and its surfaces answer 503; PingFederate's own endpoints keep serving | Any | Yes |

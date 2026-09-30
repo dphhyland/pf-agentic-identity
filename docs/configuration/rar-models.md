@@ -6,6 +6,8 @@ The settings of the `rar-models` component of `libs/rar-model`, read by package 
 
 Families: `OIDF_RAR_MODELS_`. A name under one of these that no catalogue declares is an unknown key.
 
+Under the production profile a violation by one of these settings refuses `ATTESTATION_AUTH` ([components](../development/settings-catalogue.md#components)).
+
 | Setting | Default | What it does | When it's wrong | Profile | Security |
 |---|---|---|---|---|---|
 | `OIDF_RAR_MODELS_FILE` | Unset; a file path | A file holding the RAR models document (more types, and fields added to the built-in ones), read once per classloader as UTF-8: the one source every classloader reads - the token-endpoint filter, the attester, the OGNL issuance criterion and the RAR plugin each load it once and log its SHA-256 fingerprint - and never a plugin field; the attestation context carries the filter's fingerprint as rar_models_fingerprint, and the plugin refuses a request whose fingerprint is not its own, which keeps the classloaders in step; unset, with OIDF_RAR_MODELS unset too, the built-in models only | **Doesn't start**: A missing or unreadable file, a document the schema refuses, or both OIDF_RAR_MODELS_FILE and OIDF_RAR_MODELS set: MODEL_INVALID, logged naming the setting; the token-endpoint filter does not start, the attester's issuance servlet fails from its first request, and the RAR plugin and the issuance criterion refuse every request they are asked about | Any | Yes |

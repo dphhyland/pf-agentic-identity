@@ -6,6 +6,8 @@ The settings of the `operator-auth` component of `libs/platform-pf`, read by pac
 
 Families: `OIDF_OPERATOR_`. A name under one of these that no catalogue declares is an unknown key.
 
+Under the production profile a violation by one of these settings refuses `OPERATOR_API` ([components](../development/settings-catalogue.md#components)).
+
 | Setting | Default | What it does | When it's wrong | Profile | Security |
 |---|---|---|---|---|---|
 | `OIDF_OPERATOR_AUTH_MODE` | `jwt`; one of `jwt`, `introspection` | How the operator APIs verify a PingFederate access token: jwt, against PingFederate's keys, or introspection, by asking its introspection endpoint (RFC 7662) | **Per request**: Neither jwt nor introspection: every operator request is a 503 | Any | Yes |
@@ -16,6 +18,6 @@ Families: `OIDF_OPERATOR_`. A name under one of these that no catalogue declares
 | `OIDF_OPERATOR_INTROSPECTION_ENDPOINT` | Unset; an http or https URL | PingFederate's introspection endpoint (https://pf.example.com/as/introspect.oauth2), in introspection mode | **Per request**: Unset in introspection mode: every operator request is a 503; unreachable: a 503 | Any | Yes |
 | `OIDF_OPERATOR_INTROSPECTION_CLIENT_ID` | Unset | The client the operator APIs introspect tokens as (client_secret_basic); it needs the Access Token Validation grant | **Per request**: Unset in introspection mode: every operator request is a 503; wrong: PingFederate answers 401 and every operator request is a 503 | Any | Yes |
 | `OIDF_OPERATOR_INTROSPECTION_CLIENT_SECRET` | Unset; a secret, never shown | The introspecting client's secret | **Per request**: Unset in introspection mode: every operator request is a 503; wrong: every operator request is a 503 | Any | Yes |
-| `OIDF_OPERATOR_INSECURE_TLS` | `false` | Trusts any certificate on the JWKS and introspection calls, through platform's InsecureTls; the host name is still checked | **Not checked**: Read strictly: true or false | Not in production | Yes |
+| `OIDF_OPERATOR_INSECURE_TLS` | `false` | Trusts any certificate on the JWKS and introspection calls, through platform's InsecureTls; the host name is still checked | **Not checked**: Read strictly: true or false | Not in production: `true` | Yes |
 | `OIDF_OPERATOR_AUTH_FAILURES_PER_MINUTE` | `10`; a whole number, 1 to 10000 | How many failed authentications one client address may make in a minute before every operator request from it is a 429 until the minute ends | **Per request**: Not a whole number from 1 up: every operator request is a 503 | Any | Yes |
 | `OIDF_OPERATOR_MUTATIONS_PER_MINUTE` | `60`; a whole number, 1 to 100000 | How many changes one operator (the token's subject) may make in a minute before the next is a 429 until the minute ends | **Per request**: Not a whole number from 1 up: every operator request is a 503 | Any | Yes |

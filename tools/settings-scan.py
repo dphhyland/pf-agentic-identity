@@ -25,9 +25,12 @@ src/main/resources/META-INF/oidf-settings/<component>.json in the module that re
                        of its module), whichever modules read it: the component that owns it catalogues it, and
                        the others read it under the same name
   well formed          each catalogue parses, names its own module and component, and has the members and shapes
-                       the loader in platform.settings requires, and an accepted-risk profile names an id that
-                       platform's AcceptedRisk registers (the loader is the full check, run by ST-4's generator and
-                       at run time; this is the part the scan needs to trust the names)
+                       the loader in platform.settings requires - PR-5's optional components and governed members
+                       included, governed by the loader's default rule when absent - and an accepted-risk profile
+                       names an id that platform's AcceptedRisk registers (the loader is the full check, run by
+                       ST-4's generator and at run time; this is the part the scan needs to trust the names)
+  components           every catalogue names its components or has a line in the components table of
+                       docs/development/settings-catalogue.md, and the table names only catalogues (PR-5)
 
 What counts as a read, in main Java code with comments removed:
 
@@ -87,10 +90,10 @@ above can tell from any other string.
 
 A call of a helper that computes a name reads one setting under every name the helper tries, so those names are
 checked as one: they are the sources, in the order the helper tries them, of one catalogue entry (of the reading
-module, when one of them is an init-param). A computed name the format cannot hold is left out of that comparison
-and counts as declared by the entry the rest matched: the format's system-property names are lower case, and 42 of
-SsfConfiguration's oidf.ssf.<camelCase> properties are not (F-0235), so their entries carry the init-param and the
-environment variable, and the scan says how many it matched this way.
+module, when one of them is an init-param). Until 0.6.0 the format's system-property names were lower case, so 42 of
+SsfConfiguration's oidf.ssf.<camelCase> properties could not be catalogued (F-0235); PR-5 allows upper-case letters,
+and until ST5C catalogues them an entry that leaves out such a property still matches, the property counting as
+declared by it, and the scan says how many it matched this way.
 
 The exemption file, tools/settings-scan-exemptions.txt, lists modules the scan does not hold to code-to-catalogue
 yet, one per line under a `# group <name>` comment line for the package that will catalogue them, and a
@@ -119,6 +122,9 @@ import re
 import sys
 
 EXEMPTIONS = "tools/settings-scan-exemptions.txt"
+COMPONENTS_DOC = "docs/development/settings-catalogue.md"
+COMPONENTS_BEGIN = "<!-- components table: tools/settings-scan.py and DefaultComponentsTest read it -->"
+COMPONENTS_END = "<!-- end components table -->"
 ACCEPTED_RISKS = "libs/platform/src/main/java/com/pingidentity/ps/oidf/platform/profile/AcceptedRisk.java"
 STAGE_MODULES = "build/pingfederate/stage-modules.sh"
 CATALOGUE_DIR = "src/main/resources/META-INF/oidf-settings"
@@ -133,9 +139,6 @@ NOT_SETTINGS = {
     ("system-property", "oidf.registration.sweeper.owner"):
         "a JVM-wide latch: RegistrationExpirySweeper sets it so that one sweeper runs per JVM, and reads it back; an"
         " operator never sets it (one who did would stop the sweeper - F-0196)",
-    ("system-property", "jdk.internal.httpclient.disableHostnameVerification"):
-        "the JDK's own flag, which InsecureTls reads to report and PR-2 forbids in production; a catalogue cannot"
-        " declare it, because the format's system-property names are lower case (F-0195)",
 }
 
 # Families of names built from a prefix that are not operator settings, by (kind, prefix) -> why: a read whose
@@ -834,6 +837,7 @@ class Catalogue:
         self.declared_module = doc["module"]
         self.entries = doc["settings"]
         self.removed = doc["removed"]
+        self.components = doc.get("components")
 
     def entry_names(self, entry):
         """[(kind, name)]: what reading `entry` through platform.settings reads - its sources and its aliases', or the
@@ -871,12 +875,18 @@ def file_variant(kind, name):
 ENTRY_MEMBERS = {"name", "kind", "type", "default", "description", "when_wrong", "profile", "security", "sources",
                  "aliases", "file"}
 TOP_MEMBERS = {"format", "component", "module", "package", "families", "settings", "removed"}
+# Optional in format 1 (PR-5), so a catalogue written before them still loads.
+ENTRY_OPTIONAL = {"governed", "components"}
+TOP_OPTIONAL = {"components"}
+COMPONENT_RE = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+SCHEME_RE = re.compile(r"[a-z][a-z0-9+.-]*")
+REMOVED_KINDS = SOURCE_KINDS + ("plugin-field",)
 TYPES = {"bool", "int", "long", "seconds", "millis", "string", "choice", "https-url", "url", "json-object", "words",
          "path", "secret"}
 RANGED = {"int", "long", "seconds", "millis"}
 EFFECTS = {"doesnt-start", "first-request", "per-request", "not-checked"}
 PROFILE_RE = re.compile(r"any|forbidden-in-production|required-in-production|accepted-risk:[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
-NAME_RES = {"env": re.compile(r"[A-Z][A-Z0-9_]*"), "system-property": re.compile(r"[a-z][a-z0-9_-]*(\.[a-z0-9_-]+)*"),
+NAME_RES = {"env": re.compile(r"[A-Z][A-Z0-9_]*"), "system-property": re.compile(r"[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+)*"),
             "init-param": re.compile(r"[A-Za-z][A-Za-z0-9_.-]*")}
 
 
@@ -889,13 +899,68 @@ def no_duplicates(pairs):
     return seen
 
 
+def governed_of(entry):
+    """What the profile class of `entry` acts on, as platform.settings' Governed reads it: ("values", [...]),
+    ("schemes", [...]) or ("any", []) - or None for an entry classed any or required-in-production. Raises ValueError
+    with the loader's reason for an entry the default rule cannot read or whose governed member is wrong."""
+    profile, kind, default = entry["profile"], entry["type"], entry["default"]
+    acts = profile == "forbidden-in-production" or profile.startswith("accepted-risk:")
+    if "governed" not in entry:
+        if not acts:
+            return None
+        if default is None:
+            return ("any", [])
+        if kind == "bool":
+            return ("values", ["false" if str(default).lower() == "true" else "true"])
+        if kind == "choice" and len(entry["choices"]) == 2:
+            spelt = next((c for c in entry["choices"] if c.lower() == str(default).lower()), None)
+            return ("values", [c for c in entry["choices"] if c != spelt][:1])
+        raise ValueError(f"a {kind} with a default classed {profile} says in governed which values the profile acts on")
+    if not acts:
+        raise ValueError(f"governed goes with forbidden-in-production or accepted-risk:<id>, not {profile}")
+    governed = entry["governed"]
+    if isinstance(governed, dict):
+        if set(governed) != {"schemes"} or kind not in ("string", "secret", "url", "https-url"):
+            raise ValueError("governed {\"schemes\": [...]} goes with a string, secret, url or https-url")
+        schemes = governed["schemes"]
+        if not isinstance(schemes, list) or not schemes or len(set(map(str, schemes))) != len(schemes) or \
+                not all(isinstance(x, str) and SCHEME_RE.fullmatch(x) for x in schemes):
+            raise ValueError("governed schemes are lower-case scheme names, at least one, each once")
+        return ("schemes", list(schemes))
+    if not isinstance(governed, list) or not governed or kind not in ("bool", "choice"):
+        raise ValueError("governed values are a list, for a bool or a choice")
+    values = []
+    for value in governed:
+        text = json.dumps(value) if isinstance(value, bool) else value
+        if kind == "bool":
+            spelt = text.lower() if isinstance(text, str) and text.lower() in ("true", "false") else None
+        else:
+            spelt = next((c for c in entry["choices"] if isinstance(text, str) and c.lower() == text.lower()), None)
+        if spelt is None or spelt in values:
+            raise ValueError(f"governed value {value!r} is not a value of this {kind}, or is listed twice")
+        if default is not None and spelt.lower() == str(default).lower():
+            raise ValueError(f"governed value {spelt} is the default")
+        values.append(spelt)
+    return ("values", values)
+
+
+def components_problems(components, at):
+    """A components member: a list of S-9 names, none twice."""
+    if not isinstance(components, list) or len(set(map(str, components))) != len(components) or \
+            not all(isinstance(c, str) and COMPONENT_RE.fullmatch(c) for c in components):
+        return [f"{at}: components are S-9 component names (SSF_RECEIVER), each once"]
+    return []
+
+
 def check_catalogue(doc, where):
     """The shape the scan relies on, as the loader in platform.settings reads it; a list of problems."""
     problems = []
     if not isinstance(doc, dict):
         return [f"{where}: not a JSON object"]
-    if set(doc) != TOP_MEMBERS:
-        return [f"{where}: members {sorted(set(doc) ^ TOP_MEMBERS)} are missing or unknown"]
+    if not TOP_MEMBERS <= set(doc) <= TOP_MEMBERS | TOP_OPTIONAL:
+        return [f"{where}: members {sorted((set(doc) - TOP_OPTIONAL) ^ TOP_MEMBERS)} are missing or unknown"]
+    if "components" in doc:
+        problems.extend(components_problems(doc["components"], f"{where}: the document"))
     if doc["format"] != 1 or isinstance(doc["format"], bool):
         problems.append(f"{where}: format is not 1")
     for member in ("component", "module", "package"):
@@ -912,7 +977,7 @@ def check_catalogue(doc, where):
             problems.append(f"{at}: not an object")
             continue
         at += f" ({entry.get('name')})"
-        extra = set(entry) - ENTRY_MEMBERS - {"min", "max", "choices"}
+        extra = set(entry) - ENTRY_MEMBERS - {"min", "max", "choices"} - ENTRY_OPTIONAL
         missing = ENTRY_MEMBERS - set(entry)
         if extra or missing:
             problems.append(f"{at}: members {sorted(extra | missing)} are unknown or missing")
@@ -932,6 +997,14 @@ def check_catalogue(doc, where):
             problems.append(f"{at}: when_wrong is {{effect, detail}} with a known effect")
         if not isinstance(entry["profile"], str) or not PROFILE_RE.fullmatch(entry["profile"]):
             problems.append(f"{at}: profile {entry['profile']!r}")
+        elif "choices" not in entry or isinstance(entry["choices"], list):
+            try:
+                governed_of(entry)
+            except (ValueError, TypeError, AttributeError) as e:
+                problems.append(f"{at}: {e}")
+        if "components" in entry:
+            problems.extend(components_problems(entry["components"], at) or
+                            ([] if entry["components"] else [f"{at}: an entry's components names at least one"]))
         if not isinstance(entry["security"], bool) or not isinstance(entry["file"], bool):
             problems.append(f"{at}: security and file are true or false")
         if entry["type"] == "bool" and entry["default"] is None:
@@ -960,7 +1033,7 @@ def check_catalogue(doc, where):
                     problems.append(f"{at}: source {source!r} is not {{from, name}} with a name its source can hold")
     for i, gone in enumerate(doc["removed"]):
         if not isinstance(gone, dict) or set(gone) != {"name", "from", "replacement", "release"} or \
-                gone.get("from") not in SOURCE_KINDS:
+                gone.get("from") not in REMOVED_KINDS:
             problems.append(f"{where}: removed[{i}] is {{name, from, replacement, release}}")
     return problems
 
@@ -1009,6 +1082,50 @@ def unregistered_risks(catalogues, ids):
             if risk and risk not in ids:
                 problems.append(f"{catalogue.path}: {entry['name']} names accepted risk {risk}, which {ACCEPTED_RISKS}"
                                 " does not register")
+    return problems
+
+
+def components_table(root):
+    """{catalogue: [components]} from the table in docs/development/settings-catalogue.md, or None without the file;
+    raises ValueError for a table that cannot be read."""
+    path = os.path.join(root, COMPONENTS_DOC)
+    if not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    if COMPONENTS_BEGIN not in text or COMPONENTS_END not in text:
+        raise ValueError(f"{COMPONENTS_DOC} has no components table between its markers")
+    table = {}
+    for line in text.split(COMPONENTS_BEGIN, 1)[1].split(COMPONENTS_END, 1)[0].splitlines():
+        m = re.fullmatch(r"\|\s*`([a-z0-9-]+)`\s*\|(.*)\|", line.strip())
+        if m:
+            if m.group(1) in table:
+                raise ValueError(f"{COMPONENTS_DOC}: {m.group(1)} is in the components table twice")
+            table[m.group(1)] = re.findall(r"`([^`]+)`", m.group(2))
+    return table
+
+
+def components_table_problems(root, catalogues):
+    """Every catalogue is in the components table or names its own components, and the table names only catalogues."""
+    try:
+        table = components_table(root)
+    except ValueError as e:
+        return [str(e)]
+    if table is None:
+        return []
+    problems = []
+    names = {c.component for c in catalogues}
+    for c in catalogues:
+        if c.components is None and c.component not in table:
+            problems.append(f"{c.path}: names no components and is not in the components table of {COMPONENTS_DOC};"
+                            " add one or the other")
+        if c.components is not None and c.component in table:
+            problems.append(f"{c.path}: names its own components, so its line in the components table of {COMPONENTS_DOC}"
+                            " goes")
+    for name, components in table.items():
+        if name not in names:
+            problems.append(f"{COMPONENTS_DOC}: the components table names {name}, which no catalogue is")
+        problems.extend(components_problems(components, f"{COMPONENTS_DOC}: {name}"))
     return problems
 
 
@@ -1122,23 +1239,33 @@ def scan(root):
     for jf, line, text, names in reactor.computed:
         if jf.module in exempt:
             continue
-        holdable = [(kind, name) for kind, name in names if NAME_RES[kind].fullmatch(name)]
-        left_out = [(kind, name) for kind, name in names if not NAME_RES[kind].fullmatch(name)]
         scoped = any(kind in SCOPED_KINDS for kind, _n in names)
-        matches = [(c, e) for c in catalogues if not scoped or c.module == jf.module for e in c.entries
-                   if e["kind"] in SOURCE_KINDS and [(s["from"], s["name"]) for s in e["sources"]] == holdable]
+
+        def matching(sources):
+            return [(c, e) for c in catalogues if not scoped or c.module == jf.module for e in c.entries
+                    if e["kind"] in SOURCE_KINDS and [(s["from"], s["name"]) for s in e["sources"]] == sources]
+
+        # A system property with an upper-case letter (servlets/ssf's oidf.ssf.<camelCase>) could not be catalogued
+        # before PR-5 allowed them; until ST5C catalogues them (F-0235), an entry may still leave one out.
+        camel = [(kind, name) for kind, name in names if kind == "system-property" and name != name.lower()]
+        matches = matching(list(names))
+        left_out = []
+        if not matches and camel:
+            matches = matching([n for n in names if n not in camel])
+            left_out = camel if matches else []
         if not matches:
             read = ", ".join(f"{kind} {name}" for kind, name in names)
             problems.append(f"{jf.path}:{line}: {text} reads {read}, in that order, and no catalogue entry"
                             f"{' of ' + jf.module if scoped else ''} has exactly those sources in that order"
-                            + (f" (leaving out {', '.join(n for _k, n in left_out)}, which a catalogue cannot name)"
-                               if left_out else ""))
+                            + (f" (with or without {', '.join(n for _k, n in camel)}, which F-0235 leaves uncatalogued"
+                               " until ST5C)" if camel else ""))
             continue
         for kind, name in left_out:
             unholdable.setdefault((kind, name), set()).update(e["name"] for _c, e in matches)
     if unholdable:
-        notes.append(f"{len(unholdable)} computed name(s) a catalogue cannot name, matched to their entries by the"
-                     " helper's other names (F-0235)")
+        notes.append(f"{len(unholdable)} computed upper-case system propert(ies) no entry catalogues yet, matched to their"
+                     " entries by the helper's other names (F-0235; ST5C catalogues them)")
+    problems.extend(components_table_problems(root, catalogues))
 
     # Code to catalogue.
     for jf, line, text in unresolved:
