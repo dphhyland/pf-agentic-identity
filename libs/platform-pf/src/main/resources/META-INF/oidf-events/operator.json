@@ -31,7 +31,7 @@
     },
     "status": {
       "pii": "OPERATIONAL",
-      "description": "The HTTP status the request was refused with: 401, 403, 429 or 503."
+      "description": "The HTTP status the request was refused with: 400, 401, 403, 429 or 503."
     }
   },
   "events": {

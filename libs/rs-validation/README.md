@@ -23,7 +23,8 @@ authenticator verifies the operator APIs' tokens through it (plan item S8a); `Re
    `iss` is the issuer, `aud` contains this resource, `exp` has not passed and `nbf`, when present, has (60 s
    leeway by default).
 2. **The sender proves the binding.** The token's `cnf` must carry `jkt`, `x5t#S256` or both; a token with neither
-   is refused, because there is no bearer mode.
+   is refused, because there is no bearer mode - except `allowUnbound()` under the development profile, which lets a
+   token with no `cnf` through under `Authorization: Bearer` (see the builder table below).
    - `cnf.jkt`, under `Authorization: DPoP`: exactly one `DPoP` header, holding a proof that passes oidf-jose's
      `DpopProofValidator` (type `dpop+jwt`, a public `jwk`, the signature, `htm`, `htu` after RFC 3986
      normalisation, `iat` within the window) and whose key's RFC 7638 thumbprint is `jkt`, whose `ath` is this
@@ -178,7 +179,7 @@ Versions come from the repo BOM; depends on `oidf-jose` (for `DpopProofValidator
 `platform` (redis, http, auth, json, profile), jose4j and Jackson; `jakarta.servlet-api` is provided. Every refusal test an RFC
 requires quotes the sentence it enforces, with its `@Requirement` id where the RFC has a declared prefix (RFC 8705
 and RFC 9068 have none yet, F-0227); the refusals that are this library's own policy - the exact `kid`, a shared
-`kid`, the `act` depth cap, no bearer mode, the 503s - say so in their javadoc. The jacoco gate holds the decision methods at 100% line and branch.
+`kid`, the `act` depth cap, no bearer mode outside development, the 503s - say so in their javadoc. The jacoco gate holds the decision methods at 100% line and branch.
 `RedisReplayStoreLiveTest` runs against a real Redis when `OIDF_TEST_REDIS_URL` names one, as CI's java job does.
 
 ## Caveats

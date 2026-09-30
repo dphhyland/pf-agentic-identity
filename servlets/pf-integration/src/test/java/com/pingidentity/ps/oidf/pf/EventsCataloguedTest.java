@@ -36,8 +36,8 @@ import org.junit.jupiter.api.Test;
  * <p>Platform's own {@code Events.event(component, code)} calls are scanned the same way (plan item S8a; Phase 3
  * decision 7, so later packages can emit through platform directly): the component and the code are each a string
  * literal or a {@code static final String} constant of the same file, and the code must be catalogued under that
- * component. A call whose component or code is anything else - a variable, another class's constant - fails the scan,
- * because it cannot be checked.
+ * component. A call whose component or code is anything else - a variable, a method call, another class's constant -
+ * fails the scan, because it cannot be checked, and so do a qualified call and a static import of {@code event}.
  *
  * <p>Code that emits any other way - platform's {@code Events.emit}, {@code Event.builder} or constructor, or the
  * façade's {@code FederationEvent.builder}, constructor or {@code FederationEvents.emit} - is not scanned: nothing
@@ -54,6 +54,14 @@ class EventsCataloguedTest {
     /** Platform's {@code Events.event(component, code)}, not the façade's {@code FederationEvents.event(code)}. */
     private static final Pattern PLATFORM_EVENT = Pattern.compile(
             "(?<![A-Za-z0-9_.])Events\\.event\\(\\s*([^,()]+?)\\s*,\\s*([^,()]+?)\\s*\\)");
+    /**
+     * Any call of platform's {@code Events.event}, qualified or not: each must be one {@link #PLATFORM_EVENT} resolves,
+     * so a call with a computed or qualified argument fails the scan rather than going unchecked.
+     */
+    private static final Pattern ANY_PLATFORM_EVENT = Pattern.compile("(?<![A-Za-z0-9_])Events\\.event\\(");
+    /** A static import of platform's {@code event}, whose bare {@code event(a, b)} calls the scan cannot find. */
+    private static final Pattern STATIC_EVENT_IMPORT = Pattern.compile(
+            "import\\s+static\\s+[A-Za-z0-9_.]*\\bEvents\\.(event|\\*)\\s*;");
     /**
      * Every other way to build or hand over an event: platform's builder and registry, and the façade's builder,
      * constructor and {@code emit}. A main-code file outside the event packages that uses one is not understood by
@@ -168,6 +176,11 @@ class EventsCataloguedTest {
      * constant of the same file, recorded as a {@link Site} like a façade call.
      */
     private static void platformEmitters(String source, String path) {
+        assertTrue(!STATIC_EVENT_IMPORT.matcher(source).find(), path + ": a static import of Events.event - call it"
+                + " as Events.event(component, code) so this scan can check it");
+        assertEquals(count(ANY_PLATFORM_EVENT, source), count(PLATFORM_EVENT, source), path + ": an Events.event call"
+                + " this scan cannot read - the call must be unqualified and its component and code each a string"
+                + " literal or a static final String constant of the same file");
         Matcher call = PLATFORM_EVENT.matcher(source);
         while (call.find()) {
             String where = path + ":" + (source.substring(0, call.start()).split("\n", -1).length);
@@ -187,6 +200,10 @@ class EventsCataloguedTest {
             PLATFORM_SITES.add(where + " " + component + " " + code);
             sites.add(new Site(where, Set.of(code), fields, chain.contains(".audit()"), chain.contains(".failure(")));
         }
+    }
+
+    private static long count(Pattern pattern, String source) {
+        return pattern.matcher(source).results().count();
     }
 
     /** A string literal, or a {@code static final String} constant of {@code source}; null for anything else. */
@@ -238,6 +255,18 @@ class EventsCataloguedTest {
         assertTrue(PLATFORM_EVENT.matcher("Events.event(COMPONENT, CODE)").find());
         assertTrue(!PLATFORM_EVENT.matcher("FederationEvents.event(CODE)").find());
         assertTrue(!PLATFORM_EVENT.matcher("platform.Events.event(A, B)").find(), "a qualified call is not understood");
+        String computed = "Events.event(COMPONENT, codeFor(x)).emit();";
+        assertEquals(1, count(ANY_PLATFORM_EVENT, computed));
+        assertEquals(0, count(PLATFORM_EVENT, computed), "a method-call argument is not resolved, so the counts differ");
+        String qualified = "com.pingidentity.ps.oidf.platform.events.Events.event(\"a\", \"b\").emit();";
+        assertEquals(1, count(ANY_PLATFORM_EVENT, qualified));
+        assertEquals(0, count(PLATFORM_EVENT, qualified), "a qualified call is not resolved, so the counts differ");
+        assertEquals(0, count(ANY_PLATFORM_EVENT, "FederationEvents.event(CODE)"));
+        assertTrue(STATIC_EVENT_IMPORT.matcher("import static com.pingidentity.ps.oidf.platform.events.Events.event;")
+                .find());
+        assertTrue(STATIC_EVENT_IMPORT.matcher("import static com.pingidentity.ps.oidf.platform.events.Events.*;")
+                .find());
+        assertTrue(!STATIC_EVENT_IMPORT.matcher("import com.pingidentity.ps.oidf.platform.events.Events;").find());
     }
 
     @Test

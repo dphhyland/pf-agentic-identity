@@ -148,6 +148,7 @@
                                         <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.isBackendDatabase(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.discoveryHandler(*</include>
                                         <!-- auth (S8a): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.from(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.authenticate(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.authorise(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.decide(*</include>

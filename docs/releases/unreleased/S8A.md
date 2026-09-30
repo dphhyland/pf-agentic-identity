@@ -3,7 +3,8 @@
 ## Changelog
 
 - `OperatorAuthenticator` in libs/platform-pf decides who may use an operator API: a PingFederate-issued access
-  token, verified against PingFederate's JWKS or at its introspection endpoint, whose `iss` is PingFederate's, whose
+  token, verified against PingFederate's JWKS or at its introspection endpoint, whose `iss` is PingFederate's (in
+  introspection mode, when the answer carries one - PingFederate's answer for a reference token has none), whose
   `aud` holds `OIDF_OPERATOR_AUDIENCE`, carrying the route's scope, and in production bound by DPoP (`htu` from
   `OIDF_OPERATOR_BASE_URL`, never the `Host` header) or a client certificate. The actor is the token's `sub`. Each
   decision is an `admin.request.authorised` or `admin.request.refused` event from the new `operator` catalogue.

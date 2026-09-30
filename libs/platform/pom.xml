@@ -488,6 +488,7 @@
                                         <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.startDaemon(*</include>
                                         <!-- auth (S8a): add gate includes below this line -->
                                         <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.introspect(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.formEncode(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.ask(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.parse(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.string(*</include>

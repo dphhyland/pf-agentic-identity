@@ -232,6 +232,64 @@ class OperatorRateLimitTest {
         }
     }
 
+    /**
+     * The assembly puts the DPoP replay store and both limits in Redis when a Redis client is given - the production
+     * replay guarantee across nodes - and in this JVM when none is.
+     */
+    @Test
+    void theAssemblyPutsTheReplayStoreAndBothLimitsInRedisWhenOneIsGiven() throws Exception {
+        RedisClient client = mock(RedisClient.class);
+        for (String prefix : List.of(OperatorAuthenticator.DPOP_NAMESPACE, OperatorAuthenticator.FAILURES_NAMESPACE,
+                OperatorAuthenticator.MUTATIONS_NAMESPACE)) {
+            RedisKeyspace keyspace = mock(RedisKeyspace.class);
+            when(keyspace.prefix()).thenReturn(prefix);
+            when(keyspace.key(anyString())).thenAnswer(call -> prefix + ":" + call.getArgument(0));
+            when(keyspace.countInWindow(anyString(), any())).thenReturn(new WindowCount(1, Duration.ofMinutes(1)));
+            when(client.keyspace(prefix)).thenReturn(keyspace);
+        }
+        when(client.eval(any(), anyList(), anyList())).thenReturn(List.of(0L, 0L));
+        OperatorAuthConfig config = OperatorAuthConfig.from(OperatorFixture.settings(this.f.jwtSettings()),
+                DeploymentProfile.PRODUCTION, com.pingidentity.ps.oidf.platform.profile.AcceptedRisks.none(), true);
+        OperatorAuthenticator a = OperatorAuthenticator.from(config, client, request -> OperatorFixture.ISSUER,
+                this.f.clock);
+        verify(client).keyspace(OperatorAuthenticator.DPOP_NAMESPACE);
+        verify(client).keyspace(OperatorAuthenticator.FAILURES_NAMESPACE);
+        verify(client).keyspace(OperatorAuthenticator.MUTATIONS_NAMESPACE);
+        assertEquals(401, assertInstanceOf(OperatorAuthenticator.Refused.class,
+                this.send(a, OperatorFixture.bearer("not-a-token"), OperatorFixture.READ)).status());
+        verify(client).eval(any(), anyList(), anyList());
+        verify(client.keyspace(OperatorAuthenticator.FAILURES_NAMESPACE)).countInWindow(anyString(), any());
+    }
+
+    /** Each way the assembly can go on its token source and its TLS: a usable or an unusable configuration. */
+    @Test
+    void theAssemblyBuildsTheTokenSourceOnlyForAUsableConfiguration() throws Exception {
+        Map<String, String> jwtNoKeys = this.f.jwtSettings();
+        jwtNoKeys.remove(OperatorAuthConfig.JWKS_URL);
+        Map<String, String> introspectionNoAudience = this.f.introspectionSettings();
+        introspectionNoAudience.remove(OperatorAuthConfig.AUDIENCE);
+        Map<String, String> insecureInProduction = this.f.jwtSettings();
+        insecureInProduction.put(OperatorAuthConfig.INSECURE_TLS, "true");
+        for (Map<String, String> env : List.of(jwtNoKeys, introspectionNoAudience, insecureInProduction)) {
+            OperatorAuthConfig config = OperatorFixture.config(env, DeploymentProfile.PRODUCTION);
+            assertFalse(config.usable());
+            OperatorAuthenticator a = OperatorAuthenticator.from(config, null, request -> OperatorFixture.ISSUER,
+                    this.f.clock);
+            OperatorAuthenticator.Refused r = assertInstanceOf(OperatorAuthenticator.Refused.class,
+                    this.send(a, this.f.dpop(this.f.token("oidf.admin.read"), "GET"), OperatorFixture.READ));
+            assertEquals(503, r.status(), env.toString());
+            assertEquals("not_configured", r.reason());
+        }
+        Map<String, String> insecureInDevelopment = this.f.jwtSettings();
+        insecureInDevelopment.put(OperatorAuthConfig.INSECURE_TLS, "true");
+        OperatorAuthConfig config = OperatorFixture.config(insecureInDevelopment, DeploymentProfile.DEVELOPMENT);
+        assertTrue(config.usable(), String.valueOf(config.problem()));
+        OperatorAuthenticator a = OperatorAuthenticator.from(config, null, request -> OperatorFixture.ISSUER,
+                this.f.clock);
+        assertInstanceOf(OperatorAuthenticator.Authorised.class,
+                this.send(a, this.f.dpop(this.f.token("oidf.admin.read"), "GET"), OperatorFixture.READ));
+    }
+
     /** Two authenticators on one Redis stand in for two nodes: the limits and the proofs are shared. */
     @Test
     void inRedisTheLimitsAndTheProofsAreSharedByEveryNode() throws Exception {

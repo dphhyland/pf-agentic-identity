@@ -72,8 +72,10 @@ In this order; the first that fails decides the answer.
    minute is answered 429 with `Retry-After`, before its token is looked at. Every 400 and 401 below counts one.
 2. **The token.** Exactly one `Authorization` header, scheme `DPoP` or `Bearer`, and no `access_token` in the query.
    In jwt mode the token is a JWS signed by a key in PingFederate's JWKS, with the configured `typ`; in introspection
-   mode PingFederate says it is `active`. Either way `iss` is PingFederate's issuer (for this request's virtual host,
-   through `PfInternals.issuer`), `aud` contains `OIDF_OPERATOR_AUDIENCE`, and `exp` and `nbf` hold.
+   mode PingFederate says it is `active`. In jwt mode `iss` must be PingFederate's issuer (for this request's
+   virtual host, through `PfInternals.issuer`); in introspection mode it is compared when the answer carries one,
+   and may be absent (see [Introspection and the binding](#introspection-and-the-binding)). Either way `aud` contains `OIDF_OPERATOR_AUDIENCE`, and
+   `exp` and `nbf` hold.
 3. **The binding.** A token whose `cnf` has `jkt` needs a DPoP proof, checked by rs-validation and oidf-jose's
    `DpopProofValidator` against RFC 9449's list. The key's thumbprint must equal `cnf.jkt`, `htm` must equal the
    request's method exactly, `htu` must be the base URL plus the path, `ath` must be this token's hash, and the

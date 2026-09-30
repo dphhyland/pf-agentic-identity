@@ -59,8 +59,10 @@ import java.util.regex.Pattern;
  *       credential, and no {@code access_token} in the query. Then rs-validation's {@link DelegatedTokenValidator},
  *       in the configured mode: {@code jwt} verifies the token against PingFederate's JWKS; {@code introspection}
  *       asks PingFederate's introspection endpoint (platform.auth's TokenIntrospector: 1 s to connect, 2.5 s in all).
- *       Either way {@code iss} is PingFederate's issuer for this request ({@link PfInternals#issuer}), {@code aud}
- *       contains {@code OIDF_OPERATOR_AUDIENCE}, and {@code exp} and {@code nbf} hold.</li>
+ *       In jwt mode {@code iss} is PingFederate's issuer for this request ({@link PfInternals#issuer}); in
+ *       introspection mode it is compared when the answer carries one and may be absent (RFC 7662 §2.2 makes it
+ *       optional; PingFederate's answer for a reference token has none). Either way {@code aud} contains
+ *       {@code OIDF_OPERATOR_AUDIENCE}, and {@code exp} and {@code nbf} hold.</li>
  *   <li><b>The binding.</b> A DPoP-bound token needs its proof: RFC 9449 §4.3's checks through oidf-jose's
  *       DpopProofValidator, with {@code htm} the request's method and {@code htu} {@code OIDF_OPERATOR_BASE_URL}
  *       followed by the request's path - never the {@code Host} header - its {@code ath} this token's hash, its key's
