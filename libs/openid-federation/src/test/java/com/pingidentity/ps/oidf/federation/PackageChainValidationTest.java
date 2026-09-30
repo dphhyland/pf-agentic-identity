@@ -3,6 +3,7 @@ package com.pingidentity.ps.oidf.federation;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,7 +12,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
-import org.jose4j.jwt.JwtClaims;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,9 +43,9 @@ class PackageChainValidationTest {
         try (Stream<Path> s = Files.list(dir)) {
             for (Path p : s.filter(x -> x.toString().endsWith(".jwt")).toList()) {
                 String jwt = Files.readString(p).trim();
-                JwtClaims c = JwtCodec.parseUnverifiedClaims(jwt);
-                String iss = c.getIssuer();
-                String sub = c.getSubject();
+                UnverifiedClaims c = JwtCodec.parseUnverifiedClaims(jwt);
+                String iss = c.unverifiedIssuer();
+                String sub = c.unverifiedSubject();
                 allStatements.add(jwt);
                 if (iss.equals(sub)) {
                     entityConfigs.put(iss, jwt);
@@ -58,7 +58,7 @@ class PackageChainValidationTest {
 
     private TrustControllerGateway packageGateway() {
         return new TrustControllerGateway() {
-            @Override public JwtClaims fetchEntityConfiguration() throws Exception {
+            @Override public UnverifiedClaims fetchEntityConfiguration() throws Exception {
                 return JwtCodec.parseUnverifiedClaims(entityConfigs.get(TA));
             }
             @Override public List<String> fetchMembers() {
@@ -76,7 +76,7 @@ class PackageChainValidationTest {
     private TrustChainValidationResult validateLeaf(String leaf) throws Exception {
         // The anchor's keys come from the package's copy of its entity configuration - the package IS
         // the out-of-band distribution here - never from the gateway.
-        Map<String, Object> anchorJwks = Claims.optionalMap(JwtCodec.parseUnverifiedClaims(entityConfigs.get(TA)), "jwks");
+        Map<String, Object> anchorJwks = JwtCodec.parseUnverifiedClaims(entityConfigs.get(TA)).unverifiedMap("jwks");
         TrustChainValidator v = new TrustChainValidator(packageGateway(), TrustAnchor.of(TA, anchorJwks));
         // Fix A: hand it the whole set of signed statements; it selects the leaf and routes to the TA.
         return v.validate(allStatements, leaf, leaf);

@@ -143,7 +143,9 @@ class JwtCodecPolicyTest {
         JwtVerificationException e = assertThrows(JwtVerificationException.class,
                 () -> JwtCodec.verifyAgainstKeys(jwt, List.of(hmac), ISSUER, Set.of(), ENTITY));
 
-        assertEquals(JwtVerificationException.Reason.KEY, e.reason());
+        // Since HJOSE the MAC algorithm is refused before any key is chosen; JwtCodecAlgorithmTest has a token with an
+        // asymmetric alg whose kid names the symmetric key, which is still a KEY refusal.
+        assertEquals(JwtVerificationException.Reason.ALGORITHM, e.reason());
     }
 
     @Test

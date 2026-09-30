@@ -45,7 +45,7 @@ class LocalFirstTrustControllerGatewayTest {
         passThrough.bindTrustAnchors(f.trustAnchors(), Set.of());
         passThrough.bindTrustAnchor(f.trustAnchor(TA), Set.of());
         assertEquals(f.entityConfiguration(TA), passThrough.anchorConfiguration(f.trustAnchor(TA), Set.of(), null));
-        assertEquals(TA, passThrough.fetchEntityConfiguration().getSubject(), "the wrapped gateway's own trust controller");
+        assertEquals(TA, passThrough.fetchEntityConfiguration().unverifiedSubject(), "the wrapped gateway's own trust controller");
         passThrough.evictCachedStatement(TA, LEAF);
         assertEquals(0, passThrough.newPendingWrites().stagedCount());
     }

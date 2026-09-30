@@ -204,7 +204,7 @@ public final class FrontChannelAutoRegistrationFilter implements Filter {
         String clientId = request.getParameter("client_id");
         if ((clientId == null || clientId.isBlank()) && assertion != null && !assertion.isBlank()) {
             try {
-                clientId = JwtCodec.parseUnverifiedClaims(assertion).getSubject();
+                clientId = JwtCodec.parseUnverifiedClaims(assertion).unverifiedSubject();
             } catch (Exception e) {
                 clientId = null;
             }

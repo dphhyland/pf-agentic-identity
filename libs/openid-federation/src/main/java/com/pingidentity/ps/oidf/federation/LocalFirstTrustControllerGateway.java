@@ -3,10 +3,10 @@
  */
 package com.pingidentity.ps.oidf.federation;
 
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import org.jose4j.jwt.JwtClaims;
 
 /**
  * Wraps another gateway so that the statements this deployment issues - its own Entity Configuration, the
@@ -28,7 +28,7 @@ public final class LocalFirstTrustControllerGateway implements TrustControllerGa
     }
 
     @Override
-    public JwtClaims fetchEntityConfiguration() throws Exception {
+    public UnverifiedClaims fetchEntityConfiguration() throws Exception {
         return this.delegate.fetchEntityConfiguration();
     }
 

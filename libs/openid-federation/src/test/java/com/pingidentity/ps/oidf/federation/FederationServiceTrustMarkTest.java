@@ -98,8 +98,10 @@ class FederationServiceTrustMarkTest {
         return spec.sign(RP_KEY, this.clock);
     }
 
+    /** The claims of a JWT the service under test signed, read without checking the signature. */
     private static JwtClaims claims(String jwt) throws Exception {
-        return JwtCodec.parseUnverifiedClaims(jwt);
+        return JwtClaims.parse(new String(java.util.Base64.getUrlDecoder().decode(jwt.split("\\.")[1]),
+                java.nio.charset.StandardCharsets.UTF_8));
     }
 
     private static Map<?, ?> federationEntity(FederationService service) throws Exception {

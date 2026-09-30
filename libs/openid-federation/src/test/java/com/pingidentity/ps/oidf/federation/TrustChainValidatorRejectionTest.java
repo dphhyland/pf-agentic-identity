@@ -236,7 +236,7 @@ class TrustChainValidatorRejectionTest {
         String anchorConfig = statement(anchorKey, ANCHOR, ANCHOR, Map.of("jwks", jwks(anchorKey)));
         String subordinate = statement(anchorKey, ANCHOR, LEAF, Map.of("jwks", jwks(leafKey)));
 
-        assertEquals(LEAF, TrustChainValidator.selectLeafEntityStatement(List.of(subordinate, anchorConfig, leafConfig)).getSubject());
+        assertEquals(LEAF, TrustChainValidator.selectLeafEntityStatement(List.of(subordinate, anchorConfig, leafConfig)).unverifiedSubject());
         assertThrows(IllegalArgumentException.class, () -> TrustChainValidator.selectLeafEntityStatement(List.of()));
         assertThrows(IllegalArgumentException.class, () -> TrustChainValidator.selectLeafEntityStatement(null));
         assertThrows(IllegalArgumentException.class, () -> TrustChainValidator.selectLeafEntityStatement(List.of(subordinate, anchorConfig)));

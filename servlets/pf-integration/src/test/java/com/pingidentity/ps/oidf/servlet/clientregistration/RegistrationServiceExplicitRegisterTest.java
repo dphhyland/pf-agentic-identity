@@ -17,6 +17,7 @@ import com.pingidentity.ps.oidf.federation.TrustChainValidationResult;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
 import com.pingidentity.ps.oidf.federation.ValidationRequest;
 import com.pingidentity.ps.oidf.jose.SigningKeyProvider;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import com.pingidentity.ps.oidf.pf.ClientStore;
 import java.util.HashMap;
 import java.util.List;
@@ -245,13 +246,13 @@ class RegistrationServiceExplicitRegisterTest {
                 .explicitRegister(request(Map.of()), OP_ISSUER);
         ArgumentCaptor<Client> stored = ArgumentCaptor.forClass(Client.class);
         verify(store).add(stored.capture());
-        JwtClaims leaf = com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(chain.get(0));
+        JwtClaims leaf = RegistrationFixtures.claimsOf(chain.get(0));
         return new Registered(rc, stored.getValue(), leaf);
     }
 
     private record Registered(RegisteredClient response, Client stored, JwtClaims leaf) {
         JwtClaims claims() throws Exception {
-            return com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(this.response.signedJwt());
+            return RegistrationFixtures.claimsOf(this.response.signedJwt());
         }
 
         Map<String, Object> header() throws Exception {
@@ -304,7 +305,7 @@ class RegistrationServiceExplicitRegisterTest {
                 com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.ExpiryEnforcement.REFUSE).explicitRegister(request(Map.of()), OP_ISSUER);
 
         assertEquals(List.of(RegistrationFixtures.ANCHOR),
-                com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(rc.signedJwt()).getClaimValue("authority_hints"));
+                com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(rc.signedJwt()).unverifiedClaim("authority_hints"));
     }
 
     @Test

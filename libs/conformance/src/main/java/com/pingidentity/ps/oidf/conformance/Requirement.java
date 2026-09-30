@@ -112,8 +112,8 @@ import java.lang.annotation.Target;
  * divergence, not the spec.
  *
  * <p><b>Never invent a citation.</b> Use the citation the source itself carries, or verify it verbatim
- * first. {@code SdJwt.java} cites a draft by URL and no RFC number for SD-JWT appears anywhere in this
- * repo — an id asserting one would be fabricated. This repo has been bitten by exactly this: see
+ * first. {@code SdJwt.java}, removed in 0.6.0, cited a draft by URL and no RFC number for SD-JWT appeared anywhere in
+ * this repo — an id asserting one would have been fabricated. This repo has been bitten by exactly this: see
  * {@code docs/unverified.md}, whose whole premise is recording what could not be confirmed rather than
  * assuming it.
  *

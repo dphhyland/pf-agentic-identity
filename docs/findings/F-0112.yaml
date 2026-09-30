@@ -3,10 +3,16 @@ title: The bridge signer cannot sign PS256 with an RSA key, so a client that wan
 severity: medium
 area: oidf-jose, pf-integration
 source: pr-review
-status: open
+status: closed
 plan_items: [H-JOSE-2]
-prs: []
-verification: ''
+prs: [93]
+verification: >
+  2026-10-01, branch prod/p3-jose-hardening (PR 93): LocalJwkSigner signs PS256, PS384 and PS512 with an RSA key of
+  2048 bits or more (RSASSA-PSS, MGF1 with the same hash, a salt the hash's length: RFC 7518 §3.5), verified by
+  jose4j with the algorithm pinned (LocalJwkSignerTest, BridgeSignersCheckTest). BridgeSigners.startCheck, started by
+  the attestation filter's start function, builds every configured client's signer then and every ten minutes, and
+  records the clients whose key does not build as a DEGRADED part of ATTESTATION_AUTH (BridgeSigners), naming the
+  clients, never the keys. Unit tests only: a PS256 bridge key was not exercised on a booted PingFederate.
 target_release: 0.6.0
 notes: >
   Found on 2026-09-27 while verifying S4A (PR #34) on a booted PingFederate 13.1.3: LocalJwkSigner maps an RSA

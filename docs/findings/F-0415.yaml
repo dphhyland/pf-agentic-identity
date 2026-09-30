@@ -1,0 +1,29 @@
+id: F-0415
+title: A configured subordinate's keys were asserted in a signed Subordinate Statement without checking its Entity Configuration's signature
+severity: medium
+area: openid-federation
+source: pr-review
+status: closed
+plan_items: [H-JOSE-1]
+prs: [93]
+verification: >
+  2026-10-01, branch prod/p3-jose-hardening (PR 93): FederationService.refreshSubordinateJwks takes a subordinate's
+  jwks and metadata only once its Entity Configuration verifies under one of those keys with
+  VerificationPolicy.entityStatement() (typ, a kid that matches exactly, iat, exp); FederationServiceEndpointsTest's
+  aForeignSubordinateWhoseConfigurationIsNotSignedWithItsOwnKeysIsNotVouchedFor has a configuration naming the
+  subordinate's keys but signed by another answered temporarily_unavailable, and one that verifies vouched for. What
+  this closes is the §3.2 check and proof of possession, not the provenance of the keys: see the notes.
+target_release: 0.6.0
+notes: >
+  Found on 2026-10-01 in the H-JOSE-1 audit of parseUnverifiedClaims call sites, reading main at 6815222e. For a
+  subordinate named in the federation configuration, FederationService fetched its Entity Configuration from the
+  subordinate's well-known URL and cached the jwks claim as parsed, unverified, and fetchSubordinateStatement then
+  signed a Subordinate Statement asserting those keys. OpenID Federation 1.0 §3.2 has an Entity Statement signed with
+  one of its issuer's keys; nothing checked that this one was, so a configuration signed with no key it listed, or
+  not signed with any key at all, or expired, was vouched for as readily as a valid one. A configuration that does
+  not verify under its own jwks is now refused, as a fetch that failed. The check proves only that the configuration's
+  signer holds a key the configuration lists. It does not prove that the keys are the subordinate's: a party that
+  answers at the subordinate's well-known URL - a spoofed or hijacked origin, or a development deployment that
+  allows plaintext - signs its configuration with the key it publishes in it, passes the check, and is vouched for.
+  That trust-on-fetch exposure is F-0012 (open, plan item S-7: subordinate keys pinned in configuration and enrolled
+  out of band), and this finding does not close it.

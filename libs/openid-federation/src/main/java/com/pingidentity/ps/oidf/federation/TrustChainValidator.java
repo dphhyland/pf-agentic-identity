@@ -5,6 +5,7 @@ import com.pingidentity.ps.oidf.jose.Claims;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import com.pingidentity.ps.oidf.jose.VerificationPolicy;
 import com.pingidentity.ps.oidf.platform.events.LogSafe;
 import java.io.IOException;
@@ -22,7 +23,6 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwt.JwtClaims;
-import org.jose4j.jwt.MalformedClaimException;
 
 /**
  * Establishes trust in an Entity by OpenID Federation 1.0 §10: collects the statements linking it to one of
@@ -220,27 +220,27 @@ public final class TrustChainValidator {
      * The leaf of a presented chain: the self-signed statement with {@code authority_hints} whose subject
      * issues nothing else in the chain. Selection only - nothing is verified here.
      */
-    public static JwtClaims selectLeafEntityStatement(List<String> trustChain) throws Exception {
+    public static UnverifiedClaims selectLeafEntityStatement(List<String> trustChain) throws Exception {
         String sub;
         String iss;
         if (trustChain == null || trustChain.isEmpty()) {
             throw new IllegalArgumentException("trust_chain is required");
         }
-        ArrayList<JwtClaims> parsed = new ArrayList<JwtClaims>(trustChain.size());
+        ArrayList<UnverifiedClaims> parsed = new ArrayList<UnverifiedClaims>(trustChain.size());
         HashSet<String> subordinateIssuers = new HashSet<String>();
         for (String jwt : trustChain) {
-            JwtClaims claims = JwtCodec.parseUnverifiedClaims(jwt);
-            iss = Claims.requireNonBlank(claims.getIssuer(), "iss");
-            sub = Claims.requireNonBlank(claims.getSubject(), "sub");
+            UnverifiedClaims claims = JwtCodec.parseUnverifiedClaims(jwt);
+            iss = Claims.requireNonBlank(claims.unverifiedIssuer(), "iss");
+            sub = Claims.requireNonBlank(claims.unverifiedSubject(), "sub");
             parsed.add(claims);
             if (iss.equals(sub)) continue;
             subordinateIssuers.add(iss);
         }
-        JwtClaims found = null;
-        for (JwtClaims claims : parsed) {
+        UnverifiedClaims found = null;
+        for (UnverifiedClaims claims : parsed) {
             List<String> hints;
-            iss = claims.getIssuer();
-            if (!iss.equals(sub = claims.getSubject()) || !claims.hasClaim("authority_hints") || (hints = claims.getStringListClaimValue("authority_hints")) == null || hints.isEmpty() || subordinateIssuers.contains(sub)) continue;
+            iss = claims.unverifiedIssuer();
+            if (!iss.equals(sub = claims.unverifiedSubject()) || !claims.hasUnverifiedClaim("authority_hints") || (hints = claims.unverifiedStringList("authority_hints")).isEmpty() || subordinateIssuers.contains(sub)) continue;
             if (found != null) {
                 throw new IllegalArgumentException("Trust chain contains multiple candidate leaf JWTs (self-signed with authority_hints and not acting as a subordinate issuer)");
             }
@@ -935,13 +935,13 @@ public final class TrustChainValidator {
     private static final class Statement {
         private final String jwt;
         private final Map<String, Object> header;
-        private final JwtClaims claims;
+        private final UnverifiedClaims claims;
         private final String issuer;
         private final String subject;
         private final long iat;
         private final long exp;
 
-        private Statement(String jwt, Map<String, Object> header, JwtClaims claims, String issuer, String subject, long iat, long exp) {
+        private Statement(String jwt, Map<String, Object> header, UnverifiedClaims claims, String issuer, String subject, long iat, long exp) {
             this.jwt = jwt;
             this.header = header;
             this.claims = claims;
@@ -954,13 +954,13 @@ public final class TrustChainValidator {
         static Statement parse(String jwt) {
             try {
                 Map<String, Object> header = JwtCodec.getJwtHeaders(jwt);
-                JwtClaims claims = JwtCodec.parseUnverifiedClaims(jwt);
-                String iss = Claims.requireNonBlank(claims.getIssuer(), "iss");
-                String sub = Claims.requireNonBlank(claims.getSubject(), "sub");
-                long iat = claims.getIssuedAt() == null ? 0L : claims.getIssuedAt().getValue();
-                long exp = claims.getExpirationTime() == null ? 0L : claims.getExpirationTime().getValue();
+                UnverifiedClaims claims = JwtCodec.parseUnverifiedClaims(jwt);
+                String iss = Claims.requireNonBlank(claims.unverifiedIssuer(), "iss");
+                String sub = Claims.requireNonBlank(claims.unverifiedSubject(), "sub");
+                long iat = numericDate(claims, "iat");
+                long exp = numericDate(claims, "exp");
                 return new Statement(jwt, header, claims, iss, sub, iat, exp);
-            } catch (MalformedClaimException | IllegalArgumentException e) {
+            } catch (IllegalArgumentException e) {
                 throw new TrustChainValidationException(Kind.SYNTAX, null, null,
                         "a statement in the trust chain is not a well-formed Entity Statement");
             } catch (Exception e) {
@@ -969,12 +969,21 @@ public final class TrustChainValidator {
             }
         }
 
+        /** A time claim in seconds, 0 when absent; one that is present and not a number is not well formed. */
+        private static long numericDate(UnverifiedClaims claims, String name) {
+            Long value = claims.unverifiedNumericDate(name);
+            if (value == null && claims.hasUnverifiedClaim(name)) {
+                throw new IllegalArgumentException(name);
+            }
+            return value == null ? 0L : value;
+        }
+
         boolean isConfiguration() {
             return EntityId.same(this.issuer, this.subject);
         }
 
         List<String> authorityHints() {
-            Object hints = this.claims.getClaimValue("authority_hints");
+            Object hints = this.claims.unverifiedClaim("authority_hints");
             List<String> out = new ArrayList<>();
             if (hints instanceof List<?> list) {
                 for (Object hint : list) {
@@ -996,7 +1005,7 @@ public final class TrustChainValidator {
         }
 
         Map<String, Object> jwks() {
-            return Claims.optionalMap(this.claims, "jwks");
+            return this.claims.unverifiedMap("jwks");
         }
     }
 }

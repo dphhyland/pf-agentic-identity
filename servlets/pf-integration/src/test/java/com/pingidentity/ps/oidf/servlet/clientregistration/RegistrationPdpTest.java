@@ -19,6 +19,7 @@ import com.pingidentity.ps.oidf.federation.testkit.Federation;
 import com.pingidentity.ps.oidf.federation.testkit.MutableClock;
 import com.pingidentity.ps.oidf.jose.HttpPostClient;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import com.pingidentity.ps.oidf.pf.FederationPolicySupport;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.AutoRegistrationSettings;
@@ -35,7 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.jose4j.json.JsonUtil;
-import org.jose4j.jwt.JwtClaims;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -189,12 +189,12 @@ class RegistrationPdpTest {
         RegisteredClient registered = service.explicitRegister(new ExplicitRegistrationRequest(AGENT, AGENT, this.federation.chain(AGENT, TA),
                 Map.of()), OP);
 
-        JwtClaims response = JwtCodec.parseUnverifiedClaims(registered.signedJwt());
-        Map<?, ?> metadata = (Map<?, ?>) ((Map<?, ?>) response.getClaimValue("metadata")).get("oauth_client");
+        UnverifiedClaims response = JwtCodec.parseUnverifiedClaims(registered.signedJwt());
+        Map<?, ?> metadata = (Map<?, ?>) ((Map<?, ?>) response.unverifiedClaim("metadata")).get("oauth_client");
         assertEquals("read", metadata.get("scope"));
         assertEquals(List.of(TOKEN_EXCHANGE), metadata.get("grant_types"));
         assertEquals(List.of("code"), metadata.get("response_types"));
-        assertEquals(this.clock.epochSecond() + 900L, response.getExpirationTime().getValue(), "exp is the registration's end (§12.2.3)");
+        assertEquals(this.clock.epochSecond() + 900L, response.unverifiedNumericDate("exp"), "exp is the registration's end (§12.2.3)");
         assertEquals(List.of("read"), this.store.get(AGENT).getRestrictedScopes());
         assertEquals(DecisionPoint.EXPLICIT_REGISTRATION, this.asked.get(0).point());
         assertEquals("registration", this.asked.get(0).actionProperties().get("endpoint"));

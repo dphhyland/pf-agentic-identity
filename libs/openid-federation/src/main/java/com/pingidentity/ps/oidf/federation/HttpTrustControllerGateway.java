@@ -2,6 +2,7 @@ package com.pingidentity.ps.oidf.federation;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -12,7 +13,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.jose4j.jwt.JwtClaims;
 import com.pingidentity.ps.oidf.jose.HttpGetClient;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import com.pingidentity.ps.oidf.jose.Claims;
@@ -80,7 +80,7 @@ implements TrustControllerGateway {
     }
 
     @Override
-    public JwtClaims fetchEntityConfiguration() throws Exception {
+    public UnverifiedClaims fetchEntityConfiguration() throws Exception {
         String url = this.trustControllerBaseUrl + "/.well-known/openid-federation";
         String jwt = this.http.get(url, ENTITY_STATEMENT_ACCEPT);
         EntityStatementType.require(jwt, "from " + url);
@@ -226,7 +226,7 @@ implements TrustControllerGateway {
      * <p>Any other authority's Entity Configuration is only a directory entry here. What it points at
      * is a Subordinate Statement that the chain verifies against the keys its own superior asserts.
      */
-    private JwtClaims authorityConfiguration(String authorityIssuer, SubordinateStatementCache.PendingWrites pendingWrites,
+    private UnverifiedClaims authorityConfiguration(String authorityIssuer, SubordinateStatementCache.PendingWrites pendingWrites,
             ResolutionBudget budget) throws Exception {
         Binding binding = this.anchors.get(EntityId.comparable(authorityIssuer));
         if (binding == null) {
@@ -276,12 +276,12 @@ implements TrustControllerGateway {
     }
 
     @Override
-    public JwtClaims fetchEntityConfigurationOf(String issuer, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
+    public UnverifiedClaims fetchEntityConfigurationOf(String issuer, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
         return this.configurationOf(issuer, pendingWrites, ownBudget());
     }
 
     /** An Entity Configuration, a request of {@code budget} when it goes to the network. */
-    private JwtClaims configurationOf(String issuer, SubordinateStatementCache.PendingWrites pendingWrites, ResolutionBudget budget)
+    private UnverifiedClaims configurationOf(String issuer, SubordinateStatementCache.PendingWrites pendingWrites, ResolutionBudget budget)
             throws Exception {
         // Its federation_fetch_endpoint decides where subordinate statements are requested from, so an
         // untyped configuration is refused here (OpenID Federation 1.0 §3), not only once it is in a chain.
@@ -320,7 +320,7 @@ implements TrustControllerGateway {
     private String subordinateStatement(String authorityIssuer, String subject, long maxAgeFromIatSeconds,
             SubordinateStatementCache.PendingWrites pendingWrites, ResolutionBudget budget, boolean paid) throws Exception {
         String endpoint;
-        JwtClaims authorityConfig;
+        UnverifiedClaims authorityConfig;
         Map<String, Object> federationEntity;
         Object endpointValue;
         Objects.requireNonNull(authorityIssuer, "authorityIssuer");
@@ -342,7 +342,7 @@ implements TrustControllerGateway {
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug(String.format("fetchSubordinateStatement-cache-not-found: issuer(%s) subject(%s)", authorityIssuer, subject));
         }
-        if (!((endpointValue = (federationEntity = Claims.optionalNestedMap(Claims.optionalMap(authorityConfig = this.authorityConfiguration(authorityIssuer, pendingWrites, budget), "metadata"), "federation_entity")).get("federation_fetch_endpoint")) instanceof String) || ((String)endpointValue).isBlank()) {
+        if (!((endpointValue = (federationEntity = Claims.optionalNestedMap((authorityConfig = this.authorityConfiguration(authorityIssuer, pendingWrites, budget)).unverifiedMap("metadata"), "federation_entity")).get("federation_fetch_endpoint")) instanceof String) || ((String)endpointValue).isBlank()) {
             throw new IllegalStateException("Authority " + authorityIssuer + " does not publish a federation_fetch_endpoint and cannot resolve subordinate statements");
         }
         endpoint = (String)endpointValue;
@@ -385,43 +385,19 @@ implements TrustControllerGateway {
     }
 
     private static Long tryExtractExpEpochSeconds(String jwt) {
-        JwtClaims claims;
-        block3: {
-            try {
-                claims = JwtCodec.parseUnverifiedClaims(jwt);
-                if (claims.hasClaim("exp")) break block3;
-                return null;
-            }
-            catch (Exception e) {
-                LOGGER.debug("Failed to parse exp claim from subordinate statement; will not cache: " + e.getMessage());
-                return null;
-            }
-        }
         try {
-            return claims.getExpirationTime().getValue();
-        }
-        catch (org.jose4j.jwt.MalformedClaimException e) {
+            return JwtCodec.parseUnverifiedClaims(jwt).unverifiedNumericDate("exp");
+        } catch (Exception e) {
+            LOGGER.debug("Failed to parse exp claim from subordinate statement; will not cache: " + e.getMessage());
             return null;
         }
     }
 
     private static Long tryExtractIatEpochSeconds(String jwt) {
-        JwtClaims claims;
-        block3: {
-            try {
-                claims = JwtCodec.parseUnverifiedClaims(jwt);
-                if (claims.hasClaim("iat")) break block3;
-                return null;
-            }
-            catch (Exception e) {
-                LOGGER.debug("Failed to parse iat claim from subordinate statement; will cache without age bound: " + e.getMessage());
-                return null;
-            }
-        }
         try {
-            return claims.getIssuedAt().getValue();
-        }
-        catch (org.jose4j.jwt.MalformedClaimException e) {
+            return JwtCodec.parseUnverifiedClaims(jwt).unverifiedNumericDate("iat");
+        } catch (Exception e) {
+            LOGGER.debug("Failed to parse iat claim from subordinate statement; will cache without age bound: " + e.getMessage());
             return null;
         }
     }
