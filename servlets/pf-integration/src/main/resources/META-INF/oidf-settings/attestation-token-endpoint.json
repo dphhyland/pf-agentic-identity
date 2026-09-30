@@ -39,7 +39,7 @@
       "kind": "system-property",
       "type": "words",
       "default": null,
-      "description": "The top-level claims every client attestation must carry, comma-separated, for a client whose attestation_required_claims names none. The image set workload until 0.6.0; set OIDF_ATTESTATION_REQUIRED_CLAIMS=workload to keep that",
+      "description": "The top-level claims every client attestation must carry, comma-separated, at the token-endpoint filter and the OGNL criterion alike (until 0.6.0 only the criterion read it); a client's attestation_required_claims adds to them. The image set workload until 0.6.0; set OIDF_ATTESTATION_REQUIRED_CLAIMS=workload to keep that",
       "when_wrong": {"effect": "not-checked", "detail": "Read as given; a claim no attester sends refuses every such client"},
       "profile": "any",
       "security": true,
