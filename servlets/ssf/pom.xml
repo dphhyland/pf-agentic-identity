@@ -211,9 +211,10 @@
                                         <include>com.pingidentity.ps.oidf.ssf.AuditEventMapper.map(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.ssf.SsfAuditLogSource.attachTo(*</include>
 
-                                        <!-- SCIM subject lifecycle: which stream a subject is added to or removed from. -->
-                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.assign(*</include>
-                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.deprovision(*</include>
+                                        <!-- SCIM subject lifecycle: which stream a subject is added to or removed from.
+                                             assign and deprovision became apply and deactivate in 0.6.0 (H-SSF-4). -->
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.apply(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.deactivate(*</include>
 
                                         <!-- What the transmitter will sign, and for whom. provisions() is who may have an
                                              account-disabled raised (SCIM - never a receiver); mayAddress() and
@@ -263,8 +264,6 @@
                                         <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.replace(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.patch(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.delete(*</include>
-                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.deactivate(*</include>
-                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.requireProvisioner(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.subjectOf(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.ScimFilter.parse(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.ScimFilter.matches(*</include>

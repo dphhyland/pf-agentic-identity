@@ -245,6 +245,11 @@ class ScimSubjectServiceTest {
 
         svc.patch(ALICE, patch(op("replace", "active", true)), PROVISIONER);
         assertEquals(2, events("risc").size(), "already active: nothing raised again");
+
+        svc.patch(ALICE, patch(op("replace", "active", false)), PROVISIONER);
+        svc.patch(ALICE, patch(op("replace", "userName", "renamed")), PROVISIONER);
+        assertEquals(3, events("risc").size(), "a change to an inactive user raises nothing");
+        assertEquals(List.of("risc"), store.getScimUser(ALICE).orElseThrow().restoreStreams(), "and keeps what it restores");
     }
 
     @Test
