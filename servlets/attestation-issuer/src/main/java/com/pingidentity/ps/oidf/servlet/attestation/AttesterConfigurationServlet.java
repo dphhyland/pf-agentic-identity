@@ -156,7 +156,8 @@ public class AttesterConfigurationServlet extends HttpServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         applyCors(req, resp, this.corsOrigins);
         resp.setContentType("application/json");
-        Map<String, Object> doc = metadata(baseUrl(req), this.challengeRequired, AgentRegistrySupport.isConfigured());
+        String issuer = opIssuer(req);
+        Map<String, Object> doc = metadata(baseUrl(req), this.challengeRequired, AgentRegistrySupport.isConfigured(), issuer);
 
         // The /.well-known document is a static, cacheable, deployment-wide resource — it takes no
         // parameters (per RFC 8615, a well-known URI is a fixed resource). It advertises the deployment
@@ -176,9 +177,8 @@ public class AttesterConfigurationServlet extends HttpServlet {
             // The audience the workload must set in its token-endpoint PoP: PF's configured OP issuer,
             // which is stable regardless of how the request was routed (the "aud trap" — the dialed URL
             // can differ from the issuer behind a proxy). Advertised so the SDK does not have to guess it.
-            String popAudience = opIssuer(req);
-            if (popAudience != null) {
-                doc.put("pop_audience", popAudience);
+            if (issuer != null) {
+                doc.put("pop_audience", issuer);
             }
             resp.setHeader("Cache-Control", "public, max-age=300");
             write(resp, 200, doc);
@@ -213,8 +213,16 @@ public class AttesterConfigurationServlet extends HttpServlet {
         resp.setStatus(204);
     }
 
-    /** The deployment-wide document: endpoints, evidence formats, and proof requirements. */
+    /** The deployment-wide document without the authorization server's pointers, for a deployment whose issuer is not known. */
     static Map<String, Object> metadata(String baseUrl, boolean challengeRequired, boolean agentIdSupported) {
+        return metadata(baseUrl, challengeRequired, agentIdSupported, null);
+    }
+
+    /**
+     * The deployment-wide document: endpoints, evidence formats, and proof requirements, and - when {@code asIssuer}, the
+     * authorization server's issuer, is known - where that server's metadata is (F-0118).
+     */
+    static Map<String, Object> metadata(String baseUrl, boolean challengeRequired, boolean agentIdSupported, String asIssuer) {
         List<String> algorithms = sortedAlgorithms(ClientAttestationConfig.DEFAULT_ASYMMETRIC_ALGORITHMS);
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("attestation_endpoint", baseUrl + "/federation/attestation");
@@ -224,9 +232,20 @@ public class AttesterConfigurationServlet extends HttpServlet {
         m.put("challenge_endpoint", baseUrl + AttestationIssuanceChallengeServlet.PATH);
         // The PF token endpoint that accepts the minted attestation as client authentication
         // (attest_jwt_client_auth, via ClientAttestationAuthFilter): a client SDK finds it from the PF host alone.
-        // No challenge for its PoP: challenge_endpoint is the attester's, which the token endpoint refuses (F-0118).
+        // Its PoP's challenge is not the one above: it comes from the authorization server's challenge_endpoint, which
+        // the document at authorization_server_metadata names (F-0118).
         m.put("token_endpoint", baseUrl + "/as/token.oauth2");
         m.put("token_endpoint_auth_methods_supported", TOKEN_ENDPOINT_AUTH_METHODS);
+        String asMetadata = authorizationServerMetadata(asIssuer);
+        if (asMetadata != null) {
+            // RFC 9728 §2's member: "JSON array containing a list of OAuth authorization server issuer identifiers, as
+            // defined in [RFC8414]" - the identifier RFC 8414 §3.3 has the client compare with the issuer the metadata
+            // names ("If these values are not identical, the data contained in the response MUST NOT be used").
+            m.put("authorization_servers", List.of(asIssuer));
+            // And its RFC 8414 §3 location, named as RFC 9728 §5.1 names a protected resource's ("resource_metadata: The
+            // URL of the protected resource metadata"): the document whose challenge_endpoint the token endpoint accepts.
+            m.put("authorization_server_metadata", asMetadata);
+        }
         // The per-client issuance view (issuer, evidence_audience, RAR types) — a separate endpoint that
         // takes ?client_id, keeping this /.well-known document a static, parameterless, cacheable resource.
         m.put("client_configuration_endpoint", baseUrl + "/federation/attester-configuration");
@@ -281,6 +300,31 @@ public class AttesterConfigurationServlet extends HttpServlet {
                 out.add((String) type);
             }
         }
+    }
+
+    /**
+     * RFC 8414 §3's metadata URL for {@code issuer}: "/.well-known/oauth-authorization-server" inserted "between the host
+     * component and the path component, if any", after "any terminating "/"" is removed. Null for no issuer, or one that
+     * is not an absolute URL without a query or fragment (RFC 8414 §2).
+     */
+    static String authorizationServerMetadata(String issuer) {
+        if (issuer == null) {
+            return null;
+        }
+        java.net.URI uri;
+        try {
+            uri = new java.net.URI(issuer);
+        } catch (java.net.URISyntaxException e) {
+            return null;
+        }
+        if (uri.getScheme() == null || uri.getRawAuthority() == null || uri.getRawQuery() != null || uri.getRawFragment() != null) {
+            return null;
+        }
+        String path = uri.getRawPath();
+        if (path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
+        return uri.getScheme() + "://" + uri.getRawAuthority() + "/.well-known/oauth-authorization-server" + path;
     }
 
     /**
