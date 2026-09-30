@@ -14,7 +14,8 @@
   route's signatures have verified: a policy that does not parse now fails the chain after the signature check, never
   before it (H-FED-8).
 - `TrustMarkIssuer.marked` reads a type's standing grants in one query; a hosted entity's signed Entity Configuration is
-  kept for the first quarter of its hour and dropped when the entity or its Trust Marks change; the resolve endpoint
+  kept for the first quarter of its hour - or of the time until the first Trust Mark it carries expires, if that is
+  sooner - and dropped when the entity or its Trust Marks change; the resolve endpoint
   answers each caller address about a capped number of distinct subjects a minute and keeps its responses for up to
   60 s; AuthZEN discovery is read again every ten minutes (H-FED-9, F-0051). Two settings join the
   `federation-resolution` catalogue: `OIDF_FEDERATION_RESOLUTION_RESOLVE_SUBJECTS_PER_MINUTE` (30) and
@@ -32,7 +33,9 @@
    concurrently, or retries on a timeout, will now see 409 where it saw 200; the audit trail
    (`/federation/admin/entities/audit`, `/trust-marks/audit`) shows only the change that applied. What to change: on
    409, read the entity, grant or key again (`GET /federation/admin/entities?entity_id=`, `/trust-marks?sub=`, `/keys`)
-   and decide whether the change is still wanted before sending it again. Repeating a change that has already applied
+   and decide whether the change is still wanted before sending it again. A Trust Mark grant reads the grant itself
+   when it runs, so it conflicts only with a change committed while it runs: a grant that arrives after another
+   operator's revocation has committed reinstates the mark, as before. Repeating a change that has already applied
    - revoking a revoked entity, grant or key - is still answered 200 and changes nothing, as before. There is no
    development-profile escape: the conditional write is how the store settles a race, whatever the profile.
 
@@ -40,7 +43,7 @@
    about at most `OIDF_FEDERATION_RESOLUTION_RESOLVE_SUBJECTS_PER_MINUTE` distinct subjects in any minute (30 by
    default, 1 to 10000). A request about one more subject is answered `503` with `{"error": "temporarily_unavailable"}`
    and a `Retry-After` header giving the seconds until the caller's oldest subject leaves the minute; asking again about
-   a subject already counted is not counted again. It also keeps each resolve response for
+   a subject already counted is not counted again, even with other trust anchors or entity types (F-0383). It also keeps each resolve response for
    `OIDF_FEDERATION_RESOLUTION_RESOLVE_CACHE_SECONDS` (60 by default, 0 to 60, 0 keeping none) or until the response's
    own `exp`, whichever is sooner, and answers the same request - subject, trust anchors, entity types and the client
    it is addressed to - from it. Why: OpenID Federation 1.0 §18.1 names the resolve endpoint first among the interfaces
@@ -54,6 +57,20 @@
    is seen by the resolve endpoint up to the cache time later; set `OIDF_FEDERATION_RESOLUTION_RESOLVE_CACHE_SECONDS=0`
    where that matters more than the load. There is no development-profile escape: the cap is a setting, the same in
    every profile, and a rig or test that needs more raises it.
+
+3. **A Trust Mark revoked on another node stays in this node's hosted configurations for up to 15 minutes.** From 0.6.0
+   the Entity Configuration a node signs for an authority-signed hosted entity is kept in that node's memory for the
+   first quarter of its hour (or of the time until the first Trust Mark it carries expires, if sooner). A change to the
+   entity itself is seen by every node at once, and the node that grants or revokes a Trust Mark drops its copy at once;
+   another node keeps serving the configuration it signed, with the revoked mark in `trust_marks`, until its copy is
+   due for renewal - fifteen minutes at most. Why: signing on every request cost a signature each time, and a
+   round trip to OpenBao for an OpenBao-held key (plan item H-FED-9). How to tell: you run more than one node behind
+   one address and rely on a Trust Mark revocation removing the mark from `/federation/entity?sub=<hosted entity>` at
+   once; the mark's own `/federation/trust_mark_status` answer is not cached and reflects the revocation at once. What
+   to change: nothing, if a relying party that must honour a revocation at once checks the mark's status; otherwise
+   send the revocation to every node, or accept the lag. The resolve endpoint's own cache (see
+   **`/federation/resolve` is rate-limited per caller**) adds up to its cache time on top. There is no
+   development-profile escape: the cache is the same in every profile, and has no setting.
 
 ## Notes
 
@@ -77,7 +94,9 @@
 - **The configuration cache.** A hosted entity's signed Entity Configuration (lifetime one hour) is served from memory
   while more than three quarters of its lifetime remains, for the exact registry record it was built from. This node's
   changes to the entity, and its Trust Mark grants and revocations to it, drop it at once; another node's changes to
-  the entity are seen at once (the record read differs), and its Trust Mark changes within 15 minutes.
+  the entity are seen at once (the record read differs), and its Trust Mark changes within 15 minutes. The lifetime
+  counted ends at the earlier of the configuration's `exp` and that of the first Trust Mark it carries to expire, so a
+  configuration carrying a five-minute mark is renewed after 75 seconds and never serves a mark past its `exp`.
 - **Listing a hosted-only Trust Mark type.** `marked` reads the grants in one query; for a type issued to hosted entities
   only, each subject returned is still checked against the hosted-entity registry one at a time, because the check is
   wired as a per-entity predicate where the federation servlet starts (F-0381).

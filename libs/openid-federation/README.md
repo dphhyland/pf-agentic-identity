@@ -123,7 +123,8 @@ Entities that have already been evaluated". Two settings of the `federation-reso
 - **`OIDF_FEDERATION_RESOLUTION_RESOLVE_SUBJECTS_PER_MINUTE`** (30): one caller address is answered about at most this
   many distinct subjects in any minute. One more is `503 temporarily_unavailable` (§8.9: "unable to handle the request
   due to temporary overloading") with a `Retry-After` of the seconds until its oldest subject leaves the minute; a
-  subject already counted costs nothing more. The address is the connection's (`getRemoteAddr()`), so every client
+  subject already counted costs nothing more - even asked with other trust anchors or entity types, each of which
+  misses the cache and resolves again, so the cap bounds distinct subjects, not resolutions (F-0383). The address is the connection's (`getRemoteAddr()`), so every client
   behind one proxy shares one minute.
 - **`OIDF_FEDERATION_RESOLUTION_RESOLVE_CACHE_SECONDS`** (60, at most 60; 0 keeps none): a resolve response is kept this
   long, or until its own `exp` if that is sooner, and answers the same request - subject, trust anchors, entity types
@@ -231,7 +232,9 @@ before it a resolution could hold one for up to 24 requests of 15 s each.
   **`HostedEntityConfigurationCache`** keeps a signed configuration while more than three quarters of its lifetime
   remains - its first 15 minutes - for the exact registry record it was built from, and drops it when this process
   changes the entity or grants or revokes a Trust Mark to it (plan item H-FED-9). A change made on another node is
-  seen at once for the entity itself (its record differs) and within those 15 minutes for its Trust Marks.
+  seen at once for the entity itself (its record differs) and within those 15 minutes for its Trust Marks. The
+  lifetime counted ends at the earlier of the configuration's `exp` and that of the first Trust Mark it carries to
+  expire, so a configuration with a five-minute mark is renewed after 75 seconds and never serves a mark past its `exp`.
   **`AuthoritySupport`** holds the process-wide registry, signer, domain-default policy and Trust Mark lookup so
   every servlet shares one state across classloaders. Nothing is looked up before hosting is configured, so a
   request that arrives first cannot leave the in-memory fallback in place of the durable registry.

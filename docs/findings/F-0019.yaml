@@ -13,8 +13,9 @@ verification: >
   primary key), and JdbcKeyHistoryStore.revokeIn on revoked_at IS NULL. FederationAdminServlet answers STALE_UPDATE
   409 stale_update. On Postgres, two threads held at the update until both had read (Racing.meetingAt): two
   revocations, a suspension or a reactivation against a revocation, two revocations or reinstatements of a grant, a
-  revocation against a grant again, two first grants and two key revocations each applied exactly one change and
-  wrote one audit line (JdbcHostedEntityRegistryTest, JdbcTrustMarkRegistryTest, JdbcKeyHistoryStoreTest); with the
+  revocation against a grant again and two first grants each applied exactly one change and wrote one audit line, and
+  two key revocations left one revocation, the winner's (key history keeps no audit log) (JdbcHostedEntityRegistryTest,
+  JdbcTrustMarkRegistryTest, JdbcKeyHistoryStoreTest); with the
   hosted-entity update made unconditional again, the four hosted-entity races failed.
 target_release: 0.6.0
 notes: >

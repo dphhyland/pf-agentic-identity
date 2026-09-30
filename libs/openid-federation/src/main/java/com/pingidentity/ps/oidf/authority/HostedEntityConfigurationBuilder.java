@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
+import org.jose4j.jws.JsonWebSignature;
+import org.jose4j.jwt.JwtClaims;
 
 /**
  * Builds a {@link HostedEntity}'s Entity Configuration — {@code iss == sub == entityId}, signed by the
@@ -68,7 +70,7 @@ public final class HostedEntityConfigurationBuilder {
      * Builds and signs {@code entity}'s Entity Configuration JWT - or, for a SELF_SIGNED entity, returns the
      * configuration the entity signed itself, verbatim. With a cache, an authority-signed one signed earlier from this
      * same record is returned while it has more than {@link HostedEntityConfigurationCache#KEEP_WHILE_REMAINING} of its
-     * lifetime left.
+     * lifetime left - counted to the earlier of its own {@code exp} and that of the first Trust Mark it carries to expire.
      */
     public String buildEntityConfiguration(HostedEntity entity) {
         if (entity.hostingMode() == HostingMode.SELF_SIGNED) {
@@ -110,8 +112,30 @@ public final class HostedEntityConfigurationBuilder {
 
         String jwt = CompactJws.sign(header, claims, jwsSigner);
         if (this.cache != null) {
-            this.cache.put(entity, jwt, Instant.ofEpochSecond(now), Instant.ofEpochSecond(now + CONFIGURATION_LIFETIME_SECONDS));
+            long freshUntil = earliestExpiry(marks, now + CONFIGURATION_LIFETIME_SECONDS, now);
+            this.cache.put(entity, jwt, Instant.ofEpochSecond(now), Instant.ofEpochSecond(freshUntil));
         }
         return jwt;
+    }
+
+    /**
+     * The earlier of {@code configurationExp} and the {@code exp} of every Trust Mark embedded in the configuration, so
+     * a kept configuration is renewed before a mark it carries expires. A mark whose {@code exp} cannot be read gives
+     * {@code now}: the configuration is then not kept at all.
+     */
+    static long earliestExpiry(List<Map<String, Object>> marks, long configurationExp, long now) {
+        long earliest = configurationExp;
+        for (Map<String, Object> mark : marks) {
+            long exp;
+            try {
+                JsonWebSignature jws = new JsonWebSignature();
+                jws.setCompactSerialization((String) mark.get("trust_mark"));
+                exp = JwtClaims.parse(jws.getUnverifiedPayload()).getExpirationTime().getValue();
+            } catch (Exception e) {
+                exp = now;
+            }
+            earliest = Math.min(earliest, exp);
+        }
+        return earliest;
     }
 }

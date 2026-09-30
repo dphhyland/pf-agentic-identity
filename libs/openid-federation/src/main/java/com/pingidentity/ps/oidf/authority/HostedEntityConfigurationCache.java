@@ -17,7 +17,9 @@ import java.util.Objects;
  *
  * <p>A configuration is served from here while more than {@link #KEEP_WHILE_REMAINING} of its lifetime remains: with
  * the builder's one-hour lifetime, for its first fifteen minutes. After that it is signed afresh, so a resolver never
- * receives one with less than three quarters of its lifetime left. It is kept only for the exact registry record it was
+ * receives one with less than three quarters of its lifetime left. The lifetime counted ends at the earlier of the
+ * configuration's own {@code exp} and that of the first Trust Mark embedded in it to expire, so a configuration carrying
+ * a five-minute mark is kept for 75 seconds at most, and a mark is never served here after its {@code exp}. It is kept only for the exact registry record it was
  * built from - a record read on another node after a change there differs, and is built afresh - and dropped at once
  * when this process changes the entity or the Trust Marks it holds ({@link #changed}). What another node changes about
  * the Trust Marks an entity holds is therefore seen here within those fifteen minutes; everything about the entity
@@ -81,9 +83,12 @@ public final class HostedEntityConfigurationCache {
         return entry.jwt();
     }
 
-    /** Keeps {@code jwt}, signed from {@code entity} at {@code iat} to expire at {@code exp}. */
-    synchronized void put(HostedEntity entity, String jwt, Instant iat, Instant exp) {
-        long lifetime = exp.getEpochSecond() - iat.getEpochSecond();
+    /**
+     * Keeps {@code jwt}, signed from {@code entity} at {@code iat}; {@code freshUntil} is the earlier of its {@code exp}
+     * and the {@code exp} of the first Trust Mark it carries to expire.
+     */
+    synchronized void put(HostedEntity entity, String jwt, Instant iat, Instant freshUntil) {
+        long lifetime = Math.max(0L, freshUntil.getEpochSecond() - iat.getEpochSecond());
         Instant renewAt = iat.plusSeconds((long) Math.floor(lifetime * (1.0 - KEEP_WHILE_REMAINING)));
         this.entries.put(EntityId.comparable(entity.entityId()), new Kept(entity, Objects.requireNonNull(jwt, "jwt"), renewAt));
     }

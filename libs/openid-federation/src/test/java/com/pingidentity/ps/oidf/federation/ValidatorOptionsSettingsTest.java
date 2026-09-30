@@ -52,13 +52,13 @@ class ValidatorOptionsSettingsTest {
         assertEquals(Duration.ofSeconds(12), options.resolutionWallClock());
     }
 
-    /** Every setting has a range; each end is accepted and one past it refused, naming the setting. */
     /** What reads the catalogue: the validator's options and the resolve endpoint's guard (H-FED-9). */
     private static void readAll(Map<String, String> env) {
         read(env);
         ResolveGuard.fromSettings(Settings.of(CATALOGUE, Sources.of(env::get, null, null)), java.time.Clock.systemUTC());
     }
 
+    /** Every setting has a range; each end is accepted and one past it refused, naming the setting. */
     @Test
     void eachSettingIsHeldToItsRange() {
         List<String> names = List.of(ValidatorOptions.MAX_REQUESTS_SETTING, ValidatorOptions.MAX_AUTHORITY_HINTS_SETTING,

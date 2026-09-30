@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.pingidentity.ps.oidf.federation.testkit.Keys;
 import com.pingidentity.ps.oidf.federation.testkit.MutableClock;
+import com.pingidentity.ps.oidf.jose.CompactJws;
 import com.pingidentity.ps.oidf.jose.LocalJwkSigner;
 import com.pingidentity.ps.oidf.trustmark.InMemoryTrustMarkRegistry;
 import java.time.Duration;
@@ -129,6 +130,42 @@ class HostedEntityConfigurationCacheTest {
         builder.buildEntityConfiguration(entity);
 
         assertEquals(3, this.signatures.get());
+    }
+
+    @Test
+    void aConfigurationIsRenewedBeforeATrustMarkItCarriesExpires() {
+        MutableClock clock = new MutableClock(Instant.now());
+        long markExp = clock.instant().getEpochSecond() + 300;
+        String mark = CompactJws.sign(Map.of("alg", this.key.algorithm(), "typ", "trust-mark+jwt"),
+                Map.of("iss", AUTHORITY, "sub", ID, "trust_mark_type", AUTHORITY + "/marks/short", "exp", markExp), this.key);
+        HostedEntityConfigurationBuilder builder = new HostedEntityConfigurationBuilder(this.signer, AUTHORITY,
+                id -> List.of(Map.of("trust_mark_type", AUTHORITY + "/marks/short", "trust_mark", mark)),
+                new HostedEntityConfigurationCache(clock, 8));
+        HostedEntity entity = entity();
+
+        String first = builder.buildEntityConfiguration(entity);
+        clock.advance(Duration.ofSeconds(60));
+        assertEquals(first, builder.buildEntityConfiguration(entity), "three quarters of the mark's five minutes left");
+        assertEquals(1, this.signatures.get());
+        clock.advance(Duration.ofSeconds(20));
+        builder.buildEntityConfiguration(entity);
+        assertEquals(2, this.signatures.get(), "a quarter of the mark's lifetime gone, not the configuration's, signs afresh");
+    }
+
+    @Test
+    void theFreshnessOfAConfigurationEndsWithItsFirstTrustMarkAndAnUnreadableMarkIsNotKept() {
+        String mark = CompactJws.sign(Map.of("alg", this.key.algorithm()), Map.of("exp", 1_800_000_300L), this.key);
+
+        assertEquals(1_800_003_600L, HostedEntityConfigurationBuilder.earliestExpiry(List.of(), 1_800_003_600L, 1_800_000_000L));
+        assertEquals(1_800_000_300L, HostedEntityConfigurationBuilder.earliestExpiry(
+                List.of(Map.of("trust_mark", mark)), 1_800_003_600L, 1_800_000_000L));
+        assertEquals(1_800_000_000L, HostedEntityConfigurationBuilder.earliestExpiry(
+                List.of(Map.of("trust_mark", mark), Map.of("trust_mark", "not-a-jwt")), 1_800_003_600L, 1_800_000_000L));
+
+        MutableClock clock = new MutableClock(Instant.ofEpochSecond(1_800_000_000L));
+        HostedEntityConfigurationCache cache = new HostedEntityConfigurationCache(clock, 8);
+        cache.put(entity(), "jwt-1", clock.instant(), clock.instant().minusSeconds(1));
+        assertNull(cache.get(entity()), "a configuration whose mark has already expired is never served from here");
     }
 
     @Test
