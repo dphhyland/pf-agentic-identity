@@ -34,10 +34,21 @@ final class GrantOperations {
 
     private final PfTokenVerifier verifier;
     private final PdpClient pdp;
+    private final Revoker revoker;
+
+    /** Ends a grant in the store: PingFederate's access grant manager, or a stand-in in a test. */
+    interface Revoker {
+        void revoke(String grantId) throws Exception;
+    }
 
     GrantOperations(PfTokenVerifier verifier, PdpClient pdp) {
+        this(verifier, pdp, grantId -> AccessGrantManagerAccessor.getAccessGrantManager().revokeGrant(grantId));
+    }
+
+    GrantOperations(PfTokenVerifier verifier, PdpClient pdp, Revoker revoker) {
         this.verifier = verifier;
         this.pdp = pdp;
+        this.revoker = revoker;
     }
 
     PdpClient pdp() {
@@ -135,7 +146,7 @@ final class GrantOperations {
             throws GrantEvaluator.RefusedException, UnavailableException {
         GrantEvaluator.authorise(grant, token, GrantEvaluator.SCOPE_REVOKE);
         try {
-            AccessGrantManagerAccessor.getAccessGrantManager().revokeGrant(grant.guid());
+            revoker.revoke(grant.guid());
         } catch (Exception e) {
             throw new UnavailableException("the grant could not be revoked", e);
         }

@@ -133,6 +133,7 @@
                                         <include>au.com.idpartners.gm.servlet.GrantView.isExpired(*</include>
                                         <!-- How the PDP's answer is turned into a permit, a deny, or a retry. -->
                                         <include>au.com.idpartners.gm.servlet.GrantOperations.evaluate(*</include>
+                                        <include>au.com.idpartners.gm.servlet.GrantOperations.revoke(*</include>
                                         <include>au.com.idpartners.gm.servlet.GrantOperations.Decision.retryable(*</include>
                                         <!-- The subject the whole decision is about, parsed off the token. -->
                                         <include>au.com.idpartners.gm.servlet.TokenClaims.from(*</include>

@@ -209,4 +209,31 @@ class GmApiSettingsTest {
                 "no grant, so no grant_id");
         assertEquals(before + 2, counted(GrantOperations.REFUSED, "failure"));
     }
+
+    @Test
+    void aRevocationIsEmittedAndCountedAsGmGrantRevokedAndAFailedOneIsNot() throws Exception {
+        long before = counted(GrantOperations.REVOKED, "success");
+        List<String> revoked = new CopyOnWriteArrayList<>();
+        GrantOperations ops = new GrantOperations(null, null, revoked::add);
+        TokenClaims token = new TokenClaims("alice", "acme", "grant-123", List.of(GrantEvaluator.SCOPE_REVOKE));
+        ops.revoke(grant(), token);
+
+        assertEquals(List.of("grant-123"), revoked);
+        assertEquals(1, this.events.size(), String.valueOf(this.events));
+        Event e = this.events.get(0);
+        assertEquals(GrantOperations.REVOKED, e.code());
+        assertEquals(Event.Outcome.SUCCESS, e.outcome());
+        assertEquals(Map.of("grant_id", "grant-123", "client_id", "acme"), e.fields());
+        assertTrue(e.audit());
+        assertEquals(before + 1, counted(GrantOperations.REVOKED, "success"));
+
+        GrantOperations failing = new GrantOperations(null, null, grantId -> {
+            throw new IllegalStateException("store down");
+        });
+        GrantOperations.UnavailableException down = assertThrows(GrantOperations.UnavailableException.class,
+                () -> failing.revoke(grant(), token));
+        assertEquals("the grant could not be revoked", down.getMessage());
+        assertEquals(1, this.events.size(), "a revocation that did not happen is not reported as one");
+        assertEquals(before + 1, counted(GrantOperations.REVOKED, "success"));
+    }
 }
