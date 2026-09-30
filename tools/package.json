@@ -4,6 +4,6 @@
   "description": "What tools/build-showcase-docs.mjs needs: a pinned Markdown renderer, so the showcase's documents render the same on every machine.",
   "type": "module",
   "dependencies": {
-    "marked": "12.0.2"
+    "marked": "18.0.13"
   }
 }
