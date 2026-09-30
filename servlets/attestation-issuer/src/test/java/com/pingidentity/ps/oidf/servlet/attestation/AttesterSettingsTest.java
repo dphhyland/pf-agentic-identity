@@ -54,7 +54,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 class AttesterSettingsTest {
 
     private static final List<String> PROPERTIES = List.of("oidf.wallet.provider.jwks", "oidf.entra.agent.directory",
-            "oidf.attester.spire.entries.url", "oidf.openbao.url", "oidf.openbao.token", "oidf.attester.op.issuer");
+            "oidf.attester.spire.entries.url", "oidf.openbao.url", "oidf.openbao.token", "oidf.attester.op.issuer",
+            "oidf.attester.max.evidence.lifetime.seconds", "oidf.attester.require.single.audience.evidence");
 
     @AfterEach
     void clearProperties() {
@@ -73,8 +74,13 @@ class AttesterSettingsTest {
 
     /** The status a servlet answers a GET with, through the container's entry point. */
     private static int status(HttpServlet servlet) throws Exception {
+        return status(servlet, "GET");
+    }
+
+    /** The status a servlet answers {@code method} with, through the container's entry point. */
+    private static int status(HttpServlet servlet, String method) throws Exception {
         HttpServletRequest request = mock(HttpServletRequest.class);
-        when(request.getMethod()).thenReturn("GET");
+        when(request.getMethod()).thenReturn(method);
         HttpServletResponse response = mock(HttpServletResponse.class);
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         when(response.getOutputStream()).thenReturn(new ServletOutputStream() {
@@ -125,6 +131,23 @@ class AttesterSettingsTest {
         AttesterConfigurationServlet configuration = new AttesterConfigurationServlet();
         configuration.init(config(Map.of()));
         assertEquals(503, status(configuration));
+    }
+
+    @Test
+    void aReadyAttesterPassesTheGateToItsHandlers() throws Exception {
+        // The risk accepted (the extension's default): each metadata servlet is READY and its gate lets a request
+        // through to the handler, whose preflight answer is 204. Every part of the component starts again, so that none
+        // is left REFUSED by an earlier test: a refused part closes every part of the component.
+        new AttestationIssuanceServlet().init(config(Map.of()));
+        new AttestationIssuanceChallengeServlet().init(config(Map.of()));
+        ClientAttestationServiceMetadataServlet metadata = new ClientAttestationServiceMetadataServlet();
+        metadata.init(config(Map.of()));
+        AttesterConfigurationServlet configuration = new AttesterConfigurationServlet();
+        configuration.init(config(Map.of()));
+        assertTrue(Startup.parts().parts().stream().noneMatch(p -> p.component().equals("ATTESTATION_ISSUER")
+                && p.state() != ComponentState.READY), Startup.parts().parts().toString());
+        assertEquals(204, status(metadata, "OPTIONS"));
+        assertEquals(204, status(configuration, "OPTIONS"));
     }
 
     @Test
@@ -204,6 +227,39 @@ class AttesterSettingsTest {
         System.setProperty("oidf.wallet.provider.jwks", "[1]");
         new ClientAttestationServiceMetadataServlet().init(config(Map.of()));
         assertFailed("ClientAttestationServiceMetadataServlet", "OIDF_WALLET_PROVIDER_JWKS");
+    }
+
+    @Test
+    void anEvidencePolicyItsEntriesRefuseFailsTheIssuanceServletAtDeploy() throws Exception {
+        // A lifetime of nothing, a lifetime above the production cap, and a switch that is neither true nor false: each
+        // is FAILED_CONFIG at deploy, naming the variable, where before 0.6.0 each issuance answered 500.
+        Map<String, String> wrong = Map.of("oidf.attester.max.evidence.lifetime.seconds", "0",
+                "oidf.attester.require.single.audience.evidence", "yes");
+        Map<String, String> named = Map.of("oidf.attester.max.evidence.lifetime.seconds", EvidencePolicy.MAX_LIFETIME_ENV,
+                "oidf.attester.require.single.audience.evidence", EvidencePolicy.SINGLE_AUDIENCE_ENV);
+        for (Map.Entry<String, String> property : wrong.entrySet()) {
+            System.setProperty(property.getKey(), property.getValue());
+            try {
+                assertDoesNotThrow(() -> new AttestationIssuanceServlet().init(config(Map.of())));
+                assertFailed("AttestationIssuanceServlet", named.get(property.getKey()));
+            } finally {
+                System.clearProperty(property.getKey());
+            }
+        }
+        System.setProperty("oidf.attester.max.evidence.lifetime.seconds", "86401");
+        new AttestationIssuanceServlet().init(config(Map.of()));
+        assertFailed("AttestationIssuanceServlet", EvidencePolicy.MAX_LIFETIME_ENV);
+
+        // Read at deploy and kept: the policy the first request uses is the one init read.
+        System.setProperty("oidf.attester.max.evidence.lifetime.seconds", "120");
+        System.setProperty("oidf.attester.require.single.audience.evidence", "TRUE");
+        AttestationIssuanceServlet servlet = new AttestationIssuanceServlet();
+        servlet.init(config(Map.of()));
+        assertEquals(ComponentState.READY, part("AttestationIssuanceServlet").state());
+        System.clearProperty("oidf.attester.max.evidence.lifetime.seconds");
+        System.clearProperty("oidf.attester.require.single.audience.evidence");
+        assertEquals(120L, servlet.evidencePolicy().maxEvidenceLifetimeSeconds());
+        assertTrue(servlet.evidencePolicy().requireSingleAudience());
     }
 
     @Test

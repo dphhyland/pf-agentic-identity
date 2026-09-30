@@ -104,7 +104,9 @@ token-endpoint filter shares those stores; the attester's issuance servlet and c
 is `REFUSED`). Two other users of the attestation stores are not wired here, because their classes are other packages':
 the federation endpoints' spent assertion `jti`s (`oidf:fed:endpoint:*`, `OpenIdFederationServlet`) and automatic
 registration's use of the authorization server's replay cache (`FrontChannelAutoRegistrationFilter`); finding F-0335
-records them.
+records them, with the OGNL criterion's own copy of the stores in PingFederate's engine classloader, which the rule in
+the servlet's copy does not see. The plan's refusal of a database other than PostgreSQL for the agent registry is not
+built: nothing configures the registry's JDBC store today, and F-0337 records it.
 
 F-0160: rar-model now reads the profile through `DeploymentProfile.of(env).isDevelopment()`. A deployment set to
 `OIDF_DEPLOYMENT_PROFILE=Development` (capital D) - development everywhere else since PR1 - now has the common-fields

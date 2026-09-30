@@ -21,4 +21,10 @@ notes: >
   OpenIdFederationServlet (ST5F rewrites that servlet's settings in wave 5), and a requireSharedState(AS) that refuses
   AUTO_REGISTRATION rather than ATTESTATION_AUTH (componentOf maps AS to ATTESTATION_AUTH; the filter's owner decides
   whether automatic registration gets its own namespace). Until then a production deployment without Redis replays
-  a federation client assertion or an automatic registration request object on a second node.
+  a federation client assertion or an automatic registration request object on a second node. A third user, found in
+  ST5A's review (2026-09-30): ClientAttestationUtils (servlets/pf-integration, S4D1's this wave) calls
+  AttestationSupport.replayCache() and challengeService() from the OGNL issuance criterion, in PingFederate's engine
+  classloader, which holds its own copy of AttestationSupport. Code refusals are per loaded copy
+  (ProfileRefusals.CODE), so the rule the challenge endpoint enforces in the servlet's copy never sees the engine
+  copy's in-memory replay and challenge stores; that copy needs its own requireSharedState(AS) where the criterion's
+  stores are first built, or the token-endpoint filter's start function.

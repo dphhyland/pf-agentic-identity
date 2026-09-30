@@ -329,6 +329,28 @@ class ChallengeEndpointSettingsTest {
     }
 
     @Test
+    void aChallengeTheStoreCouldNotRecordIsRefusedAsStoreUnavailable() throws Exception {
+        // A TLS Redis on a port nothing listens on: accepted as a URL, failing at the first command.
+        System.setProperty("oidf.redis.url", "rediss://127.0.0.1:1");
+        try {
+            AttestationSupport.reset();
+            long refused = counted(ChallengeEndpointServlet.REFUSED, "failure");
+            ClientAttestationChallengeServlet as = new ClientAttestationChallengeServlet();
+            as.init(config(Map.of()));
+            Answer answer = answer(as, "POST", "10.0.6.1");
+            assertEquals(503, answer.status());
+            assertFalse(answer.body().contains("attestation_challenge"), answer.body());
+            assertEquals(refused + 1, counted(ChallengeEndpointServlet.REFUSED, "failure"));
+            assertEquals(1, this.events.size());
+            assertEquals(ChallengeEndpointServlet.REFUSED, this.events.get(0).code());
+            assertEquals("store_unavailable", this.events.get(0).reason());
+            assertEquals("AS", this.events.get(0).fields().get("surface"));
+        } finally {
+            System.clearProperty("oidf.redis.url");
+        }
+    }
+
+    @Test
     void theAuthorizationServersEventsNameItsSurface() throws Exception {
         ClientAttestationChallengeServlet as = new ClientAttestationChallengeServlet();
         as.init(config(Map.of()));

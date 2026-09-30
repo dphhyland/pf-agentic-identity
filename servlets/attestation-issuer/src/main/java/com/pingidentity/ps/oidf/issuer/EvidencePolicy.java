@@ -63,9 +63,10 @@ public final class EvidencePolicy {
 
     /**
      * The policy the sources describe, read through the {@value #SETTINGS} settings catalogue, strictly (plan item
-     * ST-5): the lifetime a whole number of seconds from 1, the switch {@code true} or {@code false} in any case. Under
-     * development a switch spelt as only the reader before 0.6.0 took it ({@code yes}, {@code 1}) is read as that
-     * reader read it, with a warning; production refuses it.
+     * ST-5): the lifetime a whole number of seconds from 1, the switch {@code true} or {@code false} in any case. The
+     * reader before 0.6.0 refused any other spelling of the switch in both profiles; production still does, and under
+     * development platform's legacy rule now reads {@code yes}, {@code no}, {@code 1}, {@code 0}, {@code on} and
+     * {@code off} as {@code false}, with a warning naming the strict spelling.
      *
      * @throws IllegalArgumentException for a value its entry refuses, or a lifetime above the production cap under the
      *                                  production profile - each naming the variable

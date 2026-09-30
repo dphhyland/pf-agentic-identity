@@ -166,6 +166,9 @@
                                         <include>com.pingidentity.ps.oidf.issuer.AttestationIssuanceConfig.expected(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.AttesterSigningKey.fromEnvironment(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.ClientAttestationServiceMetadataServlet.start(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterConfigurationServlet.init(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterConfigurationServlet.service(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientAttestationServiceMetadataServlet.service(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.claims(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.challengeRequired(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.staticWalletValidatorFromEnv(*</include>
