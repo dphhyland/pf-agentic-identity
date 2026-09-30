@@ -469,7 +469,8 @@ public final class ClientAttestationAuthFilter implements Filter {
                 return true;
             }
             if (client.attestationRequired()) {
-                LOGGER.info((Object) ("attest_jwt_client_auth: client_id=" + clientId + " has " + ClientAttestationPolicy.REQUIRED
+                LOGGER.info((Object) ("attest_jwt_client_auth: client_id=" + com.pingidentity.ps.oidf.platform.events.LogSafe.value(clientId)
+                        + " has " + ClientAttestationPolicy.REQUIRED
                         + "=true and sent no " + ATTESTATION_HEADER + "; refused"));
                 this.refuse(response, clientId, 401, "invalid_client", "this client authenticates with a client attestation");
                 return true;

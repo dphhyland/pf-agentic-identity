@@ -19,7 +19,8 @@ public final class AttestationPolicyException extends Exception {
     private final String problem;
 
     AttestationPolicyException(String clientId, String property, String problem, String why) {
-        super(property + " on client " + clientId + " " + why);
+        // The client id may be a JWT's unverified sub: control characters are replaced before it reaches a log line.
+        super(property + " on client " + com.pingidentity.ps.oidf.platform.events.LogSafe.value(clientId) + " " + why);
         this.clientId = clientId;
         this.property = property;
         this.problem = problem;

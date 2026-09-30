@@ -120,7 +120,8 @@ public final class AttestationPolicyResolver {
         try {
             properties = this.source.properties(clientId);
         } catch (Exception | LinkageError | java.util.ServiceConfigurationError e) {
-            throw new Unavailable("the client manager could not be asked for client " + clientId + " ("
+            throw new Unavailable("the client manager could not be asked for client "
+                    + com.pingidentity.ps.oidf.platform.events.LogSafe.value(clientId) + " ("
                     + e.getClass().getSimpleName() + ")", e);
         }
         ClientAttestationPolicy policy = this.parse(clientId, properties);
