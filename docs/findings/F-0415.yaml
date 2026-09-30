@@ -1,0 +1,24 @@
+id: F-0415
+title: A configured subordinate's keys were asserted in a signed Subordinate Statement without checking its Entity Configuration's signature
+severity: medium
+area: openid-federation
+source: pr-review
+status: closed
+plan_items: [H-JOSE-1]
+prs: [93]
+verification: >
+  2026-10-01, branch prod/p3-jose-hardening (PR 93): FederationService.refreshSubordinateJwks takes a subordinate's
+  jwks and metadata only once its Entity Configuration verifies under one of those keys with
+  VerificationPolicy.entityStatement() (typ, kid, iat); FederationServiceEndpointsTest's
+  aForeignSubordinateWhoseConfigurationIsNotSignedWithItsOwnKeysIsNotVouchedFor has a configuration naming the
+  subordinate's keys but signed by another answered temporarily_unavailable, and one that verifies vouched for.
+target_release: 0.6.0
+notes: >
+  Found on 2026-10-01 in the H-JOSE-1 audit of parseUnverifiedClaims call sites, reading main at 6815222e. For a
+  subordinate named in the federation configuration, FederationService fetched its Entity Configuration from the
+  subordinate's well-known URL and cached the jwks claim as parsed, unverified, and fetchSubordinateStatement then
+  signed a Subordinate Statement asserting those keys. OpenID Federation 1.0 §3.2 has an Entity Statement signed with
+  one of its issuer's keys; nothing checked that this one was. The fetch went through the outbound URL policy (https
+  by default), so what an attacker needed was to answer at the subordinate's well-known URL - a spoofed or hijacked
+  origin, or a development deployment that allows plaintext - and the superior then vouched for the attacker's keys to
+  every relying party. A subordinate whose configuration does not verify is now refused, as a fetch that failed.

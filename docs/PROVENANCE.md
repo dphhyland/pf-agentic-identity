@@ -99,7 +99,7 @@ Merged in two halves by two concurrent sessions, converging on identical resolut
   constructor. `OpenIdFederationServlet` passes both and keeps the subordinate prewarm.
 - **Backports from pf-oidf-modules** (per drift rule 2, both said so in their commit messages):
   the SD-JWT attestation-encoding drop (`c23f471` — verifier rejects `~` presentations;
-  `SdJwt`/`SdJwtException` remain in `oidf-jose` as library primitives) and OIDF §12.1 automatic
+  `SdJwt`/`SdJwtException` remained in `oidf-jose` as library primitives until 0.6.0 removed them, unused, in HJOSE) and OIDF §12.1 automatic
   registration (`b312460` — `RegistrationService.automaticRegister`,
   `TokenEndpointAutoRegistrationFilter`, `RegisteredClientsServlet`, previously only in that repo's
   gitignored build tree).
