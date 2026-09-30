@@ -266,14 +266,17 @@ class FederationConfigurationTest {
         assertInstanceOf(ProfileRefused.class, e.getCause());
     }
 
-    /** The init-param trustControllerHost was read and never used; from 0.6.0 it is a removed name, refused when set. */
+    /**
+     * The init-param trustControllerHost was read and never used (the trust controller is OIDF_FEDERATION_TRUST_CONTROLLER_HOST's,
+     * federation-runtime's); from 0.6.0 it is a removed name, refused when set, and nothing replaces it here.
+     */
     @Test
     void theRemovedTrustControllerHostInitParamIsRefused() {
         Map<String, String> params = minimal();
         params.put("trustControllerHost", "https://ta.example");
         SettingRefused refusal = refused(params);
         assertEquals("trustControllerHost", refusal.setting());
-        assertTrue(refusal.getMessage().contains("OIDF_FEDERATION_TRUST_CONTROLLER_HOST"), refusal.getMessage());
+        assertTrue(refusal.getMessage().contains("removed in 0.6.0"), refusal.getMessage());
     }
 
     @Test

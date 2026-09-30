@@ -147,9 +147,15 @@ public class HostedEntityServlet extends RequestScopedServlet {
      * @return false when no authority entity id is configured: this deployment hosts nothing
      */
     static boolean configureAuthority(java.util.function.Function<String, String> initParams) {
-        // Each setting through its hosted-entities catalogue entry: the init-param, then the system property, then the
-        // environment variable (plan item ST-5), as AuthorityDataSource reads the store for the servlets without them.
-        Sources sources = initParams == null ? Sources.process() : Sources.process().withInitParams(initParams);
+        return configureAuthorityFrom(initParams == null ? Sources.process() : Sources.process().withInitParams(initParams));
+    }
+
+    /**
+     * {@link #configureAuthority(java.util.function.Function)} from {@code sources}: each setting through its
+     * hosted-entities catalogue entry - the init-param, then the system property, then the environment variable (plan
+     * item ST-5) - as {@link AuthorityDataSource} reads the store for the servlets without init-params.
+     */
+    static boolean configureAuthorityFrom(Sources sources) {
         Settings settings = AuthorityDataSource.settings(sources);
         String authorityEntityId = settings.string(AUTHORITY_ENTITY_ID);
         if (authorityEntityId == null) {

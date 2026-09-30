@@ -131,7 +131,7 @@ public final class FederationConfiguration {
      *
      * @throws IllegalArgumentException wrapping the refusal, "Invalid federation servlet configuration"
      */
-    static FederationConfiguration from(Sources sources) {
+    public static FederationConfiguration from(Sources sources) {
         try {
             Settings settings = settings(sources);
             List<String> trustAnchorIssuers = trustAnchors(settings);

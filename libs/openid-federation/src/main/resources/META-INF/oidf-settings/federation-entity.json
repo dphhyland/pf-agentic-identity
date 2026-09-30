@@ -300,6 +300,6 @@
     }
   ],
   "removed": [
-    {"name": "trustControllerHost", "from": "init-param", "replacement": "OIDF_FEDERATION_TRUST_CONTROLLER_HOST", "release": "0.6.0"}
+    {"name": "trustControllerHost", "from": "init-param", "replacement": null, "release": "0.6.0"}
   ]
 }

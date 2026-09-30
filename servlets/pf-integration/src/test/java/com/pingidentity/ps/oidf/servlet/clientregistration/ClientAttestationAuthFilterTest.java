@@ -153,6 +153,14 @@ class ClientAttestationAuthFilterTest {
         String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").reason();
 
         assertTrue(eReason.contains("not a JSON object"), eReason);
+
+        // One JSON object that is not a usable key set: the setting parses, and the anchor built from it is refused.
+        System.setProperty(ANCHOR_JWKS_PROP, "{\"keys\": [{\"kty\": \"oct\", \"kid\": \"s\", \"k\": \"c2VjcmV0\"}]}");
+        resetSingletons();
+        assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").state());
+        assertTrue(com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").reason().startsWith("attest_jwt_client_auth: "),
+                com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").reason());
     }
 
     @Test
@@ -180,8 +188,8 @@ class ClientAttestationAuthFilterTest {
         assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").state());
         String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").reason();
 
-        assertTrue(eReason.contains(FederationRuntimeConfig.BRIDGE_KEY_ENV),
-                "must name the variable that is now inert: " + eReason);
+        // The catalogue refuses the removed name as it was set, here its system property (plan item ST-5).
+        assertTrue(eReason.contains(LEGACY_KEY_PROP), "must name the variable that is now inert: " + eReason);
         assertTrue(eReason.contains(BridgeSigners.KEYS_ENV),
                 "must say where the key should move to: " + eReason);
     }
@@ -203,11 +211,10 @@ class ClientAttestationAuthFilterTest {
         assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").state());
         String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").reason();
 
-        assertTrue(eReason.contains(FederationRuntimeConfig.BRIDGE_PREVIOUS_PUBLIC_KEY_ENV),
-                "must name the variable that is now inert: " + eReason);
-        // The part's reason is cut at 256 characters; the whole message is in the log and here.
+        assertTrue(eReason.contains(LEGACY_PREV_KEY_PROP), "must name the variable that is now inert: " + eReason);
+        // The part's reason is cut at 256 characters; the whole message is in the log and here: nothing replaces it.
         String message = assertThrows(IllegalStateException.class, BridgeSigners::isConfigured).getMessage();
-        assertTrue(message.contains(BridgeSigners.KEYS_ENV), "must say what rotating a client looks like now: " + message);
+        assertTrue(message.contains("nothing replaces it; unset it"), "must say to unset it: " + message);
     }
 
     // ---- per-client resolution ---------------------------------------------------------------------
