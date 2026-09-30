@@ -1,0 +1,15 @@
+id: F-0403
+title: SSF verification SETs carry no txn
+severity: low
+area: ssf
+source: design
+status: open
+plan_items: [H-SSF-5]
+prs: [97]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-10-01 by package HSSF3. SSF 1.0 §4.1.9: "Transmitters SHOULD set the "txn" claim value in Security Event
+  Tokens (SETs)." Every SET SsfEventEmitter mints carries one since HSSF3; the verification SETs stream management mints
+  (StreamManagementService, outside HSSF3's scope) do not - on the rig on 2026-10-01 the suite's received CAEP SETs had a
+  txn and its verification SETs none. A SHOULD, and the plans pass; one line where the verification SET is built.

@@ -4,8 +4,12 @@ area: pf-integration, ssf
 source: phase-0-review
 status: open
 plan_items: [R-CI7]
-prs: []
+prs: [97]
 recorded_in: 'docs/releases/0.3.0.md, ''Known gaps'''
 verify_by: A rig profile with attestation live and an audited event, under the licensed boot-smoke job.
 verification: ''
-notes: The rig runs attestation inert.
+notes: >
+  The rig runs attestation inert. SsfAuditLogSource was exercised on a booted 13.1.3 on 2026-10-01 by package HSSF3
+  (PR #97): it attached to six audit loggers at start, re-attached after a touch of log4j2.xml (trigger=reconfigure), and
+  with AUTHN_ATTEMPT mapped for the check a login's audit record reached the bridge (ssf.set.dropped, source=audit).
+  The attestation filter's wrapped request and the webapp-to-engine attribute channel are still open.
