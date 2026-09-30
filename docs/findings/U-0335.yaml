@@ -1,0 +1,18 @@
+id: U-0335
+title: That a token exchange requesting an ID-JAG issues the request's authorization_details with no validate or enrich call, read from bytecode but not driven
+area: rar-paz-plugin
+source: pr-review
+status: open
+plan_items: [S4d]
+prs: [79]
+recorded_in: docs/findings/F-0325.yaml; plugins/rar-paz-plugin/README.md (At validate, where the detail arrives); docs/releases/unreleased/S4D2.md
+verify_by: >
+  On the rig, an SP connection with ID-JAG enabled on its token exchange settings, a confidential client allowed
+  token exchange and a plugin jar that logs validate and enrich: a token exchange with requested_token_type
+  urn:ietf:params:oauth:token-type:id-jag and a payment_initiation detail with an undeclared field is issued an ID-JAG
+  whose authorization_details claim holds the detail as sent, with no validate or enrich line and no PDP call.
+verification: ""
+notes: >
+  Recorded 2026-09-30 by S4D2 from javap -c of pf-protocolengine 13.1.3.0 (F-0325's four steps). S4D2's rig session
+  drove the JWT-bearer grant, PAR, CIBA and client credentials, not an ID-JAG token exchange: the rig configures no SP
+  connection with ID-JAG enabled.

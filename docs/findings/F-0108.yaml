@@ -21,7 +21,9 @@ verification: >
   in an ID-JAG assertion, was answered 400 invalid_authorization_details with that description and no token, with no
   enrich and no PDP call; a PAR carrying payment_initiation with an undeclared field was refused at PAR with
   UNDECLARED_FIELD. Before the change the ID-JAG request was issued a token carrying the payment_initiation detail
-  with no enrich and no PDP call.
+  with no enrich and no PDP call. Not covered, and recorded as F-0325 the same day: a token exchange that requests
+  an ID-JAG, where PingFederate 13.1.3 calls neither validate nor enrich and copies the request's
+  authorization_details into the ID-JAG it signs (javap -c of pf-protocolengine 13.1.3.0).
 target_release: 0.6.0
 notes: >
   Found by S1c's adversarial review on 2026-09-27 (PR #36) and read with javap -c of pf-protocolengine 13.1.3.0 the

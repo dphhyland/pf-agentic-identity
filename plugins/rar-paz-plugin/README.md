@@ -93,7 +93,7 @@ array fields and let every other value through, is gone with its contract test.
 
 | When | What the plugin asks the model | A no, or a question the model cannot answer |
 |---|---|---|
-| `validate`, where the detail arrives | is the detail, markers stripped, one its type's model reads (`ModelGate.conformance`) | `invalid_authorization_details` at once, with the model's reason: at PAR, the authorization endpoint, CIBA's backchannel request, the device authorization endpoint, token exchange and the token endpoint |
+| `validate`, where the detail arrives | is the detail, markers stripped, one its type's model reads (`ModelGate.conformance`) | `invalid_authorization_details` at once, with the model's reason: at PAR, the authorization endpoint, CIBA's backchannel request, the device authorization endpoint, token exchange (except one that requests an ID-JAG, F-0325) and the token endpoint |
 | `enrich`, before the PDP | is the requested detail, markers stripped, one its type's model reads | refused before any PDP call: an unmodelled type, an undeclared field, a value of the wrong shape (a flat `amount` without its `currency`, a negative limit, an empty array), a size limit |
 | `enrich`, after a PERMIT | is the detail the PDP's statements produced within the request (the model's `contains`, the request as the ceiling) | refused: the PDP may narrow a request, never widen it |
 | `isEqualOrSubset` | is the refresh's detail within the detail already granted (`contains`, the grant as the ceiling) | `false`, which PingFederate answers with `invalid_authorization_details` |
@@ -115,7 +115,12 @@ array fields and let every other value through, is gone with its contract test.
   authorization endpoint (`AuthorizationRequestSupport.checkAuthorizationDetails`), at CIBA's backchannel request,
   the device authorization endpoint, token exchange and the token endpoint, and on the JWT-bearer grant
   (`javap`, 13.1.3.0), each time with a copy of the detail and an empty parameter map, and answers an invalid result
-  with `invalid_authorization_details` and its reason. From 0.6.0 `validate` strips the two markers and asks the
+  with `invalid_authorization_details` and its reason. The exception is a token exchange whose
+  `requested_token_type` is `urn:ietf:params:oauth:token-type:id-jag`: there PingFederate 13.1.3 calls neither
+  `validate` nor `enrich` and copies the request's `authorization_details` into the ID-JAG it signs (F-0325, read with
+  `javap`, not yet driven on the rig: U-0335). This plugin cannot refuse them there; until F-0325 is fixed, do not
+  enable ID-JAG on an SP connection's token exchange settings while a client that may send these types can use token
+  exchange. From 0.6.0 `validate` strips the two markers and asks the
   model, so a detail that does not conform is refused there - a PAR with an undeclared field fails at PAR, not at
   the token endpoint after the user has logged in. RFC 9396 section 5 (RFC 9396, May 2023): "The AS MUST refuse to
   process any unknown authorization details type or authorization details not conforming to the respective type
@@ -140,7 +145,9 @@ array fields and let every other value through, is gone with its contract test.
   on the ID-JAG profile (an assertion whose `typ` is `oauth-id-jag+jwt`) the token endpoint skips the parameter,
   `JwtGrantProcessor` verifies the assertion's signature and then calls `validate` on the assertion's own
   `authorization_details` claim (a forged one never reached it), and the token carries those details as they are.
-  So the ID-JAG profile is where a listed type is issued, as the assertion's issuer wrote it.
+  So the ID-JAG profile of the JWT-bearer grant, where this server receives an ID-JAG, is where a listed type is
+  issued, as the assertion's issuer wrote it. The other direction, this server issuing an ID-JAG by token exchange,
+  is F-0325 above: nothing in this plugin runs there.
 - **Types.** `OIDF_RAR_EXTRA_TYPES` still decides which types PingFederate may bind to the processor. A type
   named there without a model is refused in production (`UNMODELLED_TYPE`); with
   `OIDF_DEPLOYMENT_PROFILE=development` the library's common-fields model stands in. A type a models document

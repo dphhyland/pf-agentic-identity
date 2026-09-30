@@ -144,7 +144,9 @@ question goes to the model.
     (javap, 13.1.3).
 16. **`validate` holds each detail to the model where it arrives, and refuses the plugin's types on the
     JWT-bearer grant.** PingFederate calls `validate` at PAR, the authorization endpoint, CIBA, device, token
-    exchange and the token endpoint; an undeclared field, a wrong JSON type, an unmodelled type (development:
+    exchange and the token endpoint - except a token exchange requesting an ID-JAG, where 13.1.3 calls neither
+    `validate` nor `enrich` and copies the request's details into the ID-JAG (F-0325, javap; do not enable ID-JAG
+    on an SP connection for a client that may send these types); an undeclared field, a wrong JSON type, an unmodelled type (development:
     common fields) or a size limit is `invalid_authorization_details` there, with the model's reason and no
     value; no PDP, no principal. On the JWT-bearer grant PingFederate never calls `enrich` (U-0017, rig
     2026-09-30), so a type not listed in "Types allowed on the JWT-bearer grant" (default none) is refused

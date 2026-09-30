@@ -453,7 +453,8 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
      * Refuses a detail where it arrives, before anything is decided: PingFederate 13.1.3 calls this at PAR and the
      * authorization endpoint, CIBA's backchannel request, the device authorization endpoint, token exchange, the token
      * endpoint, and on the JWT-bearer grant (F-0108), each with a copy of the detail and an empty parameter map, and
-     * answers an invalid result with {@code invalid_authorization_details} and its reason. RFC 9396 section 5: "The AS
+     * answers an invalid result with {@code invalid_authorization_details} and its reason. A token exchange that
+     * requests an ID-JAG calls neither this nor {@link #enrich} (F-0325). RFC 9396 section 5: "The AS
      * MUST refuse to process any unknown authorization details type or authorization details not conforming to the
      * respective type definition."
      *
