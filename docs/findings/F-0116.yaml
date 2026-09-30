@@ -3,10 +3,18 @@ title: 'Behind a proxy, every caller shares one challenge allowance: the cap cou
 severity: medium
 area: client-attestation, attestation-issuer
 source: pr-review
-status: open
+status: closed
 plan_items: [H-ATT-3]
-prs: []
-verification: ''
+prs: [89]
+verification: >
+  2026-09-30, branch prod/p3-issuance-endpoint (HATT2): both challenge endpoints count callers by
+  TrustedProxies.clientAddress - the remote address, or behind a proxy OIDF_TRUSTED_PROXIES lists the right-most
+  forwarding hop it does not list - and a list that cannot be read leaves the endpoint FAILED_CONFIG.
+  ChallengeEndpointTrustedProxyTest shows, for the authorization server's and the attester's endpoint, two clients
+  behind one listed proxy with an allowance each, a forged chain counted by the hop the proxy appended, and with the
+  list unset the proxy's one allowance shared, as the 2026-09-27 rig result above found. Not re-run on the rig:
+  PingFederate's own handling is U-0400.
+
 target_release: 0.6.0
 notes: >
   Found on 2026-09-27 in S4b. Both challenge endpoints cap each caller at 60 requests a minute by default, and

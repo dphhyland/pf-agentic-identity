@@ -11,11 +11,15 @@ import com.pingidentity.ps.oidf.clientattestation.StoreUnavailableException;
 import com.pingidentity.ps.oidf.platform.events.Events;
 import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.net.TrustedProxies;
 import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.platform.pf.settings.InitParams;
 import com.pingidentity.ps.oidf.platform.settings.Settings;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -52,7 +56,9 @@ import org.jose4j.json.JsonUtil;
  * <p>Init-params, each read by the endpoint for its own namespace through the {@value #SETTINGS} settings catalogue:
  * {@code challengeCacheMaxEntries} and {@code challengeTtlSeconds} (the size and lifetime of its challenges; with Redis
  * only the lifetime applies), and {@code challengeRateLimitPerWindow}, {@code challengeRateLimitWindowSeconds} and
- * {@code challengeRateLimitMaxCallers} (its per-caller cap). They are read strictly (plan item ST-5): a value that is
+ * {@code challengeRateLimitMaxCallers} (its per-caller cap, counted by client address: the remote address, or behind a
+ * proxy {@code OIDF_TRUSTED_PROXIES} lists, the right-most forwarding hop it does not list - platform's
+ * {@link TrustedProxies}). They are read strictly (plan item ST-5): a value that is
  * not a whole number in the entry's range leaves the endpoint's part {@code FAILED_CONFIG}, naming the setting, and
  * the endpoint answers 503.
  *
@@ -129,6 +135,9 @@ public abstract class ChallengeEndpointServlet extends HttpServlet {
         int rateMax = settings.integer("challengeRateLimitPerWindow");
         long rateWindow = settings.duration("challengeRateLimitWindowSeconds").getSeconds();
         int rateCallers = settings.integer("challengeRateLimitMaxCallers");
+        // The per-caller cap counts client addresses, which OIDF_TRUSTED_PROXIES decides (H-ATT-3, F-0116): a value it
+        // cannot read leaves the part FAILED_CONFIG, naming it, rather than counting every caller as its proxy.
+        TrustedProxies.check();
         this.configure(settings);
         AttestationSupport.configureChallengeService(this.namespace, challengeMax, challengeTtl);
         this.rateLimiter = new ChallengeRateLimiter(rateMax, rateWindow, rateCallers);
@@ -164,7 +173,7 @@ public abstract class ChallengeEndpointServlet extends HttpServlet {
 
     private void issue(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         long now = System.currentTimeMillis();
-        String caller = req.getRemoteAddr();
+        String caller = TrustedProxies.current().clientAddress(req.getRemoteAddr(), name -> headerValues(req, name));
         if (!this.rateLimiter.allow(caller, now)) {
             long retryAfter = this.rateLimiter.retryAfterSeconds(caller, now);
             resp.setHeader("Retry-After", String.valueOf(retryAfter));
@@ -211,6 +220,12 @@ public abstract class ChallengeEndpointServlet extends HttpServlet {
                 "error", "invalid_request",
                 "error_description", "this challenge endpoint takes " + this.method + ", not " + req.getMethod()));
         this.refused("method_not_allowed");
+    }
+
+    /** Every value of a request header, for {@link TrustedProxies}; {@code null} when the container gives none. */
+    static List<String> headerValues(HttpServletRequest req, String name) {
+        Enumeration<String> values = req.getHeaders(name);
+        return values == null ? null : Collections.list(values);
     }
 
     private static void write(HttpServletResponse resp, int status, Map<String, Object> body) throws IOException {

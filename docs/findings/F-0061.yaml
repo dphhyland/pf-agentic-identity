@@ -3,10 +3,18 @@ title: 'X-Forwarded-* trusted from any proxy; CORS on the attester configuration
 severity: medium
 area: attestation-issuer
 source: reviewer-report
-status: open
+status: closed
 plan_items: [H-ATT-3]
-prs: []
-verification: ''
+prs: [89]
+verification: >
+  2026-09-30, branch prod/p3-issuance-endpoint (HATT2): platform.net.TrustedProxies believes X-Forwarded-* (or RFC
+  7239 Forwarded, OIDF_TRUSTED_PROXIES_HEADERS) only from a remote address OIDF_TRUSTED_PROXIES lists, empty by
+  default; AttesterConfigurationServlet builds its URLs through it, so an unlisted sender's X-Forwarded-Host is
+  ignored, and sends Access-Control-Allow-Origin only to an origin OIDF_ATTESTER_CORS_ORIGINS lists (none by
+  default; '*' refused), GET only, with Vary: Origin. TrustedProxiesTest (trusted, untrusted, forged chains, IPv6,
+  an empty list, RFC 7239) and AttesterConfigurationServletTest hold it. The other discovery documents that answer
+  every origin are F-0390.
+
 target_release: 0.6.0
 notes: >
   From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the

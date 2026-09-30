@@ -25,6 +25,15 @@ public interface IssuanceClientResolver {
     java.util.List<AttesterClient> attestationClients() throws IssuanceException;
 
     /**
+     * Called when evidence matched none of {@link #attestationClients()}: a resolver that caches its clients may read
+     * them again, and answers whether it did, so the caller looks once more. It must bound how often it reads, since
+     * anyone can send evidence that matches nothing (plan item H-ATT-2). Nothing is cached by default: {@code false}.
+     */
+    default boolean refreshAfterMiss() {
+        return false;
+    }
+
+    /**
      * Stable id of the resolver plugin backing this resolver (e.g. {@code pf-client-metadata},
      * {@code cimd}, {@code openid-federation}) — surfaced in the attester discovery document so operators
      * can see where the SPIFFE-ID → client mapping and its entitlement ceiling (downscoping) come from.

@@ -235,6 +235,39 @@
                                         <include>com.pingidentity.ps.oidf.issuer.AksWorkloadIdentityValidator.map(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.AzureManagedIdentityValidator.map(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.RemoteJwksCache.signingKeys(*</include>
+                                        <!-- H-ATT-2, H-ATT-3 (HATT2): the issuance endpoint's request path - the per-address limit,
+                                             the capped body, every failure a CAS section 4.6 error - the client index and its miss
+                                             rule, and the configuration document's forwarded origin and CORS. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.service(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.admit(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.rateCounter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.readBody(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.fail(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.genericDescription(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.headerValues(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.resolveByEvidence(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.refreshAfterMiss(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientBindingIndex.clients(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientBindingIndex.refreshAfterMiss(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientBindingIndex.refresh(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientBindingIndex.rebuild(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientBindingIndex.rebuildIfStale(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientBindingIndex.fresh(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientBindingIndex.usable(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.makeRateCounter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.PfIssuanceClientResolver.Shared.index(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.PfIssuanceClientResolver.Shared.create(*</include>
+                                        <!-- Not gated: AttestationIssuanceServlet.defaultRateCounter, whose Redis branch needs
+                                             OIDF_REDIS_URL in the process environment, which a test cannot set; the Redis counter
+                                             it builds is gated through RedisWindowCounter against CI's Redis service. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.PfIssuanceClientResolver.attestationClients(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.PfIssuanceClientResolver.load(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.PfIssuanceClientResolver.index(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterConfigurationServlet.baseUrl(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterConfigurationServlet.hasPort(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterConfigurationServlet.corsOrigins(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterConfigurationServlet.applyCors(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterConfigurationServlet.doOptions(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

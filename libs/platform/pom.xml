@@ -575,6 +575,35 @@
                                         <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.Builder.cacheFor(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.auth.ClientAuthentication.clientSecretBasic(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.auth.ClientAuthentication.privateKeyJwt(*</include>
+                                        <!-- net (H-ATT-3, HATT2): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.net.TrustedProxies.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.TrustedProxies.current(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.TrustedProxies.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.TrustedProxies.trusts(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.TrustedProxies.clientAddress(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.TrustedProxies.origin(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.TrustedProxies.pick(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.TrustedProxies.scheme(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.TrustedProxies.host(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.TrustedProxies.walk(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.TrustedProxies.list(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.TrustedProxies.trustsEveryone(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.TrustedProxies.HeaderFamily.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.IpAddresses.cidr(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.IpAddresses.address(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.IpAddresses.literal(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.IpAddresses.port(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.IpAddresses.ipv4(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.IpAddresses.ipv6(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.IpAddresses.groups(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.IpAddresses.isMappedIpv4(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.IpAddresses.hex(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.IpAddresses.decimal(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.IpAddresses.Cidr.contains(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.Forwarded.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.Forwarded.element(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.Forwarded.unquote(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.net.Forwarded.split(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

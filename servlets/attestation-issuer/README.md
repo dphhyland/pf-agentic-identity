@@ -20,12 +20,86 @@ Plain `@WebServlet` classes on the webapp classloader (not a PF-INF plugin): the
 
 | Path | Class | What |
 |---|---|---|
-| `POST /federation/attestation` | `AttestationIssuanceServlet` | Issuance. JSON body: `instance_key` (JWK), `instance_attestation` (alias `svid`), `proof`, optional `authorization_details` / `asserted_context`; a `client_id` is accepted but ignored and an `agent_id` is rejected. The client is resolved **from the evidence**: it is validated against every attestation client's config and the one whose trust bundle verifies it *and* whose bindings contain the resulting identity is the match. Then: instance-key proof (its window, challenge + `jti` replay - [below](#the-instance-key-proof)), deployment-required custom proof claims, the binding's ceiling narrowed by the asserted context's when there is one (the containment model's meet), the grant (`authorize(requested, ceiling, INHERIT)`, or the full ceiling for an empty request - [below](#the-ceiling-and-the-grant)), `agent_id`, mint. `200 {"attestation","expires_in"}`, `Cache-Control: no-store`. |
-| `GET /.well-known/client-attester`, `/federation/.well-known/client-attester` | `AttesterConfigurationServlet` | This deployment's discovery document: endpoints, evidence types (read off the validator registry), `evidence_audience`, `pop_audience` (PF's OP issuer - the "aud trap"), active resolver plugins. Cacheable, parameterless. |
+| `POST /federation/attestation` | `AttestationIssuanceServlet` | Issuance. JSON body: `instance_key` (JWK), `instance_attestation` (alias `svid`), `proof`, optional `authorization_details` / `asserted_context`; a `client_id` is accepted but ignored and an `agent_id` is rejected. The client is resolved **from the evidence**: it is validated against every attestation client's config and the one whose trust bundle verifies it *and* whose bindings contain the resulting identity is the match. Then: instance-key proof (its window, challenge + `jti` replay - [below](#the-instance-key-proof)), deployment-required custom proof claims, the binding's ceiling narrowed by the asserted context's when there is one (the containment model's meet), the grant (`authorize(requested, ceiling, INHERIT)`, or the full ceiling for an empty request - [below](#the-ceiling-and-the-grant)), `agent_id`, mint. `200 {"attestation","expires_in"}`, `Cache-Control: no-store`. Before any of that, the per-address limit and the body cap ([below](#the-request-path)); every failure is an error answer with no internal text, its code CAS §4.6's but for three ([below](#the-request-path)). |
+| `GET /.well-known/client-attester`, `/federation/.well-known/client-attester` | `AttesterConfigurationServlet` | This deployment's discovery document: endpoints, evidence types (read off the validator registry), `evidence_audience`, `pop_audience` (PF's OP issuer - the "aud trap"), active resolver plugins. Cacheable, parameterless. URLs from the request, or a trusted proxy's forwarding headers; CORS only for listed origins ([below](#the-configuration-documents-urls-and-cors)). |
 | `GET /federation/attester-configuration?client_id=` | same | Per-client view: issuer, evidence audience, trust domain, RAR type names. Ceiling, bindings and signing config are deliberately not exposed. |
 | `GET /.well-known/client-attestation-service` | `ClientAttestationServiceMetadataServlet` | The fixed CAS 1.0 §5 document: required request members, required proof claims (`aud`, `jti`, `iat`, `exp`, `challenge` when required, plus custom), claims minted. Reads the same config the issuance servlet enforces, so advertisement and enforcement cannot drift. |
 | `GET /federation/attestation/challenge` | `AttestationIssuanceChallengeServlet` | The attester's challenge endpoint (CAS §4.1), for the instance-key proof: `200 {"attestation_challenge","expires_in"}`, `Cache-Control: no-store`; 429 `slow_down` over its per-caller cap (60 a minute by default); 503 `temporarily_unavailable` when the store cannot record the challenge. Issues into `oidf:cas:challenge:*`, which `/federation/attestation` consumes, once. Any other method, `POST` and `HEAD` included, is 405 with `Allow: GET`. Advertised as `challenge_endpoint` by both discovery documents above. |
 | `POST /federation/attestation-challenge` | `ClientAttestationChallengeServlet` (in `client-attestation`) | The **authorization server's** challenge endpoint (ABCA-10 §6.1), for the PoP at the token endpoint - not this module's. Its challenges live in `oidf:as:challenge:*`, and the attester refuses them (`invalid_instance_proof`); the token endpoint likewise refuses the attester's (`use_attestation_challenge`). |
+
+## The request path
+
+`POST /federation/attestation` does three things before it looks at the evidence (plan item H-ATT-2, finding
+[F-0060](../../docs/findings/F-0060.yaml)):
+
+1. **The per-address limit.** The caller's client address is counted: the remote address, or behind a proxy
+   `OIDF_TRUSTED_PROXIES` lists, the right-most forwarding hop that proxy does not list (platform's
+   [`TrustedProxies`](../../libs/platform/README.md#net)). Past `OIDF_ATTESTER_ISSUANCE_REQUESTS_PER_MINUTE` (60) in
+   the address's minute - a fixed window from its first request - the answer is `429 temporarily_unavailable` with
+   `Retry-After`. The count is kept in Redis under `oidf:cas:limit:issue:` when `OIDF_REDIS_URL` is set, shared by
+   every node, and in the node's memory otherwise (at most 16384 addresses, the oldest dropped first), which makes the
+   limit each node's own and needs no accepted risk (Phase 3 plan, decision 9). A counter that cannot be written is
+   `503 temporarily_unavailable`.
+2. **The body cap.** At most `OIDF_ATTESTER_MAX_BODY_BYTES` (32768) bytes are read. A body whose `Content-Length` is
+   larger is refused before any of it is read, and one found larger once the cap is reached is refused with nothing
+   more read: `413 invalid_request`. PingFederate's `pf.runtime.http.maxRequestBodySize` bounds form parameters, not
+   this stream (U-0326).
+3. **Every failure an error answer with no internal text.** CAS §4.6: "Errors use HTTP 400 (or the status noted:
+   401, 403, 500 or 503)". Every answer this servlet writes that is not a 200 carries an `error` code and an
+   `X-Correlation-Id` header; the component gate's `404` and `503`, written before the servlet runs, carry no id. Every
+   code is one §4.6 lists except three kept from before 0.6.0, which clients may match on: `invalid_svid` (401) when
+   no client accepts SPIFFE or cloud-token evidence or the evidence is refused, `spiffe_id_not_authorized` (403) when a
+   valid SPIFFE ID is bound to no client, and `invalid_client` answered 400 where §4.6 notes 401
+   ([F-0392](../../docs/findings/F-0392.yaml)). A `5xx` or `invalid_client` -
+   the attester's own state or configuration, whose text can name a vault, a trust bundle's URL or a client's
+   settings - carries a fixed description naming the correlation id, and the detail, with its stack when there is
+   one, is logged at WARN under the same id. An exception nothing expected is `500 server_error` the same way, and so
+   is an `Error` such as a `LinkageError` from PingFederate's classes (one the JVM raises about itself, a
+   `VirtualMachineError`, is then thrown on); before 0.6.0 they reached the container, which answered with a page of
+   its own. A refusal of the request itself
+   (`invalid_request`, `invalid_instance_proof`, `access_denied`, ...) still says what is wrong with it. Two statuses
+   are not among §4.6's: `413` for the body cap and `429` for the limit, each with a §4.6 code, because RFC 9110
+   (section 15.5.14) and RFC 6585 (section 4) name those conditions and a client's HTTP stack knows them. Methods
+   other than `POST` are `405 invalid_request` with `Allow: POST`.
+
+**The client index.** The evidence is matched against a cached index of the attestation clients, not against every
+PingFederate client read afresh (`ClientBindingIndex`). One index per webapp over PingFederate's client store, which
+the issuance and configuration servlets share, built on first use and rebuilt every
+`OIDF_ATTESTER_CLIENT_INDEX_REFRESH_SECONDS` (30) on the managed executor `attester-client-index`. Evidence no indexed
+client accepts rebuilds it at once and is matched again, at most once every 5 s whoever sends it, so unknown evidence
+cannot make the attester read PingFederate's clients faster than that. A read that finds the index older than twice
+the interval rebuilds it, which covers a schedule that could not start. A rebuild that fails keeps the index it had,
+and logs why, for at most four intervals after the last rebuild that succeeded (two minutes at the default); past
+that, while PingFederate's clients still cannot be read, the endpoint answers `503 temporarily_unavailable` rather
+than issue for clients that may since have been disabled or deleted.
+
+- **What a rebuild costs:** one `ClientManager.getClients()` - every client PingFederate has, from its configuration
+  or, with a JDBC client store, a read of the whole client table - and the `attestation_*` properties of each client
+  that carries an `attestation_issuer` parsed. At the defaults that is two reads a minute, plus at most twelve a
+  minute while evidence keeps missing.
+- **How stale it can be:** while PingFederate's clients can be read, a client added, changed, disabled or deleted
+  there is seen here within the interval; a client added for evidence that is already arriving is seen at the first
+  miss after it. Until then a disabled or deleted client can still be issued attestations, for at most 30 s at the
+  default. While they cannot be read, for at most four intervals (two minutes). Lower the interval where that matters
+  more than the reads.
+
+The OpenID Federation and CIMD sources keep caches of their own (their TTLs), as before.
+
+## The configuration documents' URLs and CORS
+
+`/.well-known/client-attester`, its `/federation` alias and `/federation/attester-configuration` build their URLs
+from the request's own scheme, host and port - or, from a proxy `OIDF_TRUSTED_PROXIES` lists, from what it says in
+`X-Forwarded-Proto`, `-Host` and `-Port` (or RFC 7239 `Forwarded`, with `OIDF_TRUSTED_PROXIES_HEADERS=forwarded`).
+From anyone else those headers are ignored (H-ATT-3, finding [F-0061](../../docs/findings/F-0061.yaml)): before 0.6.0
+any caller could make the document name a host of its choosing.
+
+CORS: `Access-Control-Allow-Origin` is sent only to an origin `OIDF_ATTESTER_CORS_ORIGINS` lists, naming that origin,
+with `Access-Control-Allow-Methods: GET` and `Vary: Origin`; none is listed by default, and `*` is not accepted.
+Workloads and SDKs fetch these documents from servers, which CORS does not restrict, so the default costs them
+nothing. What it stops is a web page reading the documents through a visitor's browser: the browser can reach an
+attester the page's author cannot, inside a private network, and the per-client view names a client's issuer, trust
+domain and RAR types. `ClientAttestationServiceMetadataServlet` (`/.well-known/client-attestation-service`) still
+answers every origin; [F-0390](../../docs/findings/F-0390.yaml) records it with the other discovery documents that do.
 
 ## Evidence validators
 
@@ -376,6 +450,11 @@ in `libs/rar-model`'s test-jar runs through the mint, the configuration and the 
 | `OIDF_FEDERATION_TRUST_CONTROLLER_HOST` + `OIDF_ATTESTER_OP_ISSUER` + `OIDF_FEDERATION_TRUST_ANCHOR_JWKS` (`OIDF_FEDERATION_IGNORE_SSL_ERRORS`; the superseded `OIDF_TRUST_CONTROLLER_HOST`, `OIDF_TRUST_ANCHOR_JWKS` and `OIDF_TRUST_CONTROLLER_IGNORE_SSL` still read, with a warning) or `OIDF_WALLET_PROVIDER_JWKS` (sysprop/env) | unset | Wallet-provider trust: federation-backed preferred, static map otherwise. `OIDF_FEDERATION_TRUST_ANCHOR_JWKS` is the anchor's public JWK Set (the `jwks` claim of its entity configuration), captured once out of band; the keys are never fetched, and there is no fall-back to the static map (OpenID Federation 1.0 §4) | A host named without the anchor keys: first request, wallet trust is refused naming the variable. `OIDF_WALLET_PROVIDER_JWKS` not a JSON object: the issuance and CAS metadata servlets' parts are `FAILED_CONFIG` at deploy, naming it (before 0.6.0 it was ignored without a word) |
 | `OIDF_ATTESTER_SPIRE_ENTRIES_URL`, `OIDF_ENTRA_AGENT_DIRECTORY` (sysprop/env) | unset | SPIRE selector introspection; the Entra Agent ID asserted-context resolver (`OIDF_CIMD_TRUST_BUNDLES` only adds `cimd` to the CAS document's `client_metadata_sources_supported`, and only under `OIDF_DEPLOYMENT_PROFILE=development`) | The SPIRE URL not http or https, or the directory not a JSON object: the issuance servlet's part is `FAILED_CONFIG` at deploy, naming the setting (before 0.6.0 an unparseable directory registered no resolver, without a word). An unreachable SPIRE endpoint yields no selectors |
 | `challengeEndpointEnabled`, `attestationSigningAlgValuesSupported`, `customClaimsSupported` (init-params on the CAS metadata servlet; `customClaimsSupported` also `oidf.attestation.custom.claims.supported` / `OIDF_ATTESTATION_CUSTOM_CLAIMS_SUPPORTED`) | `true` / `RS256,PS256,ES256` / none | What the CAS document advertises; the lists split at commas and spaces | `challengeEndpointEnabled` not `true` or `false`, or a list of nothing: the metadata servlet's part is `FAILED_CONFIG` at deploy, naming the setting, and the document answers 503 (a list of nothing used to mean the default) |
+| `OIDF_ATTESTER_MAX_BODY_BYTES` (`oidf.attester.max.body.bytes`) | 32768 | The largest issuance request body read, 4096 to 262144 bytes ([above](#the-request-path)) | Out of range or not a whole number: the issuance servlet's part is `FAILED_CONFIG` at deploy, naming the setting |
+| `OIDF_ATTESTER_ISSUANCE_REQUESTS_PER_MINUTE` (`oidf.attester.issuance.requests.per.minute`) | 60 | Issuance requests one client address may make in a minute, 1 to 100000 | As above. Behind a proxy `OIDF_TRUSTED_PROXIES` does not list, every caller shares the proxy's allowance |
+| `OIDF_ATTESTER_CLIENT_INDEX_REFRESH_SECONDS` (`oidf.attester.client.index.refresh.seconds`) | 30 | How often the client index is rebuilt, 5 to 3600 s; also how long a client disabled in PingFederate can still be issued attestations | As above |
+| `OIDF_ATTESTER_CORS_ORIGINS` (`oidf.attester.cors.origins`) | unset | The browser origins allowed to read the configuration documents, `http(s)://host[:port]`, space- or comma-separated | An entry that is not an origin, or `*`: the configuration servlet's part is `FAILED_CONFIG` at deploy, naming the setting, and its documents answer 503 |
+| `OIDF_TRUSTED_PROXIES`, `OIDF_TRUSTED_PROXIES_HEADERS` (platform's [`trusted-proxies`](../../docs/configuration/trusted-proxies.md)) | unset, `x-forwarded` | The proxies whose forwarding headers are believed, as CIDR ranges; the client address the limits count and the URLs the configuration documents name come from them | Not a CIDR list: the issuance, configuration and challenge servlets' parts are `FAILED_CONFIG` at deploy, naming the setting |
 | `challengeCacheMaxEntries`, `challengeTtlSeconds`, `challengeRateLimitPerWindow`, `challengeRateLimitWindowSeconds`, `challengeRateLimitMaxCallers` (init-params on `AttestationIssuanceChallengeServlet`) | 8192 / 300 / 60 / 60 / 16384 | The in-memory size and the lifetime of the attester's challenges (with Redis only the lifetime applies), and its per-caller cap. The authorization server's endpoint reads the same names for its own challenges; neither reaches the other's | Not a whole number in the entry's range, or in memory a size of 0: the endpoint's part is `FAILED_CONFIG` at deploy, naming the setting, it answers 503, and its challenges keep the settings they had (before 0.6.0 a value that was not a whole number was ignored with a warning). A rate-limit value of 0 or less: the default |
 
 From 0.6.0 every setting above is read through its settings catalogue - [`attestation-issuer`](../../docs/configuration/attestation-issuer.md), [`evidence-policy`](../../docs/configuration/evidence-policy.md), [`attestation-challenge`](../../docs/configuration/attestation-challenge.md) - strictly (plan item ST-5), and each servlet is a part of `ATTESTATION_ISSUER` registered at deploy, so a wrong value shows at deploy rather than at a first request. A client's `attestation_*` extended properties are parsed as [`issuance-client-properties`](../../docs/configuration/issuance-client-properties.md) says: a value an entry refuses is that client's `invalid_client`, naming the property and never its value - an `attestation_bundle_url` that is not an http or https URL now among them, and an `attestation_evidence` type is taken in any case.

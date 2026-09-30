@@ -1,0 +1,19 @@
+id: F-0391
+title: Per-address rate limits key an IPv6 client by its full address, so a client with a /64 has 2^64 allowances
+severity: low
+area: platform, attestation-issuer, client-attestation, platform-pf
+source: design
+status: open
+plan_items: [H-ATT-3]
+prs: [89]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found while building HATT2 (2026-09-30). The challenge endpoints, the attester's issuance endpoint and the operator
+  APIs' failed-authentication limit count a client by TrustedProxies.clientAddress, the canonical text of its
+  address. An IPv6 host on a /64 subnet can choose among 2^64 addresses (RFC 7421 section 1: "a unicast address is
+  divided into n bits of subnet prefix followed by (128-n) bits of interface identifier (IID)", and the /64 boundary
+  is the common one), so a client can send each request from a new address and get a fresh allowance each time; the in-memory counters then drop other
+  clients' windows as they fill (16384 keys). IPv4 clients behind one NAT have the opposite problem and share one.
+  Keying IPv6 by its /64 (or a setting for the prefix) in TrustedProxies would close it for every user at once.
+  Not verified on a rig.
