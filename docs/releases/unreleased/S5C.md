@@ -25,7 +25,9 @@
   `trust_chain` header and its `peer_trust_chain` - with the client id. It was keyed on the first statement alone,
   so a caller who varied the rest of a chain got a fresh resolution each time. Explicit registration now consults
   and fills it: the same failed chain posted again within its backoff is answered with the same refusal and resolves
-  nothing. A success clears the client's remembered failures. At most 32 are kept per client.
+  nothing. A success clears the client's remembered failures. At most 4096 failures are kept in all, across every
+  client and chain, each as its status, code, description and kind rather than the exception with its cause and
+  stack trace.
 - `POST /federation/register` reads at most `OIDF_REGISTRATION_MAX_BODY_BYTES` of a body (65536, 4096 to 524288). A
   body whose `Content-Length` is larger is refused before any of it is read, and one found larger at the cap -
   chunked, or understated - is refused with no more of it read: 413 `invalid_request`. It used to read the whole body,
@@ -105,13 +107,16 @@ chain), then the number of statements and each statement as its UTF-8 length, a 
 the same for the peer chain. Discovery, with no chain presented, has the key `discovery`. Two attempts share a key
 only when they present the same statements in the same order, so a caller who varies any statement - not only the
 first - makes a new attempt, and each one is remembered. The chains that validated are kept under the same key for
-60 s. Each registration component (the servlet and the two filters) keeps its own memory and pool.
+60 s. Each registration component (the servlet and the two filters) keeps its own memory and pool. A component
+remembers at most 4096 failures in all, whatever client ids and chains they name - both are the caller's to choose -
+so a stranger who floods it with failing chains evicts older failures, each of which then costs one fresh attempt
+through the coordinator, and never makes the server hold more.
 
 **What the budget does not cover.** A PDP decision (`OIDF_PDP_REQUEST_TIMEOUT_MS`, 3000), an RP's `jwks_uri` or
 `signed_jwks_uri` fetch at the front channel (the outbound client's 15 s) and the client store writes run after the
 resolution and are not part of its budget, so a registration can outlast its deadline by those.
 
-**Tests.** The pf-integration suite ran on JDK 20.0.2 and 17.0.11 (727 tests, the method coverage gate included), and
+**Tests.** The pf-integration suite ran on JDK 20.0.2 and 17.0.11 (734 tests, the method coverage gate included), and
 the registration test classes (199 tests, among them RegistrationBudgetTest's slow peers over loopback HTTP for the
 explicit, token and front-channel paths) on Temurin 21.0.12 in maven:3-eclipse-temurin-21, on 2026-09-30.
 

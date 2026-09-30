@@ -74,10 +74,19 @@ final class RegistrationService {
     static final long TRANSPORT_FAILURE_BACKOFF_SECONDS = 15L;
     /** A chain that validated is used again for this long (or until it expires), so repeating a request repeats no fetch. */
     static final long RESOLUTION_REUSE_SECONDS = 60L;
-    private static final int ATTEMPT_MEMORY = 4096;
-    /** The failures remembered for one client, each under its own chain: a stranger varying the chain replaces its own. */
-    private static final int FAILURES_PER_CLIENT = 32;
+    /**
+     * The attempts remembered, and the failures remembered across every client and chain: both are the caller's to
+     * choose, so the total is what bounds what an unauthenticated stranger can make this server hold.
+     */
+    static final int ATTEMPT_MEMORY = 4096;
     private static final int RESOLUTION_MEMORY = 1024;
+    /**
+     * How TrustMarkValidator's refusal of a mark ends when the budget, not the mark, stopped it: ResolutionBudget's
+     * requests or time ("... refusing to keep resolving"), the validator's search steps ("... refusing to keep
+     * searching"), or a status endpoint cut off by the deadline. Every other refusal ends in the validator's own words.
+     */
+    static final List<String> BUDGET_REFUSAL_ENDINGS = List.of("refusing to keep resolving", "refusing to keep searching",
+            "budget ran out of time");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     static final Log LOGGER = LogFactory.getLog(RegistrationService.class);
 
@@ -96,11 +105,13 @@ final class RegistrationService {
     /** When each client last registered or renewed automatically. */
     private final Map<String, Attempt> recentAttempts = lru(ATTEMPT_MEMORY);
     /**
-     * Recent failures, by client and then by the whole chain the attempt started from ({@link #chainKey}): a caller's
-     * bad chain never stands in for the client's own, for another chain or for discovery. A success clears the
-     * client's.
+     * Recent failures, under the client and the whole chain the attempt started from ({@link #chainKey}): a caller's
+     * bad chain never stands in for the client's own, for another chain or for discovery. One map of at most
+     * {@link #ATTEMPT_MEMORY} light records in all, however many clients and chains a stranger names - a flood evicts
+     * older failures, which costs each of them one fresh attempt through the coordinator, never more memory. A success
+     * clears the client's.
      */
-    private final Map<String, Map<String, Attempt>> recentFailures = lru(ATTEMPT_MEMORY);
+    private final Map<FailureKey, Failure> recentFailures = lru(ATTEMPT_MEMORY);
     /** Chains that validated, under their client and chain, with the RP keys resolved from them. */
     private final Map<String, Resolution> resolutions = lru(RESOLUTION_MEMORY);
 
@@ -121,7 +132,25 @@ final class RegistrationService {
     }
 
     /** One registration attempt: when, and why it failed - null when it did not. */
-    private record Attempt(long at, RegistrationRejectedException failure) {
+    private record Attempt(long at) {
+    }
+
+    /** Where a failure is remembered: the client, and the key of the whole chain its attempt started from. */
+    private record FailureKey(String clientId, String chain) {
+    }
+
+    /**
+     * A remembered failure: when, and what to answer - not the exception, whose cause and stack trace would make each
+     * entry many times the size. It is answered with a new exception built from these.
+     */
+    private record Failure(long at, int status, String error, String description, RegistrationRejectedException.Kind kind) {
+        private static Failure of(long at, RegistrationRejectedException e) {
+            return new Failure(at, e.status(), e.error(), e.getMessage(), e.kind());
+        }
+
+        private RegistrationRejectedException rejection() {
+            return new RegistrationRejectedException(this.status, this.error, this.description, this.kind, null);
+        }
     }
 
     /** A chain that validated, and the keys resolved from it once they were needed. */
@@ -242,7 +271,7 @@ final class RegistrationService {
                 this.remember(clientId, chain, e);
                 throw e;
             }
-            this.recentFailures.remove(clientId);
+            this.forgetFailures(clientId);
         });
         return registered[0];
     }
@@ -454,8 +483,8 @@ final class RegistrationService {
             this.remember(clientId, chain, e);
             return e;
         }
-        this.recentFailures.remove(clientId);
-        this.recentAttempts.put(renewalKey(clientId), new Attempt(this.lifetime.now(), null));
+        this.forgetFailures(clientId);
+        this.recentAttempts.put(renewalKey(clientId), new Attempt(this.lifetime.now()));
         return null;
     }
 
@@ -576,24 +605,35 @@ final class RegistrationService {
      * not be reached or a budget that ran out.
      */
     private RegistrationRejectedException recentFailure(String clientId, String chain) {
-        Map<String, Attempt> failures = this.recentFailures.get(clientId);
-        Attempt attempt = failures == null ? null : failures.get(chain);
-        if (attempt == null) {
+        FailureKey key = new FailureKey(clientId, chain);
+        Failure failure = this.recentFailures.get(key);
+        if (failure == null) {
             return null;
         }
-        long backoff = attempt.failure().isTransport() ? TRANSPORT_FAILURE_BACKOFF_SECONDS : TRUST_FAILURE_BACKOFF_SECONDS;
-        if (this.lifetime.now() - attempt.at() >= backoff) {
-            failures.remove(chain);
+        long backoff = failure.kind() == RegistrationRejectedException.Kind.TRANSPORT
+                ? TRANSPORT_FAILURE_BACKOFF_SECONDS : TRUST_FAILURE_BACKOFF_SECONDS;
+        if (this.lifetime.now() - failure.at() >= backoff) {
+            this.recentFailures.remove(key);
             return null;
         }
-        return attempt.failure();
+        return failure.rejection();
     }
 
     /** Remembers {@code failure} of {@code clientId}'s attempt from {@code chain}, when it says something about the client. */
     private void remember(String clientId, String chain, RegistrationRejectedException failure) {
         if (failure.concernsTheClient()) {
-            this.recentFailures.computeIfAbsent(clientId, id -> lru(FAILURES_PER_CLIENT)).put(chain, new Attempt(this.lifetime.now(), failure));
+            this.recentFailures.put(new FailureKey(clientId, chain), Failure.of(this.lifetime.now(), failure));
         }
+    }
+
+    /** Forgets every failure remembered for {@code clientId}: it has just registered. */
+    private void forgetFailures(String clientId) {
+        this.recentFailures.keySet().removeIf(key -> key.clientId().equals(clientId));
+    }
+
+    /** How many failures are remembered, across every client and chain. */
+    int rememberedFailures() {
+        return this.recentFailures.size();
     }
 
     private static String renewalKey(String clientId) {
@@ -633,10 +673,10 @@ final class RegistrationService {
         }
     }
 
-    private static <V> Map<String, V> lru(int capacity) {
+    private static <K, V> Map<K, V> lru(int capacity) {
         return java.util.Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
             @Override
-            protected boolean removeEldestEntry(Map.Entry<String, V> eldest) {
+            protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
                 return this.size() > capacity;
             }
         });
@@ -1102,9 +1142,16 @@ final class RegistrationService {
             return this.result;
         }
 
-        /** Whether the budget the marks spent from has run out - of time, or of requests - so a missing mark may be one not checked. */
-        boolean budgetSpent() {
-            return this.budget.expired() || this.budget.used() >= this.budget.requests();
+        /**
+         * Whether a mark of a type in {@code missing} may have gone unchecked because the budget ran out, as against one
+         * checked and found wanting: the budget's time has passed (the registration has outlived its deadline, whatever
+         * the marks came to), or a missing type's mark was refused by the budget. Not from the requests the budget has
+         * left: a resolution can spend exactly its last request and still check every mark. The validator words a
+         * budget refusal in the budget's own text, which names no peer ({@link #BUDGET_REFUSAL_ENDINGS}).
+         */
+        boolean leftUnchecked(List<String> missing) {
+            return this.budget.expired() || this.validated().rejected().stream().anyMatch(rejected -> missing.contains(rejected.type())
+                    && BUDGET_REFUSAL_ENDINGS.stream().anyMatch(rejected.reason()::endsWith));
         }
 
         /** The types of the marks that verified, or null when none were checked. */
@@ -1130,7 +1177,7 @@ final class RegistrationService {
         if (missing.isEmpty()) {
             return;
         }
-        if (marks.budgetSpent()) {
+        if (marks.leftUnchecked(missing)) {
             // A mark the budget left unchecked is not a mark the entity lacks: the registration's time or requests ran out.
             FederationEvents.event(FederationEvents.REGISTRATION_REFUSED).failure("temporarily_unavailable").subject(clientId).role("OP").audit()
                     .field("entity_type", entityType).description("the resolution budget ran out before the Trust Marks were checked").emit();

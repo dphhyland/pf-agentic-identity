@@ -146,6 +146,23 @@ class RegistrationTrustMarkBudgetTest {
     }
 
     @Test
+    @Requirement("OIDFED §18.1(3)")
+    void aBudgetSpentToItsLastRequestOnAMarkFoundWantingLeavesTheMarkTheEntitys() throws Exception {
+        requireCertified(true);
+        Federation f = this.federation();
+
+        // Three requests resolve the chain and the issuer; the fourth asks the status endpoint, which says revoked.
+        RegistrationRejectedException short1 = assertThrows(RegistrationRejectedException.class, () -> this.service(f, 3, Duration.ofSeconds(25),
+                Duration.ZERO, "revoked").explicitRegister(new ExplicitRegistrationRequest(AGENT, AGENT, f.chain(AGENT, TA), Map.of()), OP));
+        assertNotChecked(short1);
+        RegistrationRejectedException e = assertThrows(RegistrationRejectedException.class, () -> this.service(f, 4, Duration.ofSeconds(25),
+                Duration.ZERO, "revoked").explicitRegister(new ExplicitRegistrationRequest(AGENT, AGENT, f.chain(AGENT, TA), Map.of()), OP));
+
+        assertEquals(400, e.status(), "every request spent, and the mark was checked: the entity lacks it");
+        assertEquals(RegistrationRejectedException.Kind.POLICY, e.kind());
+    }
+
+    @Test
     void withTheBudgetToSpareAMissingMarkIsStillTheEntitys() throws Exception {
         requireCertified(true);
         Federation f = this.federation();

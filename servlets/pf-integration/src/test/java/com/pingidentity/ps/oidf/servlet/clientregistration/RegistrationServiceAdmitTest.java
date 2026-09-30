@@ -11,7 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -454,7 +453,8 @@ class RegistrationServiceAdmitTest {
 
         RegistrationRejectedException first = assertThrows(RegistrationRejectedException.class, () -> service.admit(CLIENT_ID, chain, OP_ISSUER));
         RegistrationRejectedException second = assertThrows(RegistrationRejectedException.class, () -> service.admit(CLIENT_ID, chain, OP_ISSUER));
-        assertSame(first, second);
+        assertEquals(first.getMessage(), second.getMessage(), "the remembered failure is answered again");
+        assertEquals(first.kind(), second.kind());
         assertEquals(List.of(chain, List.of()), this.validated);
 
         assertThrows(RegistrationRejectedException.class, () -> service.admit(CLIENT_ID, this.chainIssued(1, NEW_KEYS), OP_ISSUER));

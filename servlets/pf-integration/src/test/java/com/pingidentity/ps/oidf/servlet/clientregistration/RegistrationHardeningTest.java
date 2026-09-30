@@ -5,7 +5,6 @@ import static com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationFi
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -221,7 +220,8 @@ class RegistrationHardeningTest {
         this.clock.advance(Duration.ofSeconds(RegistrationService.TRUST_FAILURE_BACKOFF_SECONDS - 1));
         RegistrationRejectedException second = assertThrows(RegistrationRejectedException.class, () -> service.explicitRegister(post(RP, this.chain), OP));
 
-        assertSame(first, second, "the remembered failure is answered again");
+        assertEquals(first.getMessage(), second.getMessage(), "the remembered failure is answered again");
+        assertEquals(first.kind(), second.kind());
         assertEquals(400, second.status());
         assertEquals("invalid_trust_chain", second.error());
         verify(this.validator, times(1)).validate(any(ValidationRequest.class));
@@ -298,6 +298,67 @@ class RegistrationHardeningTest {
     }
 
     @Test
+    @Requirement("OIDFED §18.1(3)")
+    void anAutomaticSuccessClearsTheClientsRememberedFailuresAndNoOneElses() throws Exception {
+        TrustChainValidationResult good = result(RP, this.chain, Map.of("oauth_client", RegistrationFixtures.agentMetadata("automatic")),
+                Set.of("oauth_client"), -1L);
+        List<String> goodChain = this.variedAfterTheFirst();
+        when(this.validator.validate(any(ValidationRequest.class))).thenAnswer(call -> {
+            ValidationRequest request = call.getArgument(0);
+            if (request.presentedChain().equals(goodChain)) {
+                return good;
+            }
+            throw untrusted();
+        });
+        RegistrationService service = this.service();
+        assertThrows(RegistrationRejectedException.class, () -> service.explicitRegister(post(OTHER, this.chain), OP));
+        assertThrows(RegistrationRejectedException.class, () -> service.admit(RP, this.chain, OP));
+        assertEquals(3, service.rememberedFailures(), "the other client's chain, and this one's chain and discovery");
+
+        assertEquals(Admission.REGISTERED, service.admit(RP, goodChain, OP));
+
+        assertEquals(1, service.rememberedFailures(), "only the other client's failure is left");
+    }
+
+    @Test
+    @Requirement("OIDFED §18.1(3)")
+    void aRememberedExplicitFailureIsAnsweredWithoutWaitingForTheCoordinator() throws Exception {
+        when(this.validator.validate(any(ValidationRequest.class))).thenThrow(untrusted());
+        RegistrationService service = this.service(new RegistrationCoordinator(1, 0L));
+        assertThrows(RegistrationRejectedException.class, () -> service.explicitRegister(post(RP, this.chain), OP));
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Future<RegisteredClient> first = this.held(service, OTHER, started, release);
+        assertTrue(started.await(5, TimeUnit.SECONDS));
+
+        RegistrationRejectedException e = assertThrows(RegistrationRejectedException.class, () -> service.explicitRegister(post(RP, this.chain), OP));
+
+        assertEquals(RegistrationRejectedException.Kind.TRUST, e.kind(), "the remembered failure, not the full pool's busy");
+        assertEquals(400, e.status());
+        release.countDown();
+        first.get(5, TimeUnit.SECONDS);
+    }
+
+    @Test
+    @Requirement("OIDFED §18.1(3)")
+    void theMemoryHoldsAtMostItsTotalHoweverManyClientsAStrangerNames() throws Exception {
+        when(this.validator.validate(any(ValidationRequest.class))).thenThrow(untrusted());
+        RegistrationService service = this.service();
+
+        for (int i = 0; i < RegistrationService.ATTEMPT_MEMORY + 100; i++) {
+            String stranger = "https://stranger-" + i + ".example.com";
+            assertThrows(RegistrationRejectedException.class, () -> service.explicitRegister(post(stranger, this.chain), OP));
+        }
+        for (int i = 0; i < 100; i++) {
+            List<String> varied = new ArrayList<>(this.chain);
+            varied.add("x" + i);
+            assertThrows(RegistrationRejectedException.class, () -> service.explicitRegister(post(RP, varied), OP));
+        }
+
+        assertEquals(RegistrationService.ATTEMPT_MEMORY, service.rememberedFailures(), "one bound across every client and chain");
+    }
+
+    @Test
     void aRequestThatWaitedForTheSameBadChainFindsItsFailureUnderTheLock() throws Exception {
         RegistrationService service = this.service(new RegistrationCoordinator(8, 5_000L));
         CountDownLatch started = new CountDownLatch(1);
@@ -364,6 +425,8 @@ class RegistrationHardeningTest {
         assertNotEquals(key, RegistrationService.chainKey("explicit", List.of("b", "a"), List.of()), "order");
         assertNotEquals(key, RegistrationService.chainKey("explicit", List.of("a", "c"), List.of()), "a later statement");
         assertNotEquals(key, RegistrationService.chainKey("explicit", List.of("ab"), List.of()), "where one statement ends");
+        assertNotEquals(RegistrationService.chainKey("explicit", List.of("ab", "c"), List.of()),
+                RegistrationService.chainKey("explicit", List.of("a", "bc"), List.of()), "the same count and concatenation, other boundaries");
         assertNotEquals(key, RegistrationService.chainKey("explicit", List.of("a"), List.of("b")), "the peer chain is its own list");
         assertNotEquals(key, RegistrationService.chainKey("presented", ab, List.of()), "the path");
         assertEquals(64, key.length());
