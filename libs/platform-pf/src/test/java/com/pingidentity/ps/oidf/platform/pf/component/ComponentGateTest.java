@@ -74,6 +74,10 @@ class ComponentGateTest {
         return this.body.toString(StandardCharsets.UTF_8);
     }
 
+    private static String b64u(String json) {
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(json.getBytes(StandardCharsets.UTF_8));
+    }
+
     private static String jwt(String header, String claims) {
         Base64.Encoder b64 = Base64.getUrlEncoder().withoutPadding();
         return b64.encodeToString(header.getBytes(StandardCharsets.UTF_8)) + "." + b64.encodeToString(claims.getBytes(StandardCharsets.UTF_8))
@@ -207,13 +211,29 @@ class ComponentGateTest {
         // An assertion whose sub is an Entity Identifier.
         when(this.request.getParameter("client_assertion")).thenReturn(jwt("{\"alg\":\"RS256\"}", "{\"sub\":\"https://rp.example\"}"));
         assertTrue(ComponentGate.federationClientTraffic(this.request));
-        when(this.request.getParameter("client_assertion")).thenReturn(jwt("{\"alg\":\"RS256\"}", "{\"sub\":42}"));
-        assertFalse(ComponentGate.federationClientTraffic(this.request));
-        when(this.request.getParameter("client_assertion")).thenReturn(jwt("[1]", "[2]"));
+        // The same assertion in the standard base64 alphabet, padded, as jose4j (and so a healthy filter) reads it.
+        String standard = "{\"sub\":\"https://rp.example.com\",\"n\":\"???\"}";
+        String std = Base64.getEncoder().encodeToString(standard.getBytes(StandardCharsets.UTF_8));
+        assertTrue(std.contains("/") || std.contains("+"), std);
+        when(this.request.getParameter("client_assertion")).thenReturn(b64u("{\"alg\":\"RS256\"}") + "." + std + ".sig");
+        assertTrue(ComponentGate.federationClientTraffic(this.request));
+
+        // An assertion without a sub is judged by client_id.
+        when(this.request.getParameter("client_assertion")).thenReturn(jwt("{\"alg\":\"RS256\"}", "{}"));
         assertFalse(ComponentGate.federationClientTraffic(this.request));
 
-        // An assertion that cannot be read is judged by client_id.
+        // An assertion the gate cannot read is the component's traffic, whatever client_id says: the floor fails closed.
+        when(this.request.getParameter("client_assertion")).thenReturn(jwt("{\"alg\":\"RS256\"}", "{\"sub\":42}"));
+        assertTrue(ComponentGate.federationClientTraffic(this.request));
+        when(this.request.getParameter("client_assertion")).thenReturn(jwt("[1]", "{\"sub\":\"x\"}"));
+        assertTrue(ComponentGate.federationClientTraffic(this.request));
+        when(this.request.getParameter("client_assertion")).thenReturn(jwt("{\"alg\":\"RS256\"}", "[2]"));
+        assertTrue(ComponentGate.federationClientTraffic(this.request));
         when(this.request.getParameter("client_assertion")).thenReturn("not a jwt");
+        assertTrue(ComponentGate.federationClientTraffic(this.request));
+
+        // No assertion: client_id decides.
+        when(this.request.getParameter("client_assertion")).thenReturn(null);
         assertFalse(ComponentGate.federationClientTraffic(this.request));
         when(this.request.getParameter("client_id")).thenReturn("https://rp.example");
         assertTrue(ComponentGate.federationClientTraffic(this.request));
@@ -240,5 +260,8 @@ class ComponentGateTest {
         assertNull(ComponentGate.jwtPart("!!!.b.c", 0));
         assertNull(ComponentGate.jwtPart(jwt("\"text\"", "{}"), 0));
         assertEquals("RS256", ComponentGate.jwtPart(jwt("{\"alg\":\"RS256\"}", "{}"), 0).get("alg"));
+        String padded = Base64.getEncoder().encodeToString("{\"a\":\"bc\"}".getBytes(StandardCharsets.UTF_8));
+        assertTrue(padded.endsWith("="), padded);
+        assertEquals("bc", ComponentGate.jwtPart(padded.substring(0, 4) + "\n" + padded.substring(4) + ".e30.c", 0).get("a"));
     }
 }

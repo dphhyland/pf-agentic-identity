@@ -133,7 +133,8 @@ component only when a part of it is `REFUSED` (the programme's decision 4).
 | none (`init` never ran) | `false` | `false` |
 
 A filter's `traffic` is its own trigger read from the request alone: `federationClientTraffic` (a `client_id`, or a
-`client_assertion` whose `sub` is, an https URL with a host, or an assertion with a `trust_chain` header),
+`client_assertion` whose `sub` is, an https URL with a host, an assertion with a `trust_chain` header, or an
+assertion it cannot read, so that the floor fails closed),
 `attestationTraffic` (`OAuth-Client-Attestation` or its PoP) or `everyRequest` (FAPI, which cannot tell its clients
 from the rest without the list it failed to read). The body is OpenID Federation 1.0 §8.9's and RFC 6749 §5.2's
 error shape, with `Cache-Control: no-store`. What operators see is in

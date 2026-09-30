@@ -139,10 +139,10 @@ public class HostedEntityServlet extends RequestScopedServlet {
             return false;
         }
         // Everything that can fail is resolved before the registry or the signing is published: the store, the policy
-        // and the signer. A signer that cannot be built, or a policy that is not one, then leaves no registry behind -
-        // the authority is configured whole or not at all - and a later attempt (the supervisor's, or another
-        // servlet's) starts from nothing. The policy alone is harmless: nothing reads it until signing is published,
-        // and the next attempt sets it again.
+        // and the signer. A policy that is not one then leaves no registry behind - the authority is configured whole
+        // or not at all - and a later attempt (the supervisor's, or another servlet's) starts from nothing. The policy
+        // alone is harmless: nothing reads it until signing is published, and the next attempt sets it again.
+        // SurfaceGateTest.aStoreIsNotPublishedWhenALaterStepOfTheAuthorityFails pins this order.
         javax.sql.DataSource store = null;
         String jdbcUrl = setting(initParams, "jdbcUrl", "oidf.authority.jdbc.url", "OIDF_AUTHORITY_JDBC_URL");
         if (jdbcUrl != null) {

@@ -576,7 +576,7 @@ always, in production while none of the component's settings is set):
 | `FEDERATION` | `OpenIdRegistrationServlet` (explicit registration, a federation endpoint) | always | at deploy |
 | `AUTO_REGISTRATION` | `TokenEndpointAutoRegistrationFilter` | always; `FAILED_CONFIG` while the anchor's keys are not pinned | at deploy |
 | `AUTO_REGISTRATION` | `FrontChannelAutoRegistrationFilter` | unless `OIDF_AUTO_REGISTRATION_FRONT_CHANNEL=false`; `FAILED_CONFIG` while the keys are not pinned | at deploy |
-| `ATTESTATION_AUTH` | `ClientAttestationAuthFilter` | unless no bridge signing is configured and `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`; `DEGRADED` while the keys are not pinned | at deploy |
+| `ATTESTATION_AUTH` | `ClientAttestationAuthFilter` | unless `OIDF_ATTESTATION_AUTH_ENABLED=false` (or its superseded alias `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`, whether or not bridge signing is configured); `FAILED_CONFIG` when on or inferred with no bridge signing; `DEGRADED` while the keys are not pinned | at deploy |
 | `ATTESTATION_ISSUER` | `AttestationIssuanceServlet` | always | at deploy |
 | `HOSTING` | `HostedEntityServlet` | when an authority entity id is set | at deploy |
 | `SSF` | `SsfConfigurationServlet` | when the transmitter's settings parse (an issuer is set) | at deploy |

@@ -22,7 +22,13 @@ serving. What each state looks like from outside is in [health.md](health.md).
 The lists are the same as each switch's description in
 [components.json](../../libs/platform/src/main/resources/META-INF/oidf-settings/components.json) and its generated
 page, [docs/configuration/components.md](../configuration/components.md). A setting counts as present when it is set
-in the environment and not blank.
+in the environment and not blank; a setting given only as a system property or an init-param (such as
+`oidf.authority.entity_id` or `oidf.fapi2.clients`) does not count, so production infers that component without
+saying so.
+
+`OIDF_OPENBAO_URL` is shared: the attester's signing key reads it too. An attester-only node that sets it for that key
+and leaves `OIDF_HOSTING_ENABLED` unset has `HOSTING` `FAILED_CONFIG` in production, with the switch named; set
+`OIDF_HOSTING_ENABLED=false`.
 
 **The SSF switches are not applied yet.** `OIDF_SSF_ENABLED` and `OIDF_SSF_RECEIVER_ENABLED` are catalogued and
 parsed, but the SSF servlets start as their own settings say until ST-5 moves their start-up onto the component
@@ -74,8 +80,10 @@ used to throw reaches the container. The part records the outcome - `DISABLED`, 
 `FAILED_CONFIG` or `FAILED_DEPENDENCY` - and the component is the worst of its enabled parts.
 
 Shared state is published once, whole. The authority's signer, entity id and configuration builder are one value
-assigned in one write, so a reader sees all three or none, and `HostedEntityServlet.configureAuthority` builds the
-signer before it configures the registry, so a signer that cannot be built leaves no registry behind.
+assigned in one write, so a reader sees all three or none, and `HostedEntityServlet.configureAuthority` resolves its
+store, domain metadata policy and signer before it publishes the registry, so a policy that is not one leaves no
+registry behind (`SurfaceGateTest.aStoreIsNotPublishedWhenALaterStepOfTheAuthorityFails`, which fails with the old
+order).
 `FrontChannelAutoRegistrationFilter` publishes what its requests need as one value at the end of its start.
 
 **The floor on each surface.** The first statement of every request method of these nine classes is platform-pf's
@@ -98,7 +106,10 @@ still reads the component: ready is 503 while either part is failed.
 
 The component's own traffic is what the filter acts on when it is healthy, read from the request alone:
 automatic registration's is a request whose `client_id`, or `client_assertion` `sub`, is an https URL with a host
-(OpenID Federation 1.0 §1.2 defines an Entity Identifier so), or whose assertion carries a `trust_chain` header;
+(OpenID Federation 1.0 §1.2 defines an Entity Identifier so), or whose assertion carries a `trust_chain` header,
+or whose assertion the gate cannot read (a header or claims that are not a JSON object, or a `sub` that is not a
+string) - the floor fails closed rather than guess, and it decodes base64url and standard base64 alike, as jose4j and
+so the healthy filter do;
 attestation's is a request with `OAuth-Client-Attestation` or its PoP; FAPI's is every request, because a FAPI
 filter that did not start does not know its client list. A token request from any of PingFederate's own clients
 therefore keeps working while automatic registration is failed. S9b (Phase 3, wave 4) replaces this floor with each

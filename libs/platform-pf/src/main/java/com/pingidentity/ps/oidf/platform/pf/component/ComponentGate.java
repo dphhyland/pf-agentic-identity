@@ -161,19 +161,21 @@ public final class ComponentGate {
      * federation client this module registers is known by its Entity Identifier, which OpenID Federation 1.0 §1.2
      * defines as a URL using the https scheme with a host component (automatic registration uses it as the client id,
      * §12.1, and explicit registration here registers the statement's {@code sub}). Any other client id is
-     * PingFederate's own client, which automatic registration leaves alone. An assertion that cannot be read is
-     * judged by {@code client_id}, as the filters judge it.
+     * PingFederate's own client, which automatic registration leaves alone. An assertion the gate cannot read - a
+     * header or claims that are not a JSON object in base64url or standard base64, or a {@code sub} that is not a
+     * string - is the component's traffic: the floor fails closed rather than guess who it names, because a healthy
+     * filter reads assertions through jose4j, which accepts more encodings than one strict decoder would.
      */
     public static boolean federationClientTraffic(HttpServletRequest request) {
         String assertion = request.getParameter("client_assertion");
         if (present(assertion)) {
             Map<String, Object> header = jwtPart(assertion, 0);
-            if (header != null && header.containsKey("trust_chain")) {
+            Map<String, Object> claims = jwtPart(assertion, 1);
+            if (header == null || claims == null || header.containsKey("trust_chain")) {
                 return true;
             }
-            Map<String, Object> claims = jwtPart(assertion, 1);
-            Object sub = claims == null ? null : claims.get("sub");
-            if (sub instanceof String && entityIdentifier((String) sub)) {
+            Object sub = claims.get("sub");
+            if (sub != null && !(sub instanceof String) || sub instanceof String && entityIdentifier((String) sub)) {
                 return true;
             }
         }
@@ -191,15 +193,22 @@ public final class ComponentGate {
         }
     }
 
-    /** One of a compact JWS's first two parts as a JSON object, or null when it is not one. Nothing is verified. */
+    /**
+     * One of a compact JWS's first two parts as a JSON object, or null when it is not one. Nothing is verified. The
+     * part is decoded as jose4j decodes it: base64url or standard base64, padded or not, whitespace ignored.
+     */
     @SuppressWarnings("unchecked")
     static Map<String, Object> jwtPart(String jwt, int index) {
         String[] parts = jwt.trim().split("\\.", -1);
         if (parts.length != 3) {
             return null;
         }
+        String part = parts[index].replaceAll("\\s", "").replace('+', '-').replace('/', '_');
+        while (part.endsWith("=")) {
+            part = part.substring(0, part.length() - 1);
+        }
         try {
-            Object json = Json.parse(new String(Base64.getUrlDecoder().decode(parts[index]), StandardCharsets.UTF_8));
+            Object json = Json.parse(new String(Base64.getUrlDecoder().decode(part), StandardCharsets.UTF_8));
             return json instanceof Map ? (Map<String, Object>) json : null;
         } catch (RuntimeException e) {
             return null;

@@ -7,14 +7,21 @@ plan_items: [S9a]
 prs: [72]
 recorded_in: docs/operator/components.md, What a component does when it fails; libs/platform/README.md, component
 verify_by: >
-  Boot the rig with a component whose start fails on a dependency that comes back - HOSTING with OIDF_AUTHORITY_JDBC_URL
-  naming a Postgres that is stopped at boot and started a minute later. Expect the part FAILED_DEPENDENCY in the
-  start-up audit, a thread named for the component-supervisor executor in a thread dump, oidf_component_retries_total
-  {component="HOSTING"} rising in the webapp's metrics MXBean, and the part READY (ready 200) within 300 s of the
-  database answering, with no retry after that.
+  Boot the rig with a component whose start fails on a dependency that comes back - AUTO_REGISTRATION with the
+  trust anchor's keys pinned and OIDF_FEDERATION_ERROR_PAGE naming a file that is not there at boot and is copied
+  into the container a minute later (FrontChannelAutoRegistrationFilter's start reads it, and the missing file's
+  NoSuchFileException is an IOException, so the part is FAILED_DEPENDENCY). A stopped Postgres behind
+  OIDF_AUTHORITY_JDBC_URL does not do: HostedEntityServlet's start builds a DriverManagerDataSource and a registry
+  that only store it, so no connection is made at start and the part is READY. Expect FrontChannelAutoRegistrationFilter
+  FAILED_DEPENDENCY in the start-up audit, a thread named for the component-supervisor executor in a thread dump,
+  oidf_component_retries_total{component="AUTO_REGISTRATION"} rising in the webapp's metrics MXBean, and the part
+  READY within 300 s of the file appearing, with no retry after that.
 verification: ''
 notes: >
   Package S9A (2026-09-30) tested the backoff and its jitter bounds with a fake clock and scheduler, retry to READY,
   no retry of FAILED_CONFIG, and no schedule in a copy that is not the webapp's (SupervisorTest,
   ComponentPartsStartTest), on JDK 17 and 21. On the rig every failure seen was a configuration failure, which is not
-  retried, so no retry ran there.
+  retried, so no retry ran there. Read in the code on 2026-09-30: of the nine start functions, only a file the start
+  reads (the federation error page) realistically fails on a dependency today - the stores are not contacted until
+  the first request, and a RAR models file that cannot be read is a RarModelException without its cause, so
+  FAILED_CONFIG.

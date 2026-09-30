@@ -37,9 +37,11 @@ Things to know before routing on ready:
   whose filter cannot tell a FAPI client from any other without the client list it failed to read, so every request to
   the endpoints it covers answers 503 ([components.md](components.md#what-a-component-does-when-it-fails)). A load
   balancer that routes on ready takes such a node out; one that routes on live or on PingFederate's heartbeat keeps
-  sending it traffic, and the component's own requests meet the 503. A component that failed on a dependency (a store,
-  OpenBao, a file that is not there yet) is retried with backoff from 5 s to 300 s and becomes ready by itself once
-  the dependency is back; one that failed on configuration waits for a restart.
+  sending it traffic, and the component's own requests meet the 503. A component that failed on a dependency (an I/O,
+  SQL, timeout or linkage failure in its start - today, in practice, a file its start reads that is not there yet,
+  such as `OIDF_FEDERATION_ERROR_PAGE`; the stores are not contacted until the first request) is retried with backoff
+  from 5 s to 300 s and becomes ready by itself once the dependency is back; one that failed on configuration waits
+  for a restart.
 - **Every part starts at deploy.** Explicit registration, hosting, the admin API and the attester's issuance endpoint
   used to start on their first request, so ready did not see them until someone called them
   ([F-0193](../findings/F-0193.yaml), closed by S9a). They now load at start-up. The SSF receiver still starts on its

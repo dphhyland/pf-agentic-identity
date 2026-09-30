@@ -174,7 +174,7 @@
                                         <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.start(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.retry(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.attempt(*</include>
-                                                                                <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.notConfigured(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.notConfigured(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.componentState(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.componentRefused(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.verdict(*</include>

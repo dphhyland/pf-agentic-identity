@@ -7,6 +7,7 @@ package com.pingidentity.ps.oidf.servlet.trustanchor;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -17,10 +18,12 @@ import com.pingidentity.ps.oidf.authority.AuthoritySupport;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.platform.component.ComponentState;
 import com.pingidentity.ps.oidf.servlet.GateTesting;
+import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.ByteArrayOutputStream;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -72,6 +75,27 @@ class SurfaceGateTest {
         verify(this.response).setStatus(503);
         assertTrue(GateTesting.text(answer).contains("HOSTING is not available"), GateTesting.text(answer));
         verify(this.request, never()).getMethod();
+    }
+
+    @Test
+    void aStoreIsNotPublishedWhenALaterStepOfTheAuthorityFails() {
+        // configureAuthority resolves the store, the policy and the signer before it publishes anything, so a policy that
+        // is not one leaves no registry behind - with the registry configured first, the store would stay published.
+        AuthoritySupport.resetForTests();
+        TrustMarkSupport.resetForTests();
+        try {
+            System.setProperty(POLICY_PROP, "{\"openid_relying_party\":5}");
+            FederationRuntimeConfig.resetForTests();
+            Map<String, String> params = Map.of("authorityEntityId", "https://authority.example",
+                    "jdbcUrl", "jdbc:example:a-store-no-one-connects-to");
+            assertThrows(RuntimeException.class, () -> HostedEntityServlet.configureAuthority(params::get));
+            assertTrue(AuthoritySupport.registryIfConfigured().isEmpty(), "a failed configuration publishes no registry");
+            assertFalse(AuthoritySupport.isHostingConfigured(), "a failed configuration publishes no signing");
+            assertFalse(TrustMarkSupport.isConfigured(), "a failed configuration publishes no Trust Mark store");
+        } finally {
+            AuthoritySupport.resetForTests();
+            TrustMarkSupport.resetForTests();
+        }
     }
 
     @Test

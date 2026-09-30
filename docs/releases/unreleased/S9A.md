@@ -11,7 +11,8 @@
 - A request-path gate, platform-pf's `ComponentGate`, is the first statement of each of those classes' request
   methods. A surface whose part is starting or failed, or whose component has a refused part, answers 503
   `{"error":"temporarily_unavailable",...}` and goes no further; a filter answers so only for its component's own
-  traffic and passes the rest to PingFederate. A servlet that is off answers 404 `not_found`; a filter that is off
+  traffic and passes the rest to PingFederate; a client assertion the gate cannot read counts as the component's
+  traffic, so the floor fails closed. A servlet that is off answers 404 `not_found`; a filter that is off
   passes everything on.
 - A supervisor, `platform.component.Supervisor`, starts a part that failed on a dependency again, on a managed
   executor of the webapp's copy only, after a wait drawn between zero and a ceiling of 5 s doubling to 300 s. Each
@@ -24,8 +25,8 @@
 - Explicit registration, hosting, the operator API and the attester's issuance endpoint load at start-up, so their
   parts register at deploy rather than on the first request (finding F-0193, closed).
 - The authority's signer, entity id and configuration builder are published in one write, and
-  `HostedEntityServlet.configureAuthority` builds the signer before it configures the registry, so a failure leaves
-  no half-configured authority. `FrontChannelAutoRegistrationFilter` publishes its wiring the same way.
+  `HostedEntityServlet.configureAuthority` resolves its store, policy and signer before it publishes the registry, so
+  a policy that is not one leaves no half-configured authority. `FrontChannelAutoRegistrationFilter` publishes its wiring the same way.
 - New operator page, [docs/operator/components.md](../../operator/components.md); [health.md](../../operator/health.md)
   says what changed for ready.
 
@@ -61,7 +62,11 @@
    `false` under either name disables attestation authentication, and that is allowed in production. It is still
    read, with a warning in server.log ("OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY is deprecated; set
    OIDF_ATTESTATION_AUTH_ENABLED instead"), and the two names set to different values makes `ATTESTATION_AUTH`
-   `FAILED_CONFIG`. What to change: replace it with `OIDF_ATTESTATION_AUTH_ENABLED` and the same value. Why: a
+   `FAILED_CONFIG`. Until 0.5.0 `false` mattered only when no bridge key was configured; from 0.6.0 it disables
+   attestation authentication even when bridge keys are configured, so a deployment that set it to `false` alongside
+   bridge keys would refuse its attestation clients with PingFederate's `invalid_client`. What to change: replace it
+   with `OIDF_ATTESTATION_AUTH_ENABLED` and the same value - or, with bridge keys configured and attestation
+   authentication wanted, `OIDF_ATTESTATION_AUTH_ENABLED=true` and drop the old name. Why: a
    component is switched off by its own switch; running attestation authentication without a bridge key is
    `FAILED_CONFIG` whether the switch is `true` or inferred. No development-profile escape is needed: the old name
    still works in both profiles.
@@ -83,7 +88,12 @@ without a default ("a switch has a default"), so each is a `choice` of `true` an
 (2026-09-27, U-0023), a filter the same (2026-09-29), and a servlet that is not load-on-startup answers 500 on its
 first request and 404 from then on while the rest of the war serves (2026-09-30, U-0280).
 
+**A servlet that is off answers 404.** The spec asked `DISABLED` to keep each surface's behaviour; this change gives
+every disabled servlet the answer a war without it would give, 404 `not_found`. One answer changes: the operator API
+with `OIDF_AUTHORITY_ADMIN_TOKEN` unset used to answer 401 `unauthorized` to every request, and now answers 404.
+
 **Not in this change.** The SSF servlets keep their own start-up until ST-5 (wave 3), so the two SSF switches change
-nothing yet (F-0271). The per-surface rules - 404 when disabled for every surface, pass-through for traffic that is
-not the component's, OGNL criteria answering `false` - are S9b's (wave 4), which closes F-0013. So is a narrower floor
-for `FAPI`, which answers 503 to every request its filter covers while it is failed (F-0270).
+nothing yet (F-0271). S9b (wave 4) refines per surface the floor this change introduces - the 404 when disabled, the
+pass-through for traffic that is not the component's - adds OGNL criteria answering `false`, and closes F-0013. A
+narrower floor for `FAPI`, which answers 503 to every request its filter covers while it is failed, is S9b's too
+(F-0270).
