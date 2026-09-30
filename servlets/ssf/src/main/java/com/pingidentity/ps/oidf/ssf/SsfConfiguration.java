@@ -1,8 +1,13 @@
 /*
- * Typed configuration for the SSF transmitter, read from servlet init parameters.
+ * Typed configuration for the SSF transmitter, read through its settings catalogue.
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.platform.pf.settings.InitParams;
+import com.pingidentity.ps.oidf.platform.settings.Secret;
+import com.pingidentity.ps.oidf.platform.settings.SettingRefused;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -12,10 +17,11 @@ import java.util.Set;
 import jakarta.servlet.ServletConfig;
 
 /**
- * Configuration surface for the Shared Signals transmitter, following the {@code FederationConfiguration}
- * convention: an immutable value read from servlet {@code init-param}s via {@link #fromServletConfig}, with a
- * {@link Builder} for unit tests. All timing/size knobs have documented defaults so a minimal deployment only
- * needs {@code issuer}.
+ * Configuration surface for the Shared Signals transmitter: an immutable value read through the
+ * {@code ssf-transmitter} settings catalogue ({@link #from(Settings)}; {@link #fromServletConfig} with a servlet's
+ * init-params, the {@code oidf.ssf.<camelCase>} system properties and the {@code OIDF_SSF_*} environment, in that
+ * order), with a {@link Builder} for unit tests. All timing/size knobs have documented defaults so a minimal
+ * deployment only needs {@code OIDF_SSF_ISSUER}.
  *
  * <p>{@code dataStoreId} selects persistence: when blank, the transmitter uses the per-node in-memory store
  * (dev fallback, not cluster-safe); when set, it names a PingFederate-configured JDBC data store. Kafka
@@ -24,7 +30,6 @@ import jakarta.servlet.ServletConfig;
 public final class SsfConfiguration {
 
     private static final String DEFAULT_SIGNING_ALGORITHM = "RS256";
-    private static final Set<String> SUPPORTED_SIGNING_ALGORITHMS = Set.of("RS256", "PS256");
     private static final String DEFAULT_BASE_PATH = "/ssf";
     private static final String DEFAULT_STORE_DIALECT = "tables";
     private static final Set<String> SUPPORTED_STORE_DIALECTS = Set.of("tables", "ldm");
@@ -116,8 +121,9 @@ public final class SsfConfiguration {
         this.provisionerScope = trimOrNull(b.provisionerScope);
         this.allowedAudiences = parseAllowedAudiences(b.allowedAudiences);
         if (this.receiverScope.equals(this.provisionerScope)) {
-            throw new IllegalArgumentException("provisionerScope must not be the receiverScope ('" + this.receiverScope
-                    + "'): every receiver would be a provisioner, able to have an account-disabled signed about any subject");
+            throw new Refused(PROVISIONER_SCOPE, PROVISIONER_SCOPE + " must not be the receiver scope (" + RECEIVER_SCOPE + ", '"
+                    + this.receiverScope + "'): every receiver would be a provisioner, able to have an account-disabled signed"
+                    + " about any subject");
         }
         this.introspectionEndpoint = b.introspectionEndpoint;
         this.introspectionClientId = b.introspectionClientId;
@@ -141,62 +147,176 @@ public final class SsfConfiguration {
         this.auditEventsEnabled = b.auditEventsEnabled;
         this.auditEventMap = b.auditEventMap;
         if (this.kafkaEnabled && (this.kafkaBootstrapServers == null || this.kafkaBootstrapServers.isBlank())) {
-            throw new IllegalArgumentException("kafkaBootstrapServers is required when kafkaEnabled=true");
+            throw new Refused(KAFKA_BOOTSTRAP_SERVERS, KAFKA_BOOTSTRAP_SERVERS + " is required when " + KAFKA_ENABLED + "=true");
         }
     }
 
+    // The catalogue's names (META-INF/oidf-settings/ssf-transmitter.json), read through platform.settings. Each entry's
+    // sources are the init-param, the system property oidf.ssf.<init-param> and the environment variable, in that
+    // order, as SsfConfiguration.param read them before 0.6.0 (F-0235).
+    public static final String ISSUER = "OIDF_SSF_ISSUER";
+    static final String SIGNING_ALGORITHM = "OIDF_SSF_SIGNING_ALGORITHM";
+    static final String BASE_PATH = "OIDF_SSF_BASE_PATH";
+    static final String DATA_STORE_ID = "OIDF_SSF_DATA_STORE_ID";
+    static final String STORE_DIALECT = "OIDF_SSF_STORE_DIALECT";
+    public static final String JDBC_URL = "OIDF_SSF_JDBC_URL";
+    static final String JDBC_USERNAME = "OIDF_SSF_JDBC_USERNAME";
+    static final String JDBC_PASSWORD = "OIDF_SSF_JDBC_PASSWORD";
+    static final String KAFKA_ENABLED = "OIDF_SSF_KAFKA_ENABLED";
+    static final String KAFKA_BOOTSTRAP_SERVERS = "OIDF_SSF_KAFKA_BOOTSTRAP_SERVERS";
+    static final String KAFKA_TOPIC = "OIDF_SSF_KAFKA_TOPIC";
+    static final String KAFKA_SECURITY_PROTOCOL = "OIDF_SSF_KAFKA_SECURITY_PROTOCOL";
+    static final String KAFKA_SASL_MECHANISM = "OIDF_SSF_KAFKA_SASL_MECHANISM";
+    static final String KAFKA_SASL_USERNAME = "OIDF_SSF_KAFKA_SASL_USERNAME";
+    static final String KAFKA_SASL_PASSWORD = "OIDF_SSF_KAFKA_SASL_PASSWORD";
+    static final String PUSH_RETRY_MAX_ATTEMPTS = "OIDF_SSF_PUSH_RETRY_MAX_ATTEMPTS";
+    static final String PUSH_RETRY_BACKOFF_SECONDS = "OIDF_SSF_PUSH_RETRY_BACKOFF_SECONDS";
+    static final String POLL_MAX_EVENTS = "OIDF_SSF_POLL_MAX_EVENTS";
+    static final String SET_TTL_SECONDS = "OIDF_SSF_SET_TTL_SECONDS";
+    static final String RECEIVER_SCOPE = "OIDF_SSF_RECEIVER_SCOPE";
+    static final String UNOWNED_STREAM_OWNER = "OIDF_SSF_UNOWNED_STREAM_OWNER";
+    static final String PROVISIONER_SCOPE = "OIDF_SSF_PROVISIONER_SCOPE";
+    static final String ALLOWED_AUDIENCES = "OIDF_SSF_ALLOWED_AUDIENCES";
+    static final String INTROSPECTION_ENDPOINT = "OIDF_SSF_INTROSPECTION_ENDPOINT";
+    static final String INTROSPECTION_CLIENT_ID = "OIDF_SSF_INTROSPECTION_CLIENT_ID";
+    static final String INTROSPECTION_CLIENT_SECRET = "OIDF_SSF_INTROSPECTION_CLIENT_SECRET";
+    static final String INTROSPECTION_INSECURE_TLS_SETTING = "OIDF_SSF_INTROSPECTION_INSECURE_TLS";
+    static final String DEFAULT_EVENT_TYPES_SETTING = "OIDF_SSF_DEFAULT_EVENT_TYPES";
+    static final String DEFAULT_SUBJECTS = "OIDF_SSF_DEFAULT_SUBJECTS";
+    static final String VERIFICATION_EVENT_ENABLED = "OIDF_SSF_VERIFICATION_EVENT_ENABLED";
+    public static final String RECEIVER_EXPECTED_ISSUER = "OIDF_SSF_RECEIVER_EXPECTED_ISSUER";
+    static final String RECEIVER_JWKS_URL = "OIDF_SSF_RECEIVER_JWKS_URL";
+    public static final String RECEIVER_AUDIENCE = "OIDF_SSF_RECEIVER_AUDIENCE";
+    public static final String RECEIVER_ENDPOINT_AUTH_TOKEN = "OIDF_SSF_RECEIVER_ENDPOINT_AUTH_TOKEN";
+    static final String RECEIVER_JWKS_CACHE_SECONDS = "OIDF_SSF_RECEIVER_JWKS_CACHE_SECONDS";
+    static final String RECEIVER_INSECURE_TLS_SETTING = "OIDF_SSF_RECEIVER_INSECURE_TLS";
+    static final String RECEIVER_POLL_URL = "OIDF_SSF_RECEIVER_POLL_URL";
+    static final String RECEIVER_POLL_TOKEN = "OIDF_SSF_RECEIVER_POLL_TOKEN";
+    static final String RECEIVER_POLL_INTERVAL_SECONDS = "OIDF_SSF_RECEIVER_POLL_INTERVAL_SECONDS";
+    static final String RECEIVER_ACTIONS_ENABLED = "OIDF_SSF_RECEIVER_ACTIONS_ENABLED";
+    static final String RECEIVER_INSTANCE_REGISTRY = "OIDF_SSF_RECEIVER_INSTANCE_REGISTRY";
+    static final String AUDIT_EVENTS_ENABLED = "OIDF_SSF_AUDIT_EVENTS_ENABLED";
+    static final String AUDIT_EVENT_MAP = "OIDF_SSF_AUDIT_EVENT_MAP";
+
+    /** The transmitter's catalogue, {@code META-INF/oidf-settings/ssf-transmitter.json}. */
+    public static final String CATALOGUE = "ssf-transmitter";
+
+    /**
+     * The transmitter's settings as a servlet reads them: its init-params, this process's system properties and its
+     * environment (platform-pf's {@link InitParams}), through the {@value #CATALOGUE} catalogue. A null config has no
+     * init-params.
+     */
+    public static Settings settings(ServletConfig config) {
+        return Settings.load(SsfConfiguration.class.getClassLoader(), CATALOGUE).with(InitParams.sources(config));
+    }
+
+    /** Whether the settings name an issuer, without which the transmitter is not configured at all. */
+    public static boolean issuerSet(Settings settings) {
+        return settings.string(ISSUER) != null;
+    }
+
+    /**
+     * The configuration {@code config}'s settings describe ({@link #settings(ServletConfig)}, {@link #from(Settings)}).
+     *
+     * @throws SettingRefused for a setting that is missing or wrong, naming it
+     */
     public static SsfConfiguration fromServletConfig(ServletConfig config) {
-        try {
-            Builder b = new Builder()
-                    .issuer(param(config,"issuer"))
-                    .signingAlgorithm(parseSigningAlgorithm(param(config,"signingAlgorithm")))
-                    .basePath(orDefault(param(config,"basePath"), DEFAULT_BASE_PATH))
-                    .dataStoreId(trimOrNull(param(config,"dataStoreId")))
-                    .storeDialect(trimOrNull(param(config,"storeDialect")))
-                    .jdbcUrl(trimOrNull(param(config,"jdbcUrl")))
-                    .jdbcUsername(trimOrNull(param(config,"jdbcUsername")))
-                    .jdbcPassword(trimOrNull(param(config,"jdbcPassword")))
-                    .kafkaEnabled(parseBoolean(param(config,"kafkaEnabled"), false))
-                    .kafkaBootstrapServers(trimOrNull(param(config,"kafkaBootstrapServers")))
-                    .kafkaTopic(orDefault(param(config,"kafkaTopic"), DEFAULT_KAFKA_TOPIC))
-                    .kafkaSecurityProtocol(orDefault(param(config,"kafkaSecurityProtocol"), DEFAULT_KAFKA_SECURITY_PROTOCOL))
-                    .kafkaSaslMechanism(trimOrNull(param(config,"kafkaSaslMechanism")))
-                    .kafkaSaslUsername(trimOrNull(param(config,"kafkaSaslUsername")))
-                    .kafkaSaslPassword(trimOrNull(param(config,"kafkaSaslPassword")))
-                    .pushRetryMaxAttempts(parseInt(param(config,"pushRetryMaxAttempts"), DEFAULT_PUSH_RETRY_MAX_ATTEMPTS))
-                    .pushRetryBackoffSeconds(parseInt(param(config,"pushRetryBackoffSeconds"), DEFAULT_PUSH_RETRY_BACKOFF_SECONDS))
-                    .pollMaxEvents(parseInt(param(config,"pollMaxEvents"), DEFAULT_POLL_MAX_EVENTS))
-                    .setTtlSeconds(parseLong(param(config,"setTtlSeconds"), DEFAULT_SET_TTL_SECONDS))
-                    .receiverScope(orDefault(param(config,"receiverScope"), DEFAULT_RECEIVER_SCOPE))
-                    .unownedStreamOwner(trimOrNull(param(config,"unownedStreamOwner")))
-                    .provisionerScope(trimOrNull(param(config,"provisionerScope")))
-                    .allowedAudiences(trimOrNull(param(config,"allowedAudiences")))
-                    .introspectionEndpoint(trimOrNull(param(config,"introspectionEndpoint")))
-                    .introspectionClientId(trimOrNull(param(config,"introspectionClientId")))
-                    .introspectionClientSecret(trimOrNull(param(config,"introspectionClientSecret")))
-                    .introspectionInsecureTls(parseBoolean(param(config,"introspectionInsecureTls"), false))
-                    .defaultEventTypes(parseCommaSeparated(param(config,"defaultEventTypes")))
-                    .defaultSubjects(trimOrNull(param(config,"defaultSubjects")))
-                    .verificationEventEnabled(parseBoolean(param(config,"verificationEventEnabled"), true))
-                    .receiverExpectedIssuer(trimOrNull(param(config,"receiverExpectedIssuer")))
-                    .receiverJwksUrl(trimOrNull(param(config,"receiverJwksUrl")))
-                    .receiverAudience(trimOrNull(param(config,"receiverAudience")))
-                    .receiverEndpointAuthToken(trimOrNull(param(config,"receiverEndpointAuthToken")))
-                    .receiverJwksCacheSeconds(parseLong(param(config,"receiverJwksCacheSeconds"), 300L))
-                    .receiverInsecureTls(parseBoolean(param(config,"receiverInsecureTls"), false))
-                    .receiverPollUrl(trimOrNull(param(config,"receiverPollUrl")))
-                    .receiverPollToken(trimOrNull(param(config,"receiverPollToken")))
-                    .receiverPollIntervalSeconds(parseLong(param(config,"receiverPollIntervalSeconds"), 10L))
-                    .receiverActionsEnabled(parseBoolean(param(config,"receiverActionsEnabled"), true))
-                    .receiverInstanceRegistry(parseBoolean(param(config,"receiverInstanceRegistry"), false))
-                    .auditEventsEnabled(parseBoolean(param(config,"auditEventsEnabled"), true))
-                    .auditEventMap(trimOrNull(param(config,"auditEventMap")));
-            return b.build();
-        } catch (IllegalArgumentException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Invalid SSF servlet configuration", e);
+        return from(settings(config));
+    }
+
+    /**
+     * The configuration these settings describe, each read strictly through its catalogue entry: a switch is
+     * {@code true} or {@code false} (the development profile reads a legacy spelling as {@code false}, with a
+     * warning), a number is a whole number, a choice is one of its choices in any case (spelt as the catalogue spells
+     * it), a URL is an http or https URL with a host. Every refusal names its setting.
+     *
+     * @throws SettingRefused for {@link #ISSUER} unset, or any setting its entry refuses, or a combination this class
+     *                        refuses (Kafka on with no bootstrap servers, the provisioner scope equal to the receiver
+     *                        scope, an allowed-audiences entry that is not {@code clientId=aud[,aud]}); a
+     *                        {@link com.pingidentity.ps.oidf.platform.settings.ProfileRefused} for a governed value
+     *                        from an init-param that the production profile refuses
+     */
+    public static SsfConfiguration from(Settings s) {
+        String issuer = s.string(ISSUER);
+        if (issuer == null) {
+            throw new SettingRefused(ISSUER, ISSUER + " is not set: the SSF transmitter has no issuer");
         }
+        Builder b = new Builder()
+                .issuer(issuer)
+                .signingAlgorithm(s.choice(SIGNING_ALGORITHM))
+                .basePath(s.string(BASE_PATH))
+                .dataStoreId(s.string(DATA_STORE_ID))
+                .storeDialect(s.choice(STORE_DIALECT))
+                .jdbcUrl(s.string(JDBC_URL))
+                .jdbcUsername(s.string(JDBC_USERNAME))
+                .jdbcPassword(reveal(s.secret(JDBC_PASSWORD)))
+                .kafkaEnabled(s.bool(KAFKA_ENABLED))
+                .kafkaBootstrapServers(s.string(KAFKA_BOOTSTRAP_SERVERS))
+                .kafkaTopic(s.string(KAFKA_TOPIC))
+                .kafkaSecurityProtocol(s.string(KAFKA_SECURITY_PROTOCOL))
+                .kafkaSaslMechanism(s.string(KAFKA_SASL_MECHANISM))
+                .kafkaSaslUsername(s.string(KAFKA_SASL_USERNAME))
+                .kafkaSaslPassword(reveal(s.secret(KAFKA_SASL_PASSWORD)))
+                .pushRetryMaxAttempts(s.integer(PUSH_RETRY_MAX_ATTEMPTS))
+                .pushRetryBackoffSeconds(s.integer(PUSH_RETRY_BACKOFF_SECONDS))
+                .pollMaxEvents(s.integer(POLL_MAX_EVENTS))
+                .setTtlSeconds(s.longValue(SET_TTL_SECONDS))
+                .receiverScope(s.string(RECEIVER_SCOPE))
+                .unownedStreamOwner(s.string(UNOWNED_STREAM_OWNER))
+                .provisionerScope(s.string(PROVISIONER_SCOPE))
+                .allowedAudiences(s.string(ALLOWED_AUDIENCES))
+                .introspectionEndpoint(text(s.url(INTROSPECTION_ENDPOINT)))
+                .introspectionClientId(s.string(INTROSPECTION_CLIENT_ID))
+                .introspectionClientSecret(reveal(s.secret(INTROSPECTION_CLIENT_SECRET)))
+                .introspectionInsecureTls(s.bool(INTROSPECTION_INSECURE_TLS_SETTING))
+                .defaultEventTypes(list(s.words(DEFAULT_EVENT_TYPES_SETTING)))
+                .defaultSubjects(s.choice(DEFAULT_SUBJECTS))
+                .verificationEventEnabled(s.bool(VERIFICATION_EVENT_ENABLED))
+                .receiverExpectedIssuer(s.string(RECEIVER_EXPECTED_ISSUER))
+                .receiverJwksUrl(text(s.url(RECEIVER_JWKS_URL)))
+                .receiverAudience(s.string(RECEIVER_AUDIENCE))
+                .receiverEndpointAuthToken(reveal(s.secret(RECEIVER_ENDPOINT_AUTH_TOKEN)))
+                .receiverJwksCacheSeconds(s.longValue(RECEIVER_JWKS_CACHE_SECONDS))
+                .receiverInsecureTls(s.bool(RECEIVER_INSECURE_TLS_SETTING))
+                .receiverPollUrl(text(s.url(RECEIVER_POLL_URL)))
+                .receiverPollToken(reveal(s.secret(RECEIVER_POLL_TOKEN)))
+                .receiverPollIntervalSeconds(s.longValue(RECEIVER_POLL_INTERVAL_SECONDS))
+                .receiverActionsEnabled(s.bool(RECEIVER_ACTIONS_ENABLED))
+                .receiverInstanceRegistry(s.bool(RECEIVER_INSTANCE_REGISTRY))
+                .auditEventsEnabled(s.bool(AUDIT_EVENTS_ENABLED))
+                .auditEventMap(s.string(AUDIT_EVENT_MAP));
+        try {
+            return b.build();
+        } catch (Refused e) {
+            throw new SettingRefused(e.setting, e.getMessage());
+        }
+    }
+
+    /**
+     * A combination of settings the constructor refuses, naming the setting to change. An
+     * {@link IllegalArgumentException}, as the {@link Builder}'s refusals always were; {@link #from} turns it into the
+     * {@link SettingRefused} every other refusal is.
+     */
+    static final class Refused extends IllegalArgumentException {
+        private static final long serialVersionUID = 1L;
+        private final String setting;
+
+        Refused(String setting, String message) {
+            super(message);
+            this.setting = setting;
+        }
+    }
+
+    private static String reveal(Secret secret) {
+        return secret == null ? null : secret.reveal();
+    }
+
+    private static String text(URI uri) {
+        return uri == null ? null : uri.toString();
+    }
+
+    private static List<String> list(Set<String> words) {
+        return words == null ? null : List.copyOf(words);
     }
 
     public String issuer() {
@@ -502,36 +622,6 @@ public final class SsfConfiguration {
 
     // ---- parsing helpers (mirrors FederationConfiguration) ----
 
-    /**
-     * Resolve a configuration value from, in order: the servlet {@code init-param} (web.xml), the system
-     * property {@code oidf.ssf.<name>} (PingFederate loads {@code run.properties} entries as system
-     * properties — the same channel the attestation module uses), then the environment variable
-     * {@code OIDF_SSF_<UPPER_SNAKE(name)>}. This lets the SSF servlets be configured with no web.xml when they
-     * are annotation-mapped inside {@code pf-runtime.war} — via {@code run.properties} or Railway env vars.
-     */
-    static String param(ServletConfig config, String name) {
-        String v = config != null ? config.getInitParameter(name) : null;
-        if (v == null || v.isBlank()) {
-            v = System.getProperty("oidf.ssf." + name);
-        }
-        if (v == null || v.isBlank()) {
-            v = System.getenv("OIDF_SSF_" + camelToUpperSnake(name));
-        }
-        return v == null || v.isBlank() ? null : v;
-    }
-
-    private static String camelToUpperSnake(String camel) {
-        StringBuilder sb = new StringBuilder(camel.length() + 4);
-        for (int i = 0; i < camel.length(); i++) {
-            char c = camel.charAt(i);
-            if (Character.isUpperCase(c) && i > 0) {
-                sb.append('_');
-            }
-            sb.append(Character.toUpperCase(c));
-        }
-        return sb.toString();
-    }
-
     private static String stripTrailingSlash(String s) {
         return s.endsWith("/") ? s.substring(0, s.length() - 1) : s;
     }
@@ -561,7 +651,7 @@ public final class SsfConfiguration {
             }
             int eq = entry.indexOf('=');
             if (eq < 0 || entry.substring(0, eq).isBlank()) {
-                throw new IllegalArgumentException("allowedAudiences entry '" + entry.trim() + "' is not clientId=aud[,aud]");
+                throw new Refused(ALLOWED_AUDIENCES, ALLOWED_AUDIENCES + " entry '" + entry.trim() + "' is not clientId=aud[,aud]");
             }
             byClient.computeIfAbsent(entry.substring(0, eq).trim(), k -> new LinkedHashSet<>())
                     .addAll(parseCommaSeparated(entry.substring(eq + 1)));
@@ -569,19 +659,8 @@ public final class SsfConfiguration {
         return byClient;
     }
 
-    private static String orDefault(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value.trim();
-    }
-
     private static String trimOrNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
-    }
-
-    private static boolean parseBoolean(String value, boolean fallback) {
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        return Boolean.parseBoolean(value.trim());
     }
 
     /** Exactly {@code ALL} or {@code NONE}, as SSF 1.0 §7.1.1 spells them; unset is {@code NONE}. */
@@ -596,17 +675,6 @@ public final class SsfConfiguration {
         return trimmed;
     }
 
-    private static String parseSigningAlgorithm(String value) {
-        if (value == null || value.isBlank()) {
-            return DEFAULT_SIGNING_ALGORITHM;
-        }
-        String trimmed = value.trim();
-        if (!SUPPORTED_SIGNING_ALGORITHMS.contains(trimmed)) {
-            throw new IllegalArgumentException("signingAlgorithm must be RS256 or PS256, got: " + trimmed);
-        }
-        return trimmed;
-    }
-
     private static String parseStoreDialect(String value) {
         if (value == null || value.isBlank()) {
             return DEFAULT_STORE_DIALECT;
@@ -616,28 +684,6 @@ public final class SsfConfiguration {
             throw new IllegalArgumentException("storeDialect must be tables or ldm, got: " + trimmed);
         }
         return trimmed;
-    }
-
-    private static int parseInt(String value, int fallback) {
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Invalid integer value: " + value, e);
-        }
-    }
-
-    private static long parseLong(String value, long fallback) {
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        try {
-            return Long.parseLong(value.trim());
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("Invalid long value: " + value, e);
-        }
     }
 
     /** Mutable builder; every setter tolerates null and falls back to the documented default at {@link #build()}. */

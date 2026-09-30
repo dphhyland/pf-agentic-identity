@@ -3,7 +3,9 @@
  */
 package com.pingidentity.ps.oidf.servlet.ssf;
 
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.ssf.DeliveryMethod;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.SsfEventTypes;
@@ -27,32 +29,37 @@ import org.jose4j.json.JsonUtil;
  * stream-management, subject-management, and verification endpoints, the supported delivery methods
  * (RFC 8935 push + RFC 8936 poll), and the transmitter's {@code jwks_uri} for SET signature verification.
  *
- * <p>This servlet is also the one that bootstraps {@link SsfSupport} from its init parameters, so a deployment
- * that only exposes metadata still has a fully-configured transmitter for the other SSF servlets.
+ * <p>This servlet is also the one that starts the transmitter ({@link SsfComponents#transmitter}), from its init
+ * parameters, the {@code oidf.ssf.*} system properties and the {@code OIDF_SSF_*} environment: it loads on start-up, so
+ * the {@code SSF} component's part registers at deploy, and the other SSF servlets answer through its gate.
  */
 @WebServlet(urlPatterns = {"/.well-known/ssf-configuration", "/ssf/.well-known/ssf-configuration"}, loadOnStartup = 1)
 public class SsfConfigurationServlet extends HttpServlet {
 
     private static final long serialVersionUID = 1L;
 
+    /** This servlet's part of the {@code SSF} component; the other transmitter servlets are gated by it too. */
+    private transient volatile ComponentParts.Part part;
+
+    /**
+     * Starts the transmitter as the {@code SSF} component's part ({@link SsfComponents#transmitter}): at deploy, since
+     * this servlet loads on start-up, and again by the supervisor after a dependency failure. Never throws (plan item
+     * S-9, finding F-0040): what goes wrong is the part's state, and its gate answers for it.
+     */
     @Override
     public void init(ServletConfig config) throws ServletException {
-        var part = Startup.begin(Startup.SSF, "SsfConfigurationServlet");
-        try {
-            super.init(config);
-            // loadOnStartup: configure the transmitter at boot so the logout filter can emit immediately.
-            // Fail-soft — an unconfigured SSF disables its endpoints; it must not break the runtime web app.
-            SsfComponents.transmitter(part, SsfHttp.bootstrap(config), config);
-        } catch (ServletException | RuntimeException | Error e) {
-            part.failed(e);
-            throw e;
-        } finally {
-            part.finish();
-        }
+        super.init(config);
+        ComponentParts.Part part = Startup.begin(Startup.SSF, "SsfConfigurationServlet");
+        this.part = part;
+        SsfComponents.transmitterPart(part);
+        part.start(() -> SsfComponents.transmitter(part, config));
     }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (ComponentGate.servlet(this.part, resp)) {
+            return;
+        }
         applyCors(resp);
         SsfConfiguration cfg = SsfSupport.configuration();
         resp.setStatus(200);
@@ -64,7 +71,10 @@ public class SsfConfigurationServlet extends HttpServlet {
     }
 
     @Override
-    protected void doOptions(HttpServletRequest req, HttpServletResponse resp) {
+    protected void doOptions(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (ComponentGate.servlet(this.part, resp)) {
+            return;
+        }
         applyCors(resp);
         resp.setStatus(204);
     }

@@ -12,6 +12,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.pingidentity.ps.oidf.platform.settings.SettingRefused;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -58,9 +59,12 @@ class SsfConfigurationTest {
         p.put("defaultSubjects", "NONE");
         assertEquals("NONE", SsfConfiguration.fromServletConfig(servletConfig(p)).defaultSubjects());
 
-        for (String bad : new String[] {"all", "Everyone", "true"}) {
+        p.put("defaultSubjects", "all");
+        assertEquals("ALL", SsfConfiguration.fromServletConfig(servletConfig(p)).defaultSubjects(),
+                "a choice is read in any case and spelt as SSF 1.0 7.1.1 spells it");
+        for (String bad : new String[] {"Everyone", "true"}) {
             p.put("defaultSubjects", bad);
-            assertThrows(IllegalArgumentException.class, () -> SsfConfiguration.fromServletConfig(servletConfig(p)), bad);
+            assertThrows(SettingRefused.class, () -> SsfConfiguration.fromServletConfig(servletConfig(p)), bad);
         }
         assertEquals("NONE", SsfConfiguration.parseDefaultSubjects(null));
         assertEquals("NONE", SsfConfiguration.parseDefaultSubjects("  "));
@@ -107,7 +111,7 @@ class SsfConfigurationTest {
 
     @Test
     void rejectsMissingIssuer() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(SettingRefused.class,
                 () -> SsfConfiguration.fromServletConfig(servletConfig(new HashMap<>())));
     }
 
@@ -146,7 +150,7 @@ class SsfConfigurationTest {
         p.put("storeDialect", "ldm");
         assertEquals("ldm", SsfConfiguration.fromServletConfig(servletConfig(p)).storeDialect());
         p.put("storeDialect", "bogus");
-        assertThrows(IllegalArgumentException.class, () -> SsfConfiguration.fromServletConfig(servletConfig(p)));
+        assertThrows(SettingRefused.class, () -> SsfConfiguration.fromServletConfig(servletConfig(p)));
     }
 
     @Test
@@ -154,7 +158,7 @@ class SsfConfigurationTest {
         Map<String, String> p = new HashMap<>();
         p.put("issuer", "https://op.example.com");
         p.put("signingAlgorithm", "HS256");
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(SettingRefused.class,
                 () -> SsfConfiguration.fromServletConfig(servletConfig(p)));
     }
 
@@ -163,7 +167,7 @@ class SsfConfigurationTest {
         Map<String, String> p = new HashMap<>();
         p.put("issuer", "https://op.example.com");
         p.put("kafkaEnabled", "true");
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(SettingRefused.class,
                 () -> SsfConfiguration.fromServletConfig(servletConfig(p)));
     }
 
@@ -241,7 +245,7 @@ class SsfConfigurationTest {
         // an entry that names no client is a mistake to be told about, not an audience open to all
         for (String bad : new String[] {"https://a.example.com", "=https://a.example.com", " =https://a.example.com"}) {
             p.put("allowedAudiences", bad);
-            assertThrows(IllegalArgumentException.class, () -> SsfConfiguration.fromServletConfig(servletConfig(p)));
+            assertThrows(SettingRefused.class, () -> SsfConfiguration.fromServletConfig(servletConfig(p)));
         }
     }
 }
