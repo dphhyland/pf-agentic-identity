@@ -222,6 +222,12 @@ are the token-endpoint issuance criteria ([`access-token-mappings.tf`](https://g
 `OIDFederationUtils.federationPolicy(#this)` is the token-issuance policy check on its own, for a mapping that
 doesn't validate the chain - `validateTrustChain` makes the same check once the chain validates, so a mapping
 needs one or the other (see [Asking a policy engine](#asking-a-policy-engine-authzen)).
+`IssuedDetailsCriterion.withinCeiling(#this)` (from 0.6.0) holds what a mapping is about to issue,
+`context.OAuthAuthorizationDetails`, to the attestation's ceiling and sends a bare refresh of a payment or account
+grant back to be decided again; OGNL calls it as
+`@com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion@withinCeiling(#this)`, and the token
+endpoint's response belt, `IssuedDetailsBelt`, is its fallback
+([docs/operator/issued-details.md](../../docs/operator/issued-details.md)).
 `attestationClaim(#this, name)` and `delegationActChain(#this)` feed access-token attribute mappings.
 Both hooks read `context.HttpRequest` / `context.ClientId` from the criteria map. Attester trust:
 `oidf.mock.attesters` (static JWKS file, dev) first, federation trust chain otherwise; the policy, the required

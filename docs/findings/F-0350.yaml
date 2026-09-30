@@ -1,0 +1,20 @@
+id: F-0350
+title: An access token the response belt refuses stays valid until it expires, though the client never receives it
+severity: low
+area: pf-integration
+source: design
+status: open
+plan_items: [S4d]
+prs: []
+verification: ''
+target_release: 1.0.0
+notes: >
+  Found while building S4D3, 2026-09-30. IssuedDetailsBelt reads the token response after PingFederate has made the
+  tokens. It revokes the grant behind the response's refresh token through the SDK's AccessGrantManager
+  (getByRefreshToken, revokeGrant; the rig logged the revocation), but PingFederate has no seam to revoke a JWT access
+  token: PfInternals has none, and the SDK's AccessTokenRevocable (revokeAccessToken) is implemented by token managers
+  that store their tokens, not by the JWT manager the rig uses. The refused access token is valid at any resource server
+  that checks only its signature until it expires (the rig's lifetime is ten minutes), though no one outside
+  PingFederate has seen it. Low: the token never leaves the server, and the issuance criterion, which refuses before
+  the token is made, is the control; the belt is its fallback for a mapping without it. A fix would be a reference
+  token manager with AccessTokenRevocable, or a denylist of refused jti values read by the resource servers.

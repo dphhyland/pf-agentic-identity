@@ -3,10 +3,19 @@ title: A refresh without authorization_details reissues the stored details witho
 severity: medium
 area: rar-paz-plugin
 source: pr-review
-status: open
+status: closed
 plan_items: [S4d]
 prs: []
-verification: ''
+verification: >
+  Closed by S4D3 on 2026-09-30 (the PLAN's decision 14): the rig showed an access-token mapping's criterion sees the
+  grant type and whether the request sent authorization_details (context.HttpRequest), so
+  IssuedDetailsCriterion.withinCeiling refuses a refresh without authorization_details of a grant holding a detail of
+  a type in OIDF_ATTESTATION_REDECIDE_ON_REFRESH_TYPES (default payment_initiation,account_information), for every
+  client. On the rig (pfai-p3-s4d3, PingFederate 13.1.3): a CIBA payment_initiation grant for EUR 42.00 refreshed
+  without the parameter was refused 400 invalid_grant with reason redecide_on_refresh and the stub PDP received
+  nothing; refreshed with the details it was issued and the stub PDP received one request. The criterion also holds
+  every refresh of an attested client to the attestation ceiling. Only mappings that carry the criterion apply the
+  rule; the setting blank turns it off.
 target_release: 0.6.0
 notes: >
   Split from F-0031 on 2026-09-27 (PR #36), which closed the half a processor can reach. javap -c of
