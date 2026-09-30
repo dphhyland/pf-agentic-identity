@@ -25,6 +25,7 @@ import org.jose4j.jwk.EcJwkGenerator;
 import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.keys.EllipticCurves;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.sourceid.saml20.adapter.attribute.AttributeValue;
 
@@ -35,6 +36,12 @@ import org.sourceid.saml20.adapter.attribute.AttributeValue;
  * the token-mapping reads.
  */
 class ClientAttestationUtilsTest {
+
+    /** The criteria run only while their component serves (S9b); another test in this JVM may have left it failed. */
+    @BeforeEach
+    void componentServes() {
+        com.pingidentity.ps.oidf.servlet.GateTesting.serving(com.pingidentity.ps.oidf.platform.health.Startup.ATTESTATION_AUTH);
+    }
 
     @AfterEach
     void readTheModelsFromTheProcessEnvironmentAgain() throws Exception {
