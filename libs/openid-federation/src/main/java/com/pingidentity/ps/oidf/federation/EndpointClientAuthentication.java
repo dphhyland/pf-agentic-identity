@@ -6,6 +6,7 @@ package com.pingidentity.ps.oidf.federation;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
@@ -13,7 +14,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Semaphore;
 import org.jose4j.jwk.JsonWebKey;
-import org.jose4j.jwt.JwtClaims;
 
 /**
  * OpenID Federation 1.0 §8.8: {@code private_key_jwt} at a federation endpoint. The client authentication JWT "MUST be
@@ -70,7 +70,7 @@ public final class EndpointClientAuthentication {
             throw refused("client_assertion_type must be " + ASSERTION_TYPE);
         }
         Map<String, Object> header;
-        JwtClaims claims;
+        UnverifiedClaims claims;
         try {
             header = JwtCodec.getJwtHeaders(assertion);
             claims = JwtCodec.parseUnverifiedClaims(assertion);
@@ -80,25 +80,25 @@ public final class EndpointClientAuthentication {
         if (!(header.get("kid") instanceof String kid) || kid.isBlank()) {
             throw refused("the client assertion names no kid: it is checked with exactly the key it names");
         }
-        String client = claims.getClaimValue("iss") instanceof String s ? s : null;
-        if (client == null || !EntityId.isValid(client) || !client.equals(claims.getClaimValue("sub"))) {
+        String client = claims.unverifiedIssuer();
+        if (client == null || !EntityId.isValid(client) || !client.equals(claims.unverifiedSubject())) {
             throw refused("the client assertion's iss and sub must both be the client's Entity Identifier");
         }
-        if (!onlyAudience(claims.getClaimValue("aud"), audience)) {
+        if (!onlyAudience(claims.unverifiedClaim("aud"), audience)) {
             throw refused("the client assertion's aud must be " + audience + " and nothing else (OpenID Federation 1.0 §8.8)");
         }
         long now = this.clock.instant().getEpochSecond();
-        if (!(claims.getClaimValue("exp") instanceof Number exp) || exp.longValue() <= now - CLOCK_SKEW_SECONDS) {
+        if (!(claims.unverifiedClaim("exp") instanceof Number exp) || exp.longValue() <= now - CLOCK_SKEW_SECONDS) {
             throw refused("the client assertion has no exp, or has expired");
         }
         if (exp.longValue() > now + MAX_LIFETIME_SECONDS) {
             throw refused("the client assertion expires more than " + MAX_LIFETIME_SECONDS / 60 + " minutes from now");
         }
-        Object iat = claims.getClaimValue("iat");
+        Object iat = claims.unverifiedClaim("iat");
         if (iat != null && !(iat instanceof Number issued && issued.longValue() <= now + CLOCK_SKEW_SECONDS)) {
             throw refused("the client assertion's iat is not a time in the past");
         }
-        if (!(claims.getClaimValue("jti") instanceof String jti) || jti.isBlank()) {
+        if (!(claims.unverifiedClaim("jti") instanceof String jti) || jti.isBlank()) {
             throw refused("the client assertion has no jti");
         }
         // Anyone can send an assertion naming any client, and finding a client's keys can take a couple of dozen fetches:

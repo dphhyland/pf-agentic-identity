@@ -12,6 +12,7 @@ import com.pingidentity.ps.oidf.federation.testkit.ServingMap;
 import com.pingidentity.ps.oidf.jose.HttpGetClient;
 import com.pingidentity.ps.oidf.jose.JdkHttpClient;
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import com.pingidentity.ps.oidf.platform.http.Deadline;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -492,7 +493,7 @@ class TrustChainValidatorBudgetTest {
         Federation f = threeLevels();
         TrustControllerGateway refusing = new TrustControllerGateway() {
             @Override
-            public org.jose4j.jwt.JwtClaims fetchEntityConfiguration() {
+            public com.pingidentity.ps.oidf.jose.UnverifiedClaims fetchEntityConfiguration() {
                 throw new UnsupportedOperationException();
             }
 
@@ -523,7 +524,7 @@ class TrustChainValidatorBudgetTest {
     void aConfigurationFetchedOutsideAResolutionHasABudgetOfItsOwn() throws Exception {
         Federation f = threeLevels();
 
-        assertEquals(LEAF, f.gateway(TA).fetchEntityConfigurationOf(LEAF, null).getSubject());
+        assertEquals(LEAF, f.gateway(TA).fetchEntityConfigurationOf(LEAF, null).unverifiedSubject());
         assertEquals(1, f.http().requests().size());
     }
 

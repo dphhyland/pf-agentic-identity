@@ -2,6 +2,7 @@ package com.pingidentity.ps.oidf.federation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -60,17 +61,17 @@ class LiveChainValidationTest {
             for (Path p : s.filter(x -> x.toString().endsWith(".jwt")).toList()) {
                 String jwt = Files.readString(p).trim();
                 if (jwt.chars().filter(ch -> ch == '.').count() != 2) continue;
-                JwtClaims c = JwtCodec.parseUnverifiedClaims(jwt);
+                UnverifiedClaims c = JwtCodec.parseUnverifiedClaims(jwt);
                 allStatements.add(jwt);
-                if (c.getIssuer().equals(c.getSubject())) entityConfigs.put(c.getIssuer(), jwt);
-                else subStatements.put(c.getIssuer() + "|" + c.getSubject(), jwt);
+                if (c.unverifiedIssuer().equals(c.unverifiedSubject())) entityConfigs.put(c.unverifiedIssuer(), jwt);
+                else subStatements.put(c.unverifiedIssuer() + "|" + c.unverifiedSubject(), jwt);
             }
         }
     }
 
     private TrustControllerGateway liveGateway() {
         return new TrustControllerGateway() {
-            @Override public JwtClaims fetchEntityConfiguration() throws Exception {
+            @Override public UnverifiedClaims fetchEntityConfiguration() throws Exception {
                 return JwtCodec.parseUnverifiedClaims(entityConfigs.get(TA));
             }
             @Override public List<String> fetchMembers() { return List.copyOf(entityConfigs.keySet()); }
@@ -84,7 +85,7 @@ class LiveChainValidationTest {
     private TrustChainValidationResult validate(String leaf) throws Exception {
         // The fetched copy of the anchor's entity configuration stands in for out-of-band key
         // distribution: it was captured by the operator, not read live during validation.
-        Map<String, Object> anchorJwks = Claims.optionalMap(JwtCodec.parseUnverifiedClaims(entityConfigs.get(TA)), "jwks");
+        Map<String, Object> anchorJwks = JwtCodec.parseUnverifiedClaims(entityConfigs.get(TA)).unverifiedMap("jwks");
         return new TrustChainValidator(liveGateway(), TrustAnchor.of(TA, anchorJwks)).validate(allStatements, leaf, leaf);
     }
 

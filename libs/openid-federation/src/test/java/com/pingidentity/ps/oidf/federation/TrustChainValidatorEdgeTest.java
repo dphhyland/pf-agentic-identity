@@ -9,6 +9,7 @@ import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.federation.TrustChainValidationException.Kind;
 import com.pingidentity.ps.oidf.federation.testkit.Federation;
 import com.pingidentity.ps.oidf.federation.testkit.Statements;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -482,7 +483,7 @@ class TrustChainValidatorEdgeTest {
         }
 
         @Override
-        public org.jose4j.jwt.JwtClaims fetchEntityConfiguration() throws Exception {
+        public com.pingidentity.ps.oidf.jose.UnverifiedClaims fetchEntityConfiguration() throws Exception {
             return this.delegate.fetchEntityConfiguration();
         }
 

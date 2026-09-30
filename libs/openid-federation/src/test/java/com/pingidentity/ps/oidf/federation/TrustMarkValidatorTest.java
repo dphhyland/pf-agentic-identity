@@ -97,7 +97,7 @@ class TrustMarkValidatorTest {
         for (String mark : marks) {
             Object type;
             try {
-                type = JwtCodec.parseUnverifiedClaims(mark).getClaimValue("trust_mark_type");
+                type = JwtCodec.parseUnverifiedClaims(mark).unverifiedClaim("trust_mark_type");
             } catch (Exception e) {
                 type = TYPE;
             }
@@ -384,9 +384,33 @@ class TrustMarkValidatorTest {
     @Test
     void aChainThatIsNotOneHasNoAnchorConfiguration() {
         for (List<String> notAChain : List.of(List.<String>of(), List.of("not a statement"))) {
-            assertNull(TrustMarkValidator.anchorConfiguration(new TrustChainValidationResult.Builder().trustAnchorIssuer(TA).leafSubject(RP)
+            assertNull(new TrustMarkValidator(Federation.builder(this.clock).anchor(TA).build().validator(ValidatorOptions.defaults(), TA),
+                    Set.of(), this.clock).anchorConfiguration(new TrustChainValidationResult.Builder().trustAnchorIssuer(TA).leafSubject(RP)
                     .trustChain(notAChain).build()));
         }
+    }
+
+    @Test
+    @Requirement("RFC8725 §3.2")
+    void theChainsLastStatementIsTheAnchorConfigurationOnlyWhenItVerifiesAgainstThePinnedKeys() throws Exception {
+        String other = "https://other-anchor.example.com";
+        Federation f = Federation.builder(this.clock).anchor(TA).anchor(other).leaf(RP, TA).build();
+        TrustMarkValidator marks = new TrustMarkValidator(f.validator(ValidatorOptions.defaults().withClock(this.clock), TA), Set.of(),
+                this.clock);
+
+        // The anchor's own configuration, at the end of a chain to it: verified here against the pinned keys.
+        assertEquals(TA, marks.anchorConfiguration(new TrustChainValidationResult.Builder().trustAnchorIssuer(TA).leafSubject(RP)
+                .trustChain(List.of(f.entityConfiguration(TA))).build()).getSubject());
+        // A statement the anchor issued about someone else is not its configuration.
+        assertNull(marks.anchorConfiguration(new TrustChainValidationResult.Builder().trustAnchorIssuer(TA).leafSubject(RP)
+                .trustChain(List.of(f.subordinateStatement(TA, RP))).build()));
+        // An anchor this validator's chains do not end at has no pinned keys here, so it is resolved instead.
+        assertNull(marks.anchorConfiguration(new TrustChainValidationResult.Builder().trustAnchorIssuer(other).leafSubject(RP)
+                .trustChain(List.of(f.entityConfiguration(other))).build()));
+        // A configuration that names the anchor but is signed by another key does not verify: read, never trusted.
+        Federation impostor = Federation.builder(this.clock).anchor(TA).build();
+        assertNull(marks.anchorConfiguration(new TrustChainValidationResult.Builder().trustAnchorIssuer(TA).leafSubject(RP)
+                .trustChain(List.of(impostor.entityConfiguration(TA))).build()));
     }
 
     @Test
@@ -397,7 +421,8 @@ class TrustMarkValidatorTest {
         TrustChainValidator validator = f.validator(ValidatorOptions.defaults().withClock(this.clock), TA);
         TrustChainValidationResult anchor = validator.validate(ValidationRequest.forSubject(TA).build());
 
-        assertEquals(TA, TrustMarkValidator.anchorConfiguration(anchor).getSubject(), "a one-statement chain is the anchor's own");
+        assertEquals(TA, new TrustMarkValidator(validator, Set.of(), this.clock).anchorConfiguration(anchor).getSubject(),
+                "a one-statement chain is the anchor's own, verified against the anchor's pinned keys");
     }
 
     @Test

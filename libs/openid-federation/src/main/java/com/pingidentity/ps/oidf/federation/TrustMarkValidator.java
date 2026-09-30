@@ -8,6 +8,8 @@ import com.pingidentity.ps.oidf.federation.event.LogSafe;
 import com.pingidentity.ps.oidf.jose.HttpPostClient;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
+import com.pingidentity.ps.oidf.jose.VerificationPolicy;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -146,7 +148,7 @@ public final class TrustMarkValidator {
         if (!(raw instanceof List<?> marks) || marks.isEmpty()) {
             return new Result(verified, rejected);
         }
-        Object anchor = anchorConfiguration(subject);
+        Object anchor = this.anchorConfiguration(subject);
         if (anchor == null) {
             anchor = this.resolveAnchorConfiguration(subject.trustAnchorIssuer(), budget);
         }
@@ -185,19 +187,20 @@ public final class TrustMarkValidator {
         }
         JwtClaims anchor = (JwtClaims) anchorOutcome;
         signedHeader(jwt, "the Trust Mark", TRUST_MARK_TYP);
-        JwtClaims claims = unverifiedClaims(jwt, "the Trust Mark");
-        String issuer = requiredString(claims, "iss");
-        requiredString(claims, "sub");
-        requiredNumber(claims, "iat");
-        if (!type.equals(claims.getClaimValue("trust_mark_type"))) {
+        UnverifiedClaims unverified = unverifiedClaims(jwt, "the Trust Mark");
+        String issuer = requiredString(unverified, "iss");
+        requiredString(unverified, "sub");
+        requiredNumber(unverified, "iat");
+        if (!type.equals(unverified.unverifiedClaim("trust_mark_type"))) {
             throw new Refusal("its trust_mark_type is not the one it is listed under");
         }
-        if (!EntityId.same((String) claims.getClaimValue("sub"), subject.leafSubject())) {
+        if (!EntityId.same(unverified.unverifiedSubject(), subject.leafSubject())) {
             throw new Refusal("it is about another entity (§7.3 step 4)");
         }
         recognised(anchor, type, issuer, subject.trustAnchorIssuer());
         JwtClaims issuerConfiguration = this.issuerConfiguration(issuer, subject, issuerConfigurations, budget);
-        verify(jwt, keysOf(issuerConfiguration, "the issuer's"), "the Trust Mark");
+        // The issuer read above chose whose keys to verify with; the checks above read the bytes this verifies.
+        JwtClaims claims = verify(jwt, keysOf(issuerConfiguration, "the issuer's"), "the Trust Mark");
         long now = this.clock.instant().getEpochSecond();
         long iat = ((Number) claims.getClaimValue("iat")).longValue();
         if (iat > now + CLOCK_SKEW_SECONDS) {
@@ -308,22 +311,23 @@ public final class TrustMarkValidator {
         }
         Map<String, Object> ownerEntry = (Map<String, Object>) owner;
         signedHeader(jwt, "the delegation", DELEGATION_TYP);
-        JwtClaims claims = unverifiedClaims(jwt, "the delegation");
+        // Every check here only refuses, and the signature over these same bytes is verified last.
+        UnverifiedClaims claims = unverifiedClaims(jwt, "the delegation");
         requiredNumber(claims, "iat");
-        if (!EntityId.same(String.valueOf(claims.getClaimValue("sub")), issuer)) {
+        if (!EntityId.same(String.valueOf(claims.unverifiedClaim("sub")), issuer)) {
             throw new Refusal("the delegation is not to this issuer (§7.2.2 step 4)");
         }
-        if (!EntityId.same(String.valueOf(claims.getClaimValue("iss")), String.valueOf(ownerEntry.get("sub")))) {
+        if (!EntityId.same(String.valueOf(claims.unverifiedClaim("iss")), String.valueOf(ownerEntry.get("sub")))) {
             throw new Refusal("the delegation is not from the type's owner (§7.2.2 step 5)");
         }
-        if (((Number) claims.getClaimValue("iat")).longValue() > now + CLOCK_SKEW_SECONDS) {
+        if (claims.unverifiedNumericDate("iat") > now + CLOCK_SKEW_SECONDS) {
             throw new Refusal("the delegation was issued in the future (§7.2.2 step 6)");
         }
-        Object exp = claims.getClaimValue("exp");
+        Object exp = claims.unverifiedClaim("exp");
         if (exp != null && (!(exp instanceof Number n) || now >= n.longValue() + CLOCK_SKEW_SECONDS)) {
             throw new Refusal("the delegation has expired (§7.2.2 step 7)");
         }
-        if (!type.equals(claims.getClaimValue("trust_mark_type"))) {
+        if (!type.equals(claims.unverifiedClaim("trust_mark_type"))) {
             throw new Refusal("the delegation is for another type (§7.2.2 step 8)");
         }
         verify(jwt, federationKeys(ownerEntry.get("jwks"), "the owner's"), "the delegation");
@@ -429,7 +433,7 @@ public final class TrustMarkValidator {
         }
     }
 
-    private static JwtClaims unverifiedClaims(String jwt, String what) throws Refusal {
+    private static UnverifiedClaims unverifiedClaims(String jwt, String what) throws Refusal {
         try {
             return JwtCodec.parseUnverifiedClaims(jwt);
         } catch (Exception e) {
@@ -437,35 +441,45 @@ public final class TrustMarkValidator {
         }
     }
 
-    private static String requiredString(JwtClaims claims, String name) throws Refusal {
-        if (!(claims.getClaimValue(name) instanceof String value) || value.isBlank()) {
+    private static String requiredString(UnverifiedClaims claims, String name) throws Refusal {
+        if (!(claims.unverifiedClaim(name) instanceof String value) || value.isBlank()) {
             throw new Refusal("it has no " + name + " (§7.1)");
         }
         return value;
     }
 
-    private static void requiredNumber(JwtClaims claims, String name) throws Refusal {
-        if (!(claims.getClaimValue(name) instanceof Number)) {
+    private static void requiredNumber(UnverifiedClaims claims, String name) throws Refusal {
+        if (!(claims.unverifiedClaim(name) instanceof Number)) {
             throw new Refusal("it has no " + name + " (§7.1)");
         }
     }
 
     private static String unverifiedIssuer(String jwt) {
         try {
-            Object iss = JwtCodec.parseUnverifiedClaims(jwt).getClaimValue("iss");
-            return iss instanceof String s ? s : null;
+            return JwtCodec.parseUnverifiedClaims(jwt).unverifiedIssuer();
         } catch (Exception e) {
             return null;
         }
     }
 
-    /** The anchor's configuration: the chain's last statement, when it is the anchor's own. */
-    static JwtClaims anchorConfiguration(TrustChainValidationResult chain) {
+    /**
+     * The anchor's configuration: the chain's last statement, when it is the anchor's own, verified here against the
+     * anchor's pinned keys (the chain validator verified it too, but hands on only the JWT). Null - and the anchor is
+     * resolved instead - when it is not the anchor's, the anchor is not one this validator's chains end at, or it does
+     * not verify.
+     */
+    JwtClaims anchorConfiguration(TrustChainValidationResult chain) {
         List<String> statements = chain.trustChain();
         try {
-            JwtClaims last = JwtCodec.parseUnverifiedClaims(statements.get(statements.size() - 1));
+            String last = statements.get(statements.size() - 1);
+            UnverifiedClaims unverified = JwtCodec.parseUnverifiedClaims(last);
             String anchor = chain.trustAnchorIssuer();
-            return EntityId.same(last.getIssuer(), anchor) && EntityId.same(last.getSubject(), anchor) ? last : null;
+            if (!EntityId.same(unverified.unverifiedIssuer(), anchor) || !EntityId.same(unverified.unverifiedSubject(), anchor)) {
+                return null;
+            }
+            TrustAnchor pinned = this.issuers.trustAnchors().find(anchor).orElse(null);
+            return pinned == null ? null
+                    : pinned.verify(last, this.acceptedAlgorithms, VerificationPolicy.entityStatement().withClock(this.clock));
         } catch (Exception e) {
             return null;
         }

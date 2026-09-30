@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.EnumMap;
@@ -363,8 +364,8 @@ class TrustChainValidatorEntityStatementTypeTest {
         Map<Position, String> statements = federation(Map.of());
         HttpTrustControllerGateway gateway = new HttpTrustControllerGateway(serving(Map.of(
                 ANCHOR + "/.well-known/openid-federation", statements.get(Position.ANCHOR_CONFIG))), ANCHOR);
-        assertEquals(ANCHOR, gateway.fetchEntityConfiguration().getSubject());
-        assertEquals(ANCHOR, gateway.fetchEntityConfigurationOf(ANCHOR).getSubject());
+        assertEquals(ANCHOR, gateway.fetchEntityConfiguration().unverifiedSubject());
+        assertEquals(ANCHOR, gateway.fetchEntityConfigurationOf(ANCHOR).unverifiedSubject());
     }
 
     /**
@@ -378,7 +379,7 @@ class TrustChainValidatorEntityStatementTypeTest {
     void aMinimalGatewayStillRejectsAnUntypedAnchorConfigurationWhereItIsRead() throws Exception {
         Map<Position, String> statements = federation(typAt(Position.ANCHOR_CONFIG, null));
         TrustControllerGateway minimal = new TrustControllerGateway() {
-            @Override public JwtClaims fetchEntityConfiguration() {
+            @Override public UnverifiedClaims fetchEntityConfiguration() {
                 throw new UnsupportedOperationException();
             }
             @Override public List<String> fetchMembers() {
@@ -402,7 +403,7 @@ class TrustChainValidatorEntityStatementTypeTest {
     void aMinimalGatewayStillReadsATypedConfiguration() throws Exception {
         Map<Position, String> statements = federation(Map.of());
         TrustControllerGateway minimal = new TrustControllerGateway() {
-            @Override public JwtClaims fetchEntityConfiguration() {
+            @Override public UnverifiedClaims fetchEntityConfiguration() {
                 throw new UnsupportedOperationException();
             }
             @Override public List<String> fetchMembers() {
@@ -415,8 +416,8 @@ class TrustChainValidatorEntityStatementTypeTest {
                 return null;
             }
         };
-        assertEquals(ANCHOR, minimal.fetchEntityConfigurationOf(ANCHOR).getSubject());
-        assertEquals(ANCHOR, minimal.fetchEntityConfigurationOf(ANCHOR, null).getSubject());
+        assertEquals(ANCHOR, minimal.fetchEntityConfigurationOf(ANCHOR).unverifiedSubject());
+        assertEquals(ANCHOR, minimal.fetchEntityConfigurationOf(ANCHOR, null).unverifiedSubject());
         assertEquals(ANCHOR, new TrustChainValidator(minimal, TrustAnchor.of(ANCHOR, jwks(anchorKey))).validate(suppliedChain(statements), LEAF, LEAF).trustAnchorIssuer());
     }
 }

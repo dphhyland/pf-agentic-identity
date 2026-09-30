@@ -1,7 +1,7 @@
 package com.pingidentity.ps.oidf.federation;
 
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.util.List;
-import org.jose4j.jwt.JwtClaims;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 
 /**
@@ -29,7 +29,7 @@ public interface TrustControllerGateway {
     public static final long DEFAULT_MAX_AGE_LIMIT = -1L;
     public static final long DEFAULT_REQUEST_MAX_AGE_LIMIT = 60L;
 
-    public JwtClaims fetchEntityConfiguration() throws Exception;
+    public UnverifiedClaims fetchEntityConfiguration() throws Exception;
 
     public List<String> fetchMembers() throws Exception;
 
@@ -53,14 +53,14 @@ public interface TrustControllerGateway {
     }
 
     /** Rejects a configuration that is not typed {@code entity-statement+jwt} (OpenID Federation 1.0 §3). */
-    default public JwtClaims fetchEntityConfigurationOf(String issuer) throws Exception {
+    default public UnverifiedClaims fetchEntityConfigurationOf(String issuer) throws Exception {
         String jwt = this.fetchEntityStatement(issuer);
         EntityStatementType.require(jwt, "iss=sub=" + issuer);
         return JwtCodec.parseUnverifiedClaims(jwt);
     }
 
     /** Rejects a configuration that is not typed {@code entity-statement+jwt} (OpenID Federation 1.0 §3). */
-    default public JwtClaims fetchEntityConfigurationOf(String issuer, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
+    default public UnverifiedClaims fetchEntityConfigurationOf(String issuer, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
         String jwt = this.fetchEntityStatement(issuer, -1L, pendingWrites);
         EntityStatementType.require(jwt, "iss=sub=" + issuer);
         return JwtCodec.parseUnverifiedClaims(jwt);

@@ -5,6 +5,8 @@ import com.pingidentity.ps.oidf.jose.HttpGetClient;
 import com.pingidentity.ps.oidf.jose.HttpPostClient;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
+import com.pingidentity.ps.oidf.jose.VerificationPolicy;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.jose.SigningKeyProvider;
 import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
@@ -616,18 +618,19 @@ public final class FederationService {
             throw new FederationException(FederationError.INVALID_REQUEST, "trust_mark is required");
         }
         Map<String, Object> header;
-        JwtClaims mark;
+        UnverifiedClaims mark;
         try {
             header = JwtCodec.getJwtHeaders(trustMark);
             mark = JwtCodec.parseUnverifiedClaims(trustMark);
         } catch (Exception e) {
             throw new FederationException(FederationError.INVALID_REQUEST, "trust_mark is not a signed JWT");
         }
-        if (!(mark.getClaimValue("iss") instanceof String iss) || !EntityId.same(iss, oidcIssuer)) {
+        if (!EntityId.same(mark.unverifiedIssuer(), oidcIssuer)) {
             throw new FederationException(FederationError.NOT_FOUND, "this entity did not issue that Trust Mark");
         }
-        String status = !TrustMarkValidator.TRUST_MARK_TYP.equals(header.get("typ")) || !this.signedWithOwnKey(trustMark) ? "invalid"
-                : this.trustMarkIssuing.status(mark).orElseThrow(() ->
+        JwtClaims verified = TrustMarkValidator.TRUST_MARK_TYP.equals(header.get("typ")) ? this.signedWithOwnKey(trustMark) : null;
+        String status = verified == null ? "invalid"
+                : this.trustMarkIssuing.status(verified).orElseThrow(() ->
                         new FederationException(FederationError.NOT_FOUND, "this entity knows nothing of that Trust Mark"));
         JwtClaims claims = new JwtClaims();
         claims.setIssuer(oidcIssuer);
@@ -637,12 +640,12 @@ public final class FederationService {
         return this.signClaims(claims, TrustMarkValidator.STATUS_RESPONSE_TYP);
     }
 
-    private boolean signedWithOwnKey(String jwt) throws JoseException {
+    /** The mark's claims when this entity's own key signed it, else null. */
+    private JwtClaims signedWithOwnKey(String jwt) throws JoseException {
         try {
-            JwtCodec.verifySignature(jwt, Jwks.parseFederationKeySet(this.buildInlineJwks()), Set.of(this.configuration.signingAlgorithm()));
-            return true;
+            return JwtCodec.verifySignature(jwt, Jwks.parseFederationKeySet(this.buildInlineJwks()), Set.of(this.configuration.signingAlgorithm()));
         } catch (JwtVerificationException e) {
-            return false;
+            return null;
         }
     }
 
@@ -937,18 +940,31 @@ public final class FederationService {
      * Live-fetch {@code subject}'s entity configuration and cache its jwks, Entity Types and role. Only called
      * with a fetcher configured (both callers check).
      */
+    /** A subordinate's Entity Configuration, verified under a key in its own {@code jwks} (§3.2), or an IllegalStateException. */
+    private static JwtClaims verifiedSelfSigned(String body, Map<String, Object> jwks, String issuer) {
+        try {
+            return JwtCodec.verifyAgainstInlineJwks(body, jwks, issuer, Set.of(), VerificationPolicy.entityStatement());
+        } catch (JwtVerificationException e) {
+            throw new IllegalStateException("Entity configuration of " + issuer + " does not verify under its own jwks (" + e.code() + ")");
+        }
+    }
+
     private Map<String, Object> refreshSubordinateJwks(String subject) {
         try {
             String body = this.subordinateFetcher.get(EntityId.wellKnownUrl(subject), ENTITY_STATEMENT_ACCEPT);
-            JwtClaims selfConfig = JwtCodec.parseUnverifiedClaims(body);
-            if (!EntityId.same(subject, selfConfig.getIssuer()) || !EntityId.same(subject, selfConfig.getSubject())) {
-                throw new IllegalStateException("Entity configuration of " + subject + " is not self-signed (iss=" + selfConfig.getIssuer() + ", sub=" + selfConfig.getSubject() + ")");
+            UnverifiedClaims unverified = JwtCodec.parseUnverifiedClaims(body);
+            if (!EntityId.same(subject, unverified.unverifiedIssuer()) || !EntityId.same(subject, unverified.unverifiedSubject())) {
+                throw new IllegalStateException("Entity configuration of " + subject + " is not self-signed (iss=" + unverified.unverifiedIssuer() + ", sub=" + unverified.unverifiedSubject() + ")");
             }
-            @SuppressWarnings("unchecked")
-            Map<String, Object> jwks = (Map<String, Object>) selfConfig.getClaimValue("jwks");
-            if (jwks == null || jwks.isEmpty()) {
+            Map<String, Object> unverifiedJwks = unverified.unverifiedMap("jwks");
+            if (unverifiedJwks.isEmpty()) {
                 throw new IllegalStateException("Entity configuration of " + subject + " contains no jwks");
             }
+            // The keys this entity asserts for its subordinate in a signed statement: only once the configuration they
+            // come from verifies under one of them (OpenID Federation 1.0 §3.2, the Entity Statement rules), never as fetched.
+            JwtClaims selfConfig = verifiedSelfSigned(body, unverifiedJwks, unverified.unverifiedIssuer());
+            @SuppressWarnings("unchecked")
+            Map<String, Object> jwks = (Map<String, Object>) selfConfig.getClaimValue("jwks");
             Map<String, Object> metadata = com.pingidentity.ps.oidf.jose.Claims.optionalMap(selfConfig, "metadata");
             boolean intermediate = com.pingidentity.ps.oidf.jose.Claims.optionalNestedMap(metadata, "federation_entity")
                     .get("federation_fetch_endpoint") instanceof String;

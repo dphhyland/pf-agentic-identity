@@ -71,7 +71,7 @@ class FederationServiceClientAuthTest {
     }
 
     private static Map<?, ?> federationEntity(FederationService service) throws Exception {
-        return (Map<?, ?>) ((Map<?, ?>) JwtCodec.parseUnverifiedClaims(service.createEntityConfigurationJwt(PF)).getClaimValue("metadata"))
+        return (Map<?, ?>) ((Map<?, ?>) JwtCodec.parseUnverifiedClaims(service.createEntityConfigurationJwt(PF)).unverifiedClaim("metadata"))
                 .get("federation_entity");
     }
 
@@ -177,8 +177,8 @@ class FederationServiceClientAuthTest {
         FederationService service = this.pf(configuration(FederationConfiguration.ResolveDiscovery.ANY)).build();
         ResolveRequest request = new ResolveRequest(CLIENT, List.of(TA), List.of());
 
-        assertEquals(List.of(CLIENT), JwtCodec.parseUnverifiedClaims(service.resolve(request, PF, CLIENT)).getAudience());
-        assertNull(JwtCodec.parseUnverifiedClaims(service.resolve(request, PF)).getClaimValue("aud"), "unauthenticated, no aud");
+        assertEquals(CLIENT, JwtCodec.parseUnverifiedClaims(service.resolve(request, PF, CLIENT)).unverifiedClaim("aud"));
+        assertNull(JwtCodec.parseUnverifiedClaims(service.resolve(request, PF)).unverifiedClaim("aud"), "unauthenticated, no aud");
     }
 
     @Test

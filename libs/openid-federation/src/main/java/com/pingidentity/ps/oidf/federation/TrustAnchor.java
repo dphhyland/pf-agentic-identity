@@ -156,7 +156,7 @@ public final class TrustAnchor {
      * @throws IllegalArgumentException  when a {@link #live} anchor's key set is not usable
      */
     public JwtClaims verify(String jwt, Set<String> acceptedSigningAlgorithms) throws JwtVerificationException {
-        return JwtCodec.verifyAgainstKeys(jwt, this.keys(), this.entityId, acceptedSigningAlgorithms);
+        return JwtCodec.verifyAgainstKeys(jwt, this.keys(), this.entityId, acceptedSigningAlgorithms, VerificationPolicy.legacy());
     }
 
     /** As {@link #verify(String, Set)}, under the given verification policy (kid, iat, typ, clock). */

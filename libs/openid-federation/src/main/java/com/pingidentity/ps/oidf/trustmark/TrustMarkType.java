@@ -108,7 +108,7 @@ public record TrustMarkType(String id, long lifetimeSeconds, Subjects subjects, 
     private static void requireDelegationFor(String id, String delegation) {
         try {
             Object typ = JwtCodec.getJwtHeaders(delegation).get("typ");
-            Object type = JwtCodec.parseUnverifiedClaims(delegation).getClaimValue("trust_mark_type");
+            Object type = JwtCodec.parseUnverifiedClaims(delegation).unverifiedClaim("trust_mark_type");
             if (TrustMarkValidator.DELEGATION_TYP.equals(typ) && id.equals(type)) {
                 return;
             }

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.federation.TrustChainValidationResult;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -59,7 +60,7 @@ class FederationKitTest {
         assertEquals(3, f.chain(RP, TA).size());
         List<String> full = f.chainWithAnchor(RP, TA);
         assertEquals(4, full.size());
-        assertEquals(TA, JwtCodec.parseUnverifiedClaims(full.get(3)).getSubject());
+        assertEquals(TA, JwtCodec.parseUnverifiedClaims(full.get(3)).unverifiedSubject());
         assertThrows(IllegalArgumentException.class, () -> f.path(TA, RP));
     }
 
@@ -67,12 +68,12 @@ class FederationKitTest {
     void entitiesWithSubordinatesPublishFetchAndListEndpoints() throws Exception {
         Federation f = threeLevels().build();
 
-        JwtClaims ta = JwtCodec.parseUnverifiedClaims(f.entityConfiguration(TA));
+        UnverifiedClaims ta = JwtCodec.parseUnverifiedClaims(f.entityConfiguration(TA));
         @SuppressWarnings("unchecked")
-        Map<String, Object> fed = (Map<String, Object>) ((Map<String, Object>) ta.getClaimValue("metadata")).get("federation_entity");
+        Map<String, Object> fed = (Map<String, Object>) ((Map<String, Object>) ta.unverifiedClaim("metadata")).get("federation_entity");
         assertEquals(f.fetchEndpoint(TA), fed.get("federation_fetch_endpoint"));
         assertEquals(f.listEndpoint(TA), fed.get("federation_list_endpoint"));
-        assertTrue(!JwtCodec.parseUnverifiedClaims(f.entityConfiguration(RP)).getClaimsMap().containsKey("authority_hints")
+        assertTrue(!JwtCodec.parseUnverifiedClaims(f.entityConfiguration(RP)).unverifiedClaimsMap().containsKey("authority_hints")
                 || f.superiors(RP).equals(List.of(INT)));
         assertEquals(Federation.Role.INTERMEDIATE, f.role(INT));
     }
@@ -91,9 +92,9 @@ class FederationKitTest {
                 .constraints(TA, INT, Map.of("max_path_length", 1))
                 .build();
 
-        JwtClaims statement = JwtCodec.parseUnverifiedClaims(f.subordinateStatement(TA, INT));
-        assertTrue(statement.hasClaim("metadata_policy"));
-        assertTrue(statement.hasClaim("constraints"));
+        UnverifiedClaims statement = JwtCodec.parseUnverifiedClaims(f.subordinateStatement(TA, INT));
+        assertTrue(statement.hasUnverifiedClaim("metadata_policy"));
+        assertTrue(statement.hasUnverifiedClaim("constraints"));
         assertEquals("fixed", f.validator(TA).validate(f.chain(RP, TA), RP, OP)
                 .metadataFor("openid_relying_party").get("client_name"));
     }
@@ -122,7 +123,7 @@ class FederationKitTest {
     void aMutableClockMovesStatementTimes() throws Exception {
         MutableClock clock = new MutableClock(Instant.ofEpochSecond(1_700_000_000L));
         Federation f = Federation.builder(clock).anchor(TA).leaf(RP, TA).build();
-        long iat = JwtCodec.parseUnverifiedClaims(f.entityConfiguration(RP)).getIssuedAt().getValue();
+        long iat = JwtCodec.parseUnverifiedClaims(f.entityConfiguration(RP)).unverifiedNumericDate("iat");
         assertEquals(1_700_000_000L - 60, iat);
         clock.advance(Duration.ofHours(1));
         assertEquals(1_700_003_600L, clock.epochSecond());

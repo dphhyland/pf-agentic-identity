@@ -1,6 +1,7 @@
 package com.pingidentity.ps.oidf.federation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import com.pingidentity.ps.oidf.jose.JwtCodec;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -8,6 +9,7 @@ import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.federation.TrustChainValidationException.Kind;
 import com.pingidentity.ps.oidf.federation.testkit.Keys;
 import com.pingidentity.ps.oidf.federation.testkit.Statements;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.time.Clock;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -51,9 +53,21 @@ class EntityStatementChecksTest {
     }
 
     private static void check(Map<String, Object> header, Map<String, Object> claims, String registrationAudience) {
+        EntityStatementChecks.check(header, unverified(claims), registrationAudience);
+    }
+
+    /** The checks read a statement before its signature is checked, so they take its claims as the codec reads them. */
+    private static UnverifiedClaims unverified(Map<String, Object> claims) {
         JwtClaims jwtClaims = new JwtClaims();
         claims.forEach(jwtClaims::setClaim);
-        EntityStatementChecks.check(header, jwtClaims, registrationAudience);
+        java.util.Base64.Encoder b64 = java.util.Base64.getUrlEncoder().withoutPadding();
+        String unsigned = b64.encodeToString("{\"alg\":\"ES256\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8)) + "."
+                + b64.encodeToString(jwtClaims.toJson().getBytes(java.nio.charset.StandardCharsets.UTF_8)) + ".AAAA";
+        try {
+            return JwtCodec.parseUnverifiedClaims(unsigned);
+        } catch (com.pingidentity.ps.oidf.jose.JwtVerificationException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private static TrustChainValidationException refused(Map<String, Object> claims) {
@@ -140,9 +154,8 @@ class EntityStatementChecksTest {
     @Test
     @Requirement({"OIDFED §3.1.1(1.14)", "OIDFED §3.2(2.13)"})
     void aCriticalClaimAnImplementationDoesUnderstandIsAccepted() {
-        JwtClaims claims = new JwtClaims();
-        with(with(configuration(), "crit", List.of("jurisdiction")), "jurisdiction", "AU").forEach(claims::setClaim);
-        EntityStatementChecks.check(Map.of(), claims, null, java.util.Set.of("jurisdiction"));
+        EntityStatementChecks.check(Map.of(), unverified(with(with(configuration(), "crit", List.of("jurisdiction")), "jurisdiction", "AU")),
+                null, java.util.Set.of("jurisdiction"));
     }
 
     @Test

@@ -74,8 +74,10 @@ class FederationServiceEndpointsTest {
                         Set.of(), ValidatorOptions.defaults());
     }
 
+    /** The claims of a JWT the service under test signed, read without checking the signature. */
     private static JwtClaims claims(String jwt) throws Exception {
-        return JwtCodec.parseUnverifiedClaims(jwt);
+        return JwtClaims.parse(new String(java.util.Base64.getUrlDecoder().decode(jwt.split("\\.")[1]),
+                java.nio.charset.StandardCharsets.UTF_8));
     }
 
     private static FederationException refusal(FederationError expected, org.junit.jupiter.api.function.Executable call) {
@@ -122,6 +124,27 @@ class FederationServiceEndpointsTest {
         FederationService service = pf(configuration(), http).build();
 
         refusal(FederationError.TEMPORARILY_UNAVAILABLE, () -> service.fetchSubordinateStatement(null, FOREIGN, PF));
+    }
+
+    /**
+     * F-0415: the keys this entity asserts for a configured subordinate come from that subordinate's Entity
+     * Configuration, fetched live. Until 0.6.0 they were read from it without checking its signature; now a
+     * configuration that does not verify under one of its own keys (OpenID Federation 1.0 §3.2) vouches for nothing.
+     */
+    @Test
+    void aForeignSubordinateWhoseConfigurationIsNotSignedWithItsOwnKeysIsNotVouchedFor() throws Exception {
+        String forged = Statements.spec(Statements.ENTITY_STATEMENT_TYP).claim("iss", FOREIGN).claim("sub", FOREIGN)
+                .claim("jwks", Keys.publicJwks(FOREIGN_KEY)).claim("authority_hints", List.of(PF)).claim("metadata", Map.of())
+                .sign(Keys.ec("foreign-1"), Clock.systemUTC());
+        FederationService forgedService = pf(configuration(), new ServingMap().entityConfiguration(FOREIGN, forged)).build();
+
+        refusal(FederationError.TEMPORARILY_UNAVAILABLE, () -> forgedService.fetchSubordinateStatement(null, FOREIGN, PF));
+
+        FederationService service = pf(configuration(), new ServingMap().entityConfiguration(FOREIGN, foreignConfiguration(Map.of())))
+                .build();
+        JwtClaims statement = JwtCodec.verifyAgainstKeys(service.fetchSubordinateStatement(null, FOREIGN, PF), List.of(PF_KEY), PF,
+                Set.of(), com.pingidentity.ps.oidf.jose.VerificationPolicy.legacy());
+        assertEquals(Keys.publicJwks(FOREIGN_KEY), statement.getClaimValue("jwks"), "a configuration that verifies is vouched for");
     }
 
     @Test

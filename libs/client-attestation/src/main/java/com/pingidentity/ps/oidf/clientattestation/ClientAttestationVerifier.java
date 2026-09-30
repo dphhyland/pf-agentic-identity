@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.clientattestation;
 
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.security.Key;
 import java.util.ArrayList;
 import java.util.List;
@@ -16,6 +17,7 @@ import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwt.JwtClaims;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.jose.VerificationPolicy;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.jose.Claims;
 import com.pingidentity.ps.oidf.jose.dpop.DpopProof;
@@ -257,15 +259,16 @@ public final class ClientAttestationVerifier {
     private ClientAttestation verifyAttestation(String attestationHeader) throws Exception {
         Map<String, Object> headers = JwtCodec.getJwtHeaders(attestationHeader);
         JwtCodec.requireType(headers, ATTESTATION_TYP);
-        JwtClaims unverified = JwtCodec.parseUnverifiedClaims(attestationHeader);
-        String attesterIssuer = Claims.requireNonBlank(unverified.getIssuer(), "iss");
+        UnverifiedClaims unverified = JwtCodec.parseUnverifiedClaims(attestationHeader);
+        String attesterIssuer = Claims.requireNonBlank(unverified.unverifiedIssuer(), "iss");
         List<String> trustChain = ClientAttestationVerifier.trustChainHeader(headers);
 
         List<JsonWebKey> attesterKeys = this.attesterKeyResolver.resolve(attesterIssuer, trustChain);
 
         JwtClaims verified;
         try {
-            verified = JwtCodec.verifyAgainstKeys(attestationHeader, attesterKeys, attesterIssuer, this.config.attestationAlgorithms());
+            verified = JwtCodec.verifyAgainstKeys(attestationHeader, attesterKeys, attesterIssuer, this.config.attestationAlgorithms(),
+                    VerificationPolicy.legacy());
         } catch (JwtVerificationException e) {
             if (e.isExpired()) {
                 throw ClientAttestationException.useFreshAttestation("Client Attestation has expired");
