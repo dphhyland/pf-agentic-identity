@@ -3,10 +3,12 @@ title: servlets/ssf's PfIdTokenVerifier still calls OAuthIssuerUtils itself, the
 severity: low
 area: ssf, platform-pf
 source: design
-status: open
+status: closed
 plan_items: [F-1]
-prs: [56]
-verification: ''
+prs: [56, 97]
+verification: >
+  Closed 2026-10-01 by package HSSF3 (PR #97): PfIdTokenVerifier.forThisDeployment resolves the issuer with
+  platform-pf's PfInternals.issuer(request), and InternalsBoundaryTest's RECORDED map is empty.
 target_release: 0.6.0
 notes: >
   Found by package PFI (2026-09-28). F-1 puts every call into PingFederate's internal services behind platform-pf's

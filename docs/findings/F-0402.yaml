@@ -1,0 +1,17 @@
+id: F-0402
+title: The logout signal's replay memory is per node, so a hint replayed to another node signals again
+severity: low
+area: ssf
+source: design
+status: open
+plan_items: [H-SSF-6, C-1]
+prs: [97]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-10-01 by package HSSF3. LogoutEventFilter raises at most one session-revoked per (sid or subject, iat)
+  within OIDF_SSF_LOGOUT_HINT_MAX_AGE_SECONDS, remembered in the filter's memory (at most 10000 entries). The Phase 3
+  plan (decision 9) treats every node as standalone until C-1: on a cluster the same hint presented at each node raises
+  one signal per node within the bound. The signal is about a subject whose session has just been ended, so a repeat is
+  noise to a receiver rather than a new capability for an attacker; the hint still has to verify and be recent. C-1
+  (Phase 4) moves it to shared state.

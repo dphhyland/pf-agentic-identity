@@ -49,6 +49,11 @@ class SsfSettingsTest {
     private record Case(String value, Function<SsfConfiguration, Object> read, Object expected) {
     }
 
+    /** Two push-header keys, 32 bytes each. */
+    static final String KEY_A = java.util.Base64.getEncoder().encodeToString(new byte[32]);
+    static final String KEY_B = java.util.Base64.getEncoder().encodeToString("0123456789abcdef0123456789abcdef".getBytes(
+            java.nio.charset.StandardCharsets.US_ASCII));
+
     private static final Map<String, Case> CASES = new LinkedHashMap<>();
 
     /** A private JWK for the receiver's client key. */
@@ -129,7 +134,24 @@ class SsfSettingsTest {
         add("OIDF_SSF_MAX_STREAMS_PER_CLIENT", "3", SsfConfiguration::maxStreamsPerClient, 3);
         add("OIDF_SSF_MIN_VERIFICATION_INTERVAL_SECONDS", "0", SsfConfiguration::minVerificationIntervalSeconds, 0);
         add("OIDF_SSF_INACTIVITY_TIMEOUT_SECONDS", "3600", SsfConfiguration::inactivityTimeoutSeconds, 3600L);
+        // HSSF3: Kafka's TLS and timeouts, and the push-header keys.
+        add("OIDF_SSF_KAFKA_SSL_TRUSTSTORE_LOCATION", "/opt/kafka/trust.p12", SsfConfiguration::kafkaSslTruststoreLocation,
+                "/opt/kafka/trust.p12");
+        add("OIDF_SSF_KAFKA_SSL_TRUSTSTORE_PASSWORD", "tp", SsfConfiguration::kafkaSslTruststorePassword, "tp");
+        add("OIDF_SSF_KAFKA_SSL_TRUSTSTORE_TYPE", "pkcs12", SsfConfiguration::kafkaSslTruststoreType, "PKCS12");
+        add("OIDF_SSF_KAFKA_SSL_KEYSTORE_LOCATION", "/opt/kafka/client.p12", SsfConfiguration::kafkaSslKeystoreLocation,
+                "/opt/kafka/client.p12");
+        add("OIDF_SSF_KAFKA_SSL_KEYSTORE_PASSWORD", "kp", SsfConfiguration::kafkaSslKeystorePassword, "kp");
+        add("OIDF_SSF_KAFKA_SSL_KEYSTORE_TYPE", "PEM", SsfConfiguration::kafkaSslKeystoreType, "PEM");
+        add("OIDF_SSF_KAFKA_SSL_KEY_PASSWORD", "kk", SsfConfiguration::kafkaSslKeyPassword, "kk");
+        add("OIDF_SSF_KAFKA_SSL_HOSTNAME_VERIFICATION", "false", SsfConfiguration::kafkaSslHostnameVerification, false);
+        add("OIDF_SSF_KAFKA_REQUEST_TIMEOUT_MS", "5000", SsfConfiguration::kafkaRequestTimeoutMs, 5000);
+        add("OIDF_SSF_KAFKA_DELIVERY_TIMEOUT_MS", "60000", SsfConfiguration::kafkaDeliveryTimeoutMs, 60000);
+        add("OIDF_SSF_KAFKA_MAX_BLOCK_MS", "500", SsfConfiguration::kafkaMaxBlockMs, 500);
+        add("OIDF_SSF_SECRET_KEY", KEY_A, SsfConfiguration::secretKey, KEY_A);
+        add("OIDF_SSF_SECRET_KEY_PREVIOUS", KEY_B, SsfConfiguration::secretKeyPrevious, KEY_B);
     }
+
 
 
     /** The seven switches, strict since 0.6.0 (finding F-0237). */
@@ -165,6 +187,9 @@ class SsfSettingsTest {
             env.put("OIDF_SSF_RECEIVER_POLL_TOKEN", "pt");
             env.remove(under);
         }
+        if (under.equals("OIDF_SSF_SECRET_KEY_PREVIOUS")) {
+            env.put("OIDF_SSF_SECRET_KEY", KEY_A); // the previous key only with a current one
+        }
         if (!under.equals("OIDF_SSF_KAFKA_BOOTSTRAP_SERVERS")) {
             env.put("OIDF_SSF_KAFKA_BOOTSTRAP_SERVERS", "kafka:9092");
         }
@@ -182,7 +207,7 @@ class SsfSettingsTest {
             entries.add(s.name());
         }
         assertEquals(entries, new TreeSet<>(CASES.keySet()));
-        assertEquals(56, entries.size());
+        assertEquals(69, entries.size());
     }
 
     /**
@@ -232,7 +257,9 @@ class SsfSettingsTest {
     /** The five secrets, each of which may be given as a file through each source's {@code _FILE} variant. */
     private static final List<String> SECRETS = List.of("OIDF_SSF_JDBC_PASSWORD", "OIDF_SSF_KAFKA_SASL_PASSWORD",
             "OIDF_SSF_INTROSPECTION_CLIENT_SECRET", "OIDF_SSF_RECEIVER_ENDPOINT_AUTH_TOKEN", "OIDF_SSF_RECEIVER_POLL_TOKEN",
-            "OIDF_SSF_RECEIVER_CLIENT_SECRET", "OIDF_SSF_RECEIVER_CLIENT_KEY");
+            "OIDF_SSF_RECEIVER_CLIENT_SECRET", "OIDF_SSF_RECEIVER_CLIENT_KEY", "OIDF_SSF_KAFKA_SSL_TRUSTSTORE_PASSWORD",
+            "OIDF_SSF_KAFKA_SSL_KEYSTORE_PASSWORD", "OIDF_SSF_KAFKA_SSL_KEY_PASSWORD", "OIDF_SSF_SECRET_KEY",
+            "OIDF_SSF_SECRET_KEY_PREVIOUS");
 
     /**
      * Each secret read from a file named by its {@code _FILE} variant in each source ({@code X_FILE},
@@ -253,7 +280,8 @@ class SsfSettingsTest {
             assertEquals(3, s.fileVariants().size(), name);
             assertTrue(CATALOGUE.declaredEnvironmentNames().contains(name + "_FILE"), name);
             Path file = dir.resolve(name.toLowerCase(java.util.Locale.ROOT));
-            String content = name.equals("OIDF_SSF_RECEIVER_CLIENT_KEY") ? CLIENT_JWK : "from-" + name;
+            String content = name.equals("OIDF_SSF_RECEIVER_CLIENT_KEY") ? CLIENT_JWK
+                    : name.equals("OIDF_SSF_SECRET_KEY") ? KEY_A : name.equals("OIDF_SSF_SECRET_KEY_PREVIOUS") ? KEY_B : "from-" + name;
             Files.writeString(file, content + "\n");
             for (SourceName variant : s.fileVariants()) {
                 Map<String, String> env = base(name);
@@ -317,7 +345,7 @@ class SsfSettingsTest {
             assertTrue(e.getMessage().contains(s.name()), e.getMessage());
             refused++;
         }
-        assertEquals(30, refused, "the switches, the numbers, the choices, the URLs, the event types and the issuers");
+        assertEquals(34, refused, "the switches, the numbers, the choices, the URLs, the event types and the issuers");
     }
 
     @Test

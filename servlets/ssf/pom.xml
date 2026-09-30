@@ -97,10 +97,10 @@
                       The methods listed here are the ones reachable from a plain unit test, and every one
                       of them measured clean before it was added - the gate went in green, not aspirational.
 
-                      LogoutEventFilter.extractSubject is absent on a technicality worth knowing: its
-                      one-arg overload is clean, its two-arg overload is not, and an include pattern cannot
-                      tell them apart. Every other omission is a real coverage gap - a queue of tests to
-                      write, not a reason to lower the limit. Add a method here only after measuring it
+                      An include pattern names a method, not an overload: LogoutEventFilter's hint rule is
+                      readVerifiedHint, not a readHint overload, so it can be gated while the one-argument
+                      readHint, which asks the running PingFederate for its keys, is not. Every omission is a
+                      real coverage gap - a queue of tests to write, not a reason to lower the limit. Add a method here only after measuring it
                       clean; a gate that lands red is a gate someone switches off.
                     -->
                     <execution>
@@ -273,6 +273,40 @@
                                         <include>com.pingidentity.ps.oidf.servlet.ssf.SsfScimSubjectServlet.authorize(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.ScimFilter.parse(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.ScimFilter.matches(*</include>
+
+                                        <!-- H-SSF-5, H-SSF-6, H-SSF-7 and PR-2 (0.6.0, HSSF3): the txn and the CAEP payloads, the
+                                             audit vocabulary and the source's reconfigure, the logout signal's rules, the
+                                             push header sealed at rest, and Kafka's transport, JAAS and refusal. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfEventEmitter.emit(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfEventEmitter.credentialChange(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfEventEmitter.assuranceLevelPayload(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.AuditEventMapper.parseRule(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfEventBridge.emit(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfEventBridge.onCredentialChange(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfAuditLogSource.reattach(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfAuditLogSource.hook(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfAuditLogSource.unhook(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfAuditLogSource.registerForUndeploy(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.LogoutEventFilter.readVerifiedHint(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.LogoutEventFilter.signal(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.LogoutEventFilter.failed(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.LogoutEventFilter.maxAgeSeconds(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.LogoutEventFilter.Replay.firstUse(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.PfIdTokenVerifier.verify(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.PfIdTokenVerifier.isIdToken(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushHeaderCipher.seal(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushHeaderCipher.open(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushHeaderCipher.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushHeaderCipher.key(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushHeaderCipher.refuseWithoutKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushHeaderCipher.keep(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfConfiguration.checkSecretKeys(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.KafkaSetPublisher.producerProps(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.KafkaSetPublisher.publish(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.KafkaSetPublisher.callback(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.KafkaSetPublisher.jaasConfig(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.KafkaSetPublisher.jaasQuote(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.KafkaSetPublisher.refuseClearTransport(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

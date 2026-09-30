@@ -3,10 +3,21 @@ title: 'The stored push authorization_header is plaintext; Kafka TLS settings ar
 severity: medium
 area: ssf
 source: reviewer-report
-status: open
+status: closed
 plan_items: [H-SSF-7]
-prs: []
-verification: ''
+prs: [97]
+verification: >
+  Closed 2026-10-01 by package HSSF3 (PR #97). A push stream's authorization_header is sealed at rest by both
+  JDBC stores with AES-256-GCM under OIDF_SSF_SECRET_KEY (ssfenc:v1:<kid>:..., the stream id bound as additional data);
+  OIDF_SSF_SECRET_KEY_PREVIOUS opens values during a rotation, a clear value from an earlier version is read and sealed
+  on the stream's next write, and under production SSF over a JDBC or ldm store without the key is FAILED_CONFIG naming
+  it; a header a receiver sends with the ssfenc:v1: prefix is sealed like any other. Tested on PostgreSQL on both stores (JdbcPushHeaderOnPostgresTest, LdmPushHeaderOnPostgresTest,
+  the IOM fixture). Kafka: security.protocol defaults to SSL, PLAINTEXT and SASL_PLAINTEXT are forbidden-in-production in
+  the catalogue and refused again by KafkaSetPublisher through ProfileRefusals; the ssl.* truststore, keystore and
+  host-name settings are catalogued and passed through; every JAAS value is quoted for Kafka's StreamTokenizer
+  (KafkaTransportTest parses hostile values the way Kafka 4.0's JaasConfig does); request.timeout.ms,
+  delivery.timeout.ms and max.block.ms come from settings with bounded defaults (10 s, 30 s, 2 s) and linger.ms is 0.
+  Not run against a broker (U-0410).
 target_release: 0.6.0
 notes: >
   From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the

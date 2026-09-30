@@ -40,8 +40,8 @@ written by hand is this page, outside its generated list.
 | [attestation-issuer](attestation-issuer.md) | `servlets/attestation-issuer` | `com.pingidentity.ps.oidf.servlet.attestation` | 20 |
 | [evidence-policy](evidence-policy.md) | `servlets/attestation-issuer` | `com.pingidentity.ps.oidf.issuer` | 13 |
 | [issuance-client-properties](issuance-client-properties.md) | `servlets/attestation-issuer` | `com.pingidentity.ps.oidf.servlet.attestation` | 12 |
-| [ssf-logout-signal](ssf-logout-signal.md) | `servlets/ssf` | `com.pingidentity.ps.oidf.servlet.ssf` | 1 |
-| [ssf-transmitter](ssf-transmitter.md) | `servlets/ssf` | `com.pingidentity.ps.oidf.ssf` | 56 |
+| [ssf-logout-signal](ssf-logout-signal.md) | `servlets/ssf` | `com.pingidentity.ps.oidf.servlet.ssf` | 2 |
+| [ssf-transmitter](ssf-transmitter.md) | `servlets/ssf` | `com.pingidentity.ps.oidf.ssf` | 69 |
 | [rar-pdp-processor](rar-pdp-processor.md) | `plugins/rar-paz-plugin` | `com.pingidentity.ps.oidf.rar` | 25 |
 | [instance-registry](instance-registry.md) | `plugins/instance-registry-datasource` | `com.pingidentity.ps.oidf.registry` | 4 |
 | [ciba-simulator](ciba-simulator.md) | `plugins/ciba-sim` | `com.pingidentity.ps.oidf.cibasim` | 2 |
