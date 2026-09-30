@@ -1,9 +1,10 @@
 # Components and their enable switches
 
 From 0.6.0 each feature this repository adds to PingFederate is a component that starts on its own, fails on its
-own and is switched on or off on its own (plan item S-9, first half: S9a). A component that cannot start no longer
-stops `pf-runtime.war`: its surfaces answer 503, ready is 503, and PingFederate's own SSO and OAuth endpoints keep
-serving. What each state looks like from outside is in [health.md](health.md).
+own and is switched on or off on its own (plan item S-9: S9a, then S9b). A component that cannot start no longer
+stops `pf-runtime.war`: its own surfaces answer 503 or step aside, as [each surface's rule](#each-surfaces-rule)
+says, ready is 503, and PingFederate's own SSO and OAuth endpoints keep serving. What each state looks like from
+outside is in [health.md](health.md).
 
 ## The nine components
 
@@ -41,8 +42,9 @@ is `FAILED_CONFIG`.
 A switch is `true`, `false` or unset. It is read through `Settings.of("components")`, so a value other than `true`
 or `false` is refused.
 
-- **`false`** disables the component, whatever else is set. Its start never runs; its filters pass every request on
-  and its servlets answer 404.
+- **`false`** disables the component, whatever else is set. Its start never runs; its servlets answer 404, and its
+  filters pass every request on except the component's own traffic, which is told the feature is off
+  ([each surface's rule](#each-surfaces-rule)).
 - **`true`** starts it. A component switched on without the settings it needs is `FAILED_CONFIG`, and the reason
   says `OIDF_<NAME>_ENABLED=true but` what is missing.
 - **Unset, in development** (`OIDF_DEPLOYMENT_PROFILE=development`): inferred from the component's settings, as
@@ -88,42 +90,103 @@ registry behind (`SurfaceGateTest.aStoreIsNotPublishedWhenALaterStepOfTheAuthori
 order).
 `FrontChannelAutoRegistrationFilter` publishes what its requests need as one value at the end of its start.
 
-**The floor on each surface.** The first statement of every request method of these nine classes is platform-pf's
-`ComponentGate`. It reads the surface's own part: what a servlet or filter serves is what its own start configured,
-so a part that finished its start is not half-configured whatever a sibling did. The component counts only when one
-of its parts is `REFUSED`, because a violation of the deployment profile refuses the whole component (the
-programme's decision 4; PR-5 adds the refusals).
+## Each surface's rule
 
-| The part's state | Servlet | Filter over PingFederate's own endpoint |
+The first statement of every request method of a component's servlets and filters is platform-pf's `ComponentGate`
+(plan item S9b, which replaced S9a's fail-closed floor). A surface's part is **serving** when it is `READY` or
+`DEGRADED` and no part of its component is `REFUSED`; **disabled** when it is `DISABLED`; and **failed** in every
+other state - `STARTING`, `FAILED_CONFIG`, `FAILED_DEPENDENCY`, `REFUSED`, or a sibling part `REFUSED`, because a
+violation of the deployment profile refuses the whole component (the programme's decision 4). Serving, the gate does
+nothing. Otherwise:
+
+| Surface | Disabled | Failed |
 |---|---|---|
-| `READY`, `DEGRADED` (and no part of the component `REFUSED`) | serves | runs |
-| `STARTING`, `FAILED_CONFIG`, `FAILED_DEPENDENCY`, `REFUSED`, or a sibling `REFUSED` | 503 `{"error":"temporarily_unavailable",...}`, never runs | 503 for the component's own traffic, never passes it on; every other request goes on to PingFederate |
-| `DISABLED` | 404 `{"error":"not_found",...}` | passes every request on |
+| Federation endpoints (`FEDERATION`: the Entity Configuration, fetch, list, resolve, Trust Mark and historical-keys endpoints, `/federation/register`; `HOSTING`: `/federation/agents/*`, `/federation/resources/*`; `OPERATOR_API`: `/federation/admin/*`) | 404 `{"error":"not_found",...}` | 503 `{"error":"temporarily_unavailable",...}` |
+| SSF (`SSF`, `SSF_RECEIVER`), the attester (`ATTESTATION_ISSUER`) and the challenge endpoints | 404, no body | 503 `{"error":"temporarily_unavailable",...}` |
+| Automatic registration filters (`AUTO_REGISTRATION`, over `/as/token.oauth2`, `/as/authorization.oauth2`, `/as/par.oauth2`) | a request naming a federation client: 401 `invalid_client`; every other request goes on to PingFederate | a request naming a federation client: 503; every other request goes on |
+| Attestation filter (`ATTESTATION_AUTH`, where it authenticates clients) | a request with `OAuth-Client-Attestation` or its PoP: 401 `invalid_client`; a client that authenticates only with an attestation: the filter's own 401; every other request goes on | attestation traffic: 503; such a client: 401; every other request goes on |
+| FAPI filter (`FAPI`) | every request goes on | a request from a client `OIDF_FAPI2_CLIENTS` names: 503; every other request goes on |
+| Logout filter (`SSF`, over `/idp/init_logout.openid`) | the logout goes on; nothing is emitted | the logout goes on; nothing is emitted |
+| OGNL criteria (`validateClientAttestation`, `attestationClaim`: `ATTESTATION_AUTH`; `validateTrustChain`, `federationPolicy`: `FEDERATION`) | `false` (`attestationClaim`: empty) | `false` (`attestationClaim`: empty) |
 
-Why the part and not the component: on the rig on 2026-09-30, a PingFederate that names itself trust controller
-before its anchor's keys are pinned had `FEDERATION` `FAILED_CONFIG` from `OpenIdRegistrationServlet` (explicit
-registration needs the pinned keys) while `OpenIdFederationServlet` was `READY`. Gating on the component would have
-closed the Entity Configuration that those keys are captured from ([F-0192](../findings/F-0192.yaml)). Readiness
-still reads the component: ready is 503 while either part is failed.
+Every body is JSON with `Cache-Control: no-store`, and the 503's `error_description` names the component
+(`"FEDERATION is not available"`). `SurfaceMatrixTest` (in servlets/ssf and servlets/attestation-issuer) drives
+every row in every state for every surface the war maps: it finds the servlets from their `@WebServlet`
+annotations and the filters from build/pingfederate/filters.xml rather than from a list, so a surface added without
+a gate fails it (the Phase 3 plan's risk 4). A method a servlet has no handler for may get HttpServlet's own 405 or
+501 instead of the gate's answer, which serves nothing; every method it handles must meet the gate. On its first run
+it found the logout filter letting a linkage error out of its subject extraction, which stopped the logout; the
+filter now lets the logout go on whatever the extraction meets.
 
-The component's own traffic is what the filter acts on when it is healthy, read from the request alone:
-automatic registration's is a request whose `client_id`, or `client_assertion` `sub`, is an https URL with a host
-(OpenID Federation 1.0 §1.2 defines an Entity Identifier so), or whose assertion carries a `trust_chain` header,
-or whose assertion the gate cannot read (a header or claims that are not a JSON object, or a `sub` that is not a
-string) - the floor fails closed rather than guess, and it decodes base64url and standard base64 alike, as jose4j and
-so the healthy filter do;
-attestation's is a request with `OAuth-Client-Attestation` or its PoP; FAPI's is every request, because a FAPI
-filter that did not start does not know its client list. A token request from any of PingFederate's own clients
-therefore keeps working while automatic registration is failed. S9b (Phase 3, wave 4) replaces this floor with each
-surface's own rule.
+**Why the part and not the component.** A servlet or filter serves what its own start configured, so a part that
+finished its start is not half-configured whatever a sibling did. On the rig on 2026-09-30, a PingFederate that names
+itself trust controller before its anchor's keys are pinned had explicit registration unable to start while
+`OpenIdFederationServlet` was `READY`; gating on the component would have closed the Entity Configuration that those
+keys are captured from ([F-0192](../findings/F-0192.yaml)). From S9b explicit registration without the anchor's keys
+is `DEGRADED` - "`OIDF_FEDERATION_TRUST_ANCHOR_JWKS` is unset (and no `OIDF_FEDERATION_SELF_ANCHOR`): explicit
+registration answers 503 until the trust anchor's keys are configured" - so `FEDERATION` is ready while the rest of it
+serves, and each registration answers 503.
 
-The 503 body is the one OpenID Federation 1.0 §8.9 (fetched 2026-09-30 from
-https://openid.net/specs/openid-federation-1_0.html) gives: "If the request was malformed or an error occurred
-during the processing of the request, the response body SHOULD be a JSON object with the content type
-application/json." Its `temporarily_unavailable`: "The server hosting the federation endpoint is currently unable to
-handle the request due to temporary overloading or maintenance. The HTTP response status code SHOULD be 503 (Service
-Unavailable)." `error_description` is REQUIRED there, and the gate sends it. RFC 6749 §5.2's token error has the
-same shape.
+**Which requests name a federation client.** The automatic registration gate reads three signals:
+
+- the `client_assertion` carries a `trust_chain` header (the request asks to be registered from that chain), or the
+  gate cannot read the assertion (a header or claims that are not a JSON object in base64url or standard base64, or a
+  `sub` that is not a string - read as jose4j, and so the healthy filter, reads them, and closed rather than guessed);
+- a client it names - the assertion's `sub`, the `client_id` parameter, or the `OAuth-Client-Attestation`'s `sub` -
+  is an Entity Identifier (an https URL with a host: OpenID Federation 1.0 §1.2 defines it so, and every client this
+  repository registers through the federation is known by one) and PingFederate has no such client, or has one this
+  repository registered (the extended property `status` is `registered` or `auto_registered`);
+- PingFederate's client store cannot say (503 in both states: nobody can tell whose client it is).
+
+None of them can turn an ordinary client's request away. Each is read from the request itself, so a caller changes
+only how its own request is treated; the one that names a stored client asks PingFederate's store, where a client
+made in the console, by Terraform or by the admin API carries no federation `status`, and registration never
+overwrites a client it did not register. An ordinary client whose id happens to be an https URL is looked up and goes
+on. A client id that is not an Entity Identifier is never looked up.
+
+**Disabled is told, failed is asked to wait.** While automatic registration is disabled nothing keeps a federation
+client's registration current or enforces its expiry, so its client may not authenticate: 401 `invalid_client`, RFC
+6749 §5.2's "Client authentication failed (e.g., unknown client, no client authentication included, or unsupported
+authentication method)". A client that sends an attestation to a server with `attest_jwt_client_auth` off is told
+the same way - an unsupported authentication method - with the `WWW-Authenticate` §5.2 asks for when it used the
+`Authorization` header. A failed component answers 503: it may come back.
+
+**The FAPI filter** decides FAPI's traffic from its client list, which it reads as its start does - the system
+property `oidf.fapi2.clients`, then `OIDF_FAPI2_CLIENTS` - so a failed FAPI closes only the clients it names and
+PingFederate's other clients keep their token endpoint ([F-0270](../findings/F-0270.yaml)). A list that names every
+client (`*`), an assertion whose owner cannot be read, and a list that cannot be read make every request FAPI's.
+
+**The OGNL criteria** run on PingFederate's engine classloader, whose copy of platform is not the webapp's: statics are
+per loader ([classloaders](../development/classloaders.md)), so it sees none of the webapp's parts, and nothing in
+it runs an `init`. `CriterionGate` answers there from what that copy can read for itself, once per component: the
+enable switch (off, or a value that is not `true` or `false`, is not serving), then the production profile's refusals
+(`ProfileRefusals.refused`, which that copy evaluates from the same process-wide environment and system properties
+the webapp's sweep read). Otherwise the criterion runs, and its own lazily built state - the trust anchors, the
+containment models, the attesters - refuses the token when it cannot be built, as before. The engine's copy cannot
+learn that the webapp's part failed on a dependency, or on a configuration its start alone reads: it has no
+supervisor and no view of the webapp ([F-0345](../findings/F-0345.yaml)). A criterion that answers `false` - or throws
+- denies the token with PingFederate's 400 `invalid_grant` and the criterion's Error Result as `error_description`
+(the rig, 2026-09-30, below), and `CriterionGate` logs why once per component at WARN, then at DEBUG.
+`delegationActChain` has no gate of its own: the acting party's `agent_id` and attester come through
+`attestationClaim`, which is gated, and the rest - `context.ClientId` and a subject token this PingFederate signed -
+needs no component.
+
+Since a disabled component's criterion answers `false`, a mapping that asks `validateClientAttestation` needs
+`ATTESTATION_AUTH` on. Before 0.6.0 a deployment could switch the filter off (`OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`)
+and let the criterion verify the attestation itself; from 0.6.0 that denies every token the mapping issues.
+
+**The 503 and 404 bodies.** OpenID Federation 1.0 §8.9 (Final, 17 February 2026; fetched 2026-09-30 from
+https://openid.net/specs/openid-federation-1_0.html): "If the request was malformed or an error occurred during the
+processing of the request, the response body SHOULD be a JSON object with the content type application/json." Its
+`temporarily_unavailable`: "The server hosting the federation endpoint is currently unable to handle the request due to
+temporary overloading or maintenance. The HTTP response status code SHOULD be 503 (Service Unavailable)." Its
+`not_found`: "The requested Entity Identifier cannot be found. The HTTP response status code SHOULD be 404 (Not
+Found)." `error_description` is REQUIRED there, and the gate sends it. The OAuth-style surfaces use RFC 6749's error
+object; RFC 6749 defines `temporarily_unavailable` for the authorization endpoint (§4.1.2.1: "The authorization server
+is currently unable to handle the request due to a temporary overloading or maintenance of the server"), and has no
+code for an endpoint that is not there, so a disabled one answers 404 with no body.
+
+## The supervisor and readiness
 
 **The supervisor.** A part that ends its start in `FAILED_DEPENDENCY` - the exception or one of its causes is an
 `IOException`, `UncheckedIOException`, `SQLException`, `TimeoutException` or `LinkageError` - is started again by
@@ -135,6 +198,14 @@ stops too. `FAILED_CONFIG` and `REFUSED` are never retried: a restart or a confi
 attempt counts in `oidf_component_retries_total{component}`. Only the webapp's copy of platform schedules a retry
 ([classloaders](../development/classloaders.md), rule 2); in any other copy a part that failed on a dependency keeps
 that state until it starts again.
+
+**Readiness** is 503 exactly when an enabled component is neither `READY` nor `DEGRADED`; a disabled component never
+counts. A component that was serving and then failed on a dependency is in a blip: while the supervisor retries it,
+its state goes between `FAILED_DEPENDENCY` and `STARTING`, and for the first 15 s of the blip ready counts it as
+`DEGRADED` (the health detail marks it `"graced": true` beside its true state), so a database that drops for a few
+seconds does not take every node out of rotation at once. 15 s is the supervisor's first two ceilings, 5 s and 10 s:
+a dependency that is back by its second retry never shows in ready. A component that has never served - one failing
+at boot - gets no grace ([health.md](health.md#what-ready-means)).
 
 ## Every part starts at deploy
 
