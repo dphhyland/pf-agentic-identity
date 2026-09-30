@@ -4,7 +4,7 @@ area: rar-paz-plugin
 source: design
 status: closed
 plan_items: [S2b]
-prs: []
+prs: [79]
 recorded_in: the plan, To verify before relying on it, booted PingFederate item 2
 verify_by: A JWT-bearer grant on the rig with the plugin logging its entry points.
 verification: >
