@@ -56,22 +56,22 @@
    is a warning at start, and a legacy spelling (`yes`, `no`, `1`, `0`, `on`, `off`, a padded number) is read as the
    old reader read it - a switch as `false` - with a warning naming the strict spelling. The device path is still not
    production-usable until Phase 6.
-2. **Point the instance-registry data source at a PingFederate data store.** What to do: in PingFederate's Data
-   Stores, open the Custom data store "Agent Instance Registry", choose the registry's database in the new
-   **PingFederate data store** field - a JDBC data store on the Identity Object Model's PostgreSQL, created under
-   Data Stores first - and clear **JDBC URL**. Why: the JDBC URL field carries the database's credentials in the
-   plugin's configuration and opens a connection per lookup outside PingFederate's pool; the catalogue classes it
-   `forbidden-in-production`, and from 0.6.0 the driver itself refuses it, since a plugin's fields are read at
-   configure and not seen by the start-up sweep. What now happens under production with
-   the URL set: every lookup fails with "the agent instance registry data source is not configured: JDBC URL is set,
-   which the production profile forbids ... Choose the registry's database in 'PingFederate data store' instead",
-   logged once at ERROR, so an issuance criterion on `instance_active` refuses every token. A data store whose
-   database is not PostgreSQL fails every lookup the same way, naming `INSTANCE_REGISTRY`. How to tell: the data
-   store's connection test fails, and server.log has the ERROR. What to change: the fields, as above; PingFederate's
-   image carries no PostgreSQL JDBC driver, so the JDBC data store needs one in `server/default/lib` (F-0330). A
-   **User verification max age (seconds)** that is not a whole number also fails every lookup now, naming the field.
-   Development-profile escape: under development the JDBC URL still works when no data store is chosen, and a data
-   store on another database is a warning.
+2. **Point the instance-registry data source at a PingFederate data store.** What to do: in PingFederate's Data Stores,
+   open the Custom data store "Agent Instance Registry", choose the registry's database in the new **PingFederate data
+   store** field - a JDBC data store on the Identity Object Model's PostgreSQL, created under Data Stores first - and
+   clear **JDBC URL**. Why: the JDBC URL field carries the database's credentials in the plugin's configuration and
+   opens a connection per lookup outside PingFederate's pool; the catalogue classes it `forbidden-in-production`, and
+   from 0.6.0 the driver itself refuses it, since a plugin's fields are read at configure and not seen by the start-up
+   sweep. What now happens under production with the URL set: every lookup fails with "the agent instance registry data
+   source is not configured: JDBC URL is set, which the production profile forbids ... Choose the registry's database in
+   'PingFederate data store' instead", logged at ERROR once at configure and then again, with "instance registry lookup
+   failed", on every lookup, so an issuance criterion on `instance_active` refuses every token. A data store whose
+   database is not PostgreSQL fails every lookup too: the refusal naming `INSTANCE_REGISTRY` is logged at ERROR once,
+   and each failed lookup logs its own ERROR. How to tell: the data store's connection test fails, and server.log has
+   the ERRORs. What to change: the fields, as above; PingFederate's image carries no PostgreSQL JDBC driver, so the JDBC
+   data store needs one in `server/default/lib` (F-0330). A **User verification max age (seconds)** that is not a whole
+   number also fails every lookup now, naming the field. Development-profile escape: under development the JDBC URL
+   still works when no data store is chosen, and a data store on another database is a warning.
 3. **gm-api's PDP must be https in production.** What to do: set `pdpUrl` on both the grants and the mcp servlet in
    gm-api.war's `web.xml` to the PDP's `https` URL. Why: the PDP's answers decide every grant evaluation and the PDP
    bearer token travels with each request, so the call is not made in the clear. What now happens: with an `http`
@@ -137,15 +137,15 @@ here and edited only by the release package.
 
 **Tests.** `MainStartupTest` (device-enrolment) runs each forbidden switch through `run` and checks exit status 1 and
 the stderr text, reads a governed switch that does not parse, the development warnings and legacy spellings, every
-strict read naming its setting, and launches `Main` in a child JVM to see the real exit status and stderr.
-`GmApiSettingsTest` covers the init-param-then-environment order, strict values, the https rule in each profile,
-`GM_API FAILED_CONFIG` from an `http` URL, and each gm event emitted and counted. `SimulatorGateTest` refuses under
-production for every value of the switch with one ERROR logged, and reads legacy spellings under development; the
-servlet's and the authenticator's tests refuse at each entry point. `InstanceRegistryDataSourceConfigTest` covers the
-field order, the data store way, the JDBC URL refused under production and used under development, no database, the
-strict window, and a data store that is not PostgreSQL refused under production and warned of under development;
-`ShadedJarCheck` holds both plugins' jars to their relocated platform and catalogue.
-`AttestationFlowHarnessInsecureTlsTest` sees the JVM property only with the switch. New methods are under each
-module's coverage gate (`Main.audit`, `Main.toJdbcUrl`, `ServletConfigs.from`, the datasource's `configure` and its
-data store's `getConnection`, the gate's `settings`). Run on JDK 20 and 17, and the five modules' suites on the
-image's java 21.
+strict read naming its setting, a refused database URL or DSN that never shows its password, and launches `Main` in a
+child JVM to see the real exit status and stderr. `GmApiSettingsTest` covers the init-param-then-environment order,
+strict values, the https rule in each profile, `GM_API FAILED_CONFIG` from an `http` URL, and each gm event - evaluated,
+refused and revoked - emitted and counted. `SimulatorGateTest` refuses under production for every value of the switch
+with one ERROR logged, and reads legacy spellings under development; the servlet's and the authenticator's tests refuse
+at each entry point. `InstanceRegistryDataSourceConfigTest` covers the field order, the data store way, the JDBC URL
+refused under production and used under development, no database, the strict window, and a data store that is not
+PostgreSQL refused under production and warned of under development; `ShadedJarCheck` holds both plugins' jars to their
+relocated platform and catalogue. `AttestationFlowHarnessInsecureTlsTest` sees the JVM property only with the switch.
+New methods are under each module's coverage gate (`Main.prepare`, `Main.audit`, `Main.toJdbcUrl`, `Main.scheme`,
+`GrantOperations.revoke`, `ServletConfigs.from`, the datasource's `configure` and its data store's `getConnection`, the
+gate's `settings`). Run on JDK 20 and 17, and the five modules' suites on the image's java 21.
