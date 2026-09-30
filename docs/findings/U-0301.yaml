@@ -4,7 +4,7 @@ area: rar-paz-plugin
 source: design
 status: open
 plan_items: [S2c]
-prs: []
+prs: [70]
 recorded_in: plugins/rar-paz-plugin/README.md, The PDP call (Metrics)
 verify_by: >
   On the rig with a processor instance configured and a decision made, list the MBeans under com.pingidentity.ps.oidf

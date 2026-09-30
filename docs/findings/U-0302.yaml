@@ -4,7 +4,7 @@ area: rar-paz-plugin
 source: design
 status: open
 plan_items: [S2c]
-prs: []
+prs: [70]
 recorded_in: plugins/rar-paz-plugin/README.md, The PDP call and Verified on the rig
 verify_by: >
   With a current PingAuthorize 10.2 licence in the profile the paz/ compose mounts, bring the stack up, set the

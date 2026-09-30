@@ -4,7 +4,7 @@ area: rar-paz-plugin
 source: design
 status: open
 plan_items: [S2c]
-prs: []
+prs: [70]
 recorded_in: plugins/rar-paz-plugin/README.md, TLS to the PDP; PdpTls.java
 verify_by: >
   On the rig, configure the processor with PDP TLS trust pingfederate-trusted-cas and a PDP whose certificate chains
