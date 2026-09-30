@@ -11,7 +11,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -99,6 +102,89 @@ class ShadedJarCheck {
             assertTrue(entries.stream().noneMatch(e -> e.getName().startsWith("org/apache/hc/")), "no unrelocated HttpCore");
         }
         assertEquals(List.of(), named, "classes that still name platform's unrelocated package");
+    }
+
+    /**
+     * The shading clean-up (package PLG, H-RAR-1): every class is the plugin's own or one of the three bundled libraries
+     * under this plugin's relocated packages - Jackson, rar-model and platform, with the HttpCore platform carries - and
+     * no class, multi-release copies included, keeps an unrelocated name or links to one. The README lists the same.
+     */
+    @Test
+    void everyClassIsThePluginsOwnOrRelocated() throws IOException {
+        Set<String> packages = new TreeSet<>();
+        List<String> unrelocated = new ArrayList<>();
+        try (ZipFile jar = new ZipFile(JAR.toFile())) {
+            for (ZipEntry entry : jar.stream().toList()) {
+                String name = entry.getName();
+                if (name.startsWith("com/fasterxml/") || name.contains("/com/fasterxml/") || name.startsWith("META-INF/versions/")) {
+                    unrelocated.add(name);
+                }
+                if (!name.endsWith(".class")) {
+                    continue;
+                }
+                packages.add(topOf(name));
+                String text = new String(read(jar, entry), StandardCharsets.ISO_8859_1);
+                if (text.contains("com/fasterxml/") || text.contains("Lcom/fasterxml/") || linksOutsideThePlugin(text)) {
+                    unrelocated.add(name + " (links to an unrelocated name)");
+                }
+            }
+        }
+        assertEquals(List.of(), unrelocated, "unrelocated classes, multi-release copies or links");
+        assertEquals(new TreeSet<>(List.of("au/idp/rar/", "com/pingidentity/ps/oidf/rar/",
+                "com/pingidentity/ps/oidf/rar/shaded/jackson/", "com/pingidentity/ps/oidf/rar/shaded/platform/",
+                "com/pingidentity/ps/oidf/rar/shaded/rarmodel/")), packages, "what the jar carries");
+    }
+
+    /** No resource is in the jar twice, each service file is Jackson's relocated, and both event indexes are read. */
+    @Test
+    void serviceFilesAreRelocatedOnceAndTheEventIndexesAppended() throws IOException {
+        List<String> names = new ArrayList<>();
+        Set<String> services = new TreeSet<>();
+        String index;
+        try (ZipFile jar = new ZipFile(JAR.toFile())) {
+            for (ZipEntry entry : jar.stream().toList()) {
+                names.add(entry.getName());
+                if (entry.getName().startsWith("META-INF/services/") && !entry.isDirectory()) {
+                    String service = entry.getName().substring("META-INF/services/".length());
+                    services.add(service);
+                    for (String line : new String(read(jar, entry), StandardCharsets.UTF_8).lines().toList()) {
+                        String implementation = line.strip();
+                        if (!implementation.isEmpty() && !implementation.startsWith("#")) {
+                            assertTrue(jar.getEntry(implementation.replace('.', '/') + ".class") != null,
+                                    service + " names " + implementation + ", which is not in the jar");
+                        }
+                    }
+                }
+            }
+            index = new String(read(jar, jar.getEntry("META-INF/oidf-events/index.txt")), StandardCharsets.UTF_8);
+        }
+        assertEquals(names.size(), new LinkedHashSet<>(names).size(), "a resource twice in the jar");
+        for (String service : services) {
+            assertTrue(service.startsWith("com.pingidentity.ps.oidf.rar.shaded."), service + " is not relocated");
+        }
+        List<String> components = index.lines().map(String::strip).filter(l -> !l.isEmpty() && !l.startsWith("#")).toList();
+        assertEquals(List.of("rar", "platform"), components, "the plugin's index with platform's appended");
+    }
+
+    /** The first package level that says whose a class is: the plugin's own, or one bundled library. */
+    private static String topOf(String name) {
+        String shaded = "com/pingidentity/ps/oidf/rar/shaded/";
+        if (name.startsWith(shaded)) {
+            return shaded + name.substring(shaded.length(), name.indexOf('/', shaded.length()) + 1);
+        }
+        return name.substring(0, name.lastIndexOf('/') + 1);
+    }
+
+    /** Whether a class's bytes name a class of this repository outside the plugin's own package. */
+    private static boolean linksOutsideThePlugin(String text) {
+        int at = text.indexOf("com/pingidentity/ps/oidf/");
+        while (at >= 0) {
+            if (!text.startsWith("com/pingidentity/ps/oidf/rar/", at)) {
+                return true;
+            }
+            at = text.indexOf("com/pingidentity/ps/oidf/", at + 1);
+        }
+        return false;
     }
 
     @Test

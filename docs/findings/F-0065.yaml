@@ -3,10 +3,30 @@ title: 'AuthZEN context merged into details without an allow-list; no per-type v
 severity: medium
 area: rar-paz-plugin
 source: reviewer-report
-status: open
+status: closed
 plan_items: [H-RAR-1]
-prs: []
-verification: ''
+prs: [92]
+verification: >
+  2026-09-30, package PLG (branch prod/p3-rar-plugin-hardening). The AuthZEN context allow-list: the processor's new
+  field "AuthZEN context members merged into details" names per type the context members a PDP may merge
+  (default sales_agent: @model; account_information: @model, so nothing for payment_initiation); any other member,
+  and a context.statements entry by the first part of its name, is dropped, counted in
+  oidf_rar_context_dropped_total and logged, never merged, and a listed member that widens is still refused by the
+  model (ContextAllowListTest). Per-type validate: S4D2's validate already holds each detail to its own type's model
+  where it arrives (ValidateTest); PLG adds no rule to it. The shading clean-up: the jar carries the plugin's classes
+  and Jackson, rar-model and platform (with its HttpCore), each relocated, and nothing else - Jackson's unrelocated
+  multi-release classes and the bundled Maven descriptors gone, the service files relocated, the event indexes
+  appended - held by ShadedJarCheck. Reference policies for the three types are files in
+  plugins/rar-paz-plugin/paz/policies, authored by author-policies.py. Their first ten cases passed on 2026-09-30,
+  but review found sales_agent permitting MEA against an attested EMEA APAC (Contains over the space-joined lists
+  is a substring test), an empty list and no principal, and account_information permitting any datatype but
+  transactions. The policies now compare whole values (Equals, and RegularExpression, a whole-value match in the
+  11.1.0.0 engine), sales_agent against a pattern the Policy Editor derives from the attested regions with each
+  quoted, and deny an identity hint or no principal; on 2026-10-01 decision-tests.py ran 27 cases (for each type a
+  permit, denies and a narrowing, and those edges) against the Policy Editor paz-compose.yml brings up
+  (pingauthorizepap 11.1.0.0) and all passed. probe-decision.sh and every paz/ script take their secret from the
+  environment or a file and refuse to run without one; no default secret is left in paz/, and the probe verifies
+  the PDP's certificate except on localhost.
 target_release: 0.6.0
 notes: >
   From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the

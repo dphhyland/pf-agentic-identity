@@ -1,0 +1,20 @@
+id: F-0375
+title: The generated configuration page says a removed plugin field is refused, and the RAR plugin ignores its removed "Deny unless PERMIT"
+severity: low
+area: platform, rar-paz-plugin
+source: design
+status: open
+plan_items: [H-RAR-1, ST-4]
+prs: [92]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found by package PLG (2026-09-30). PR5 gave the settings catalogue a removed plugin-field form, and PLG catalogues
+  the RAR plugin's "Deny unless PERMIT" in it (release 0.4.0, nothing replaces it), closing F-0231. The form has one
+  meaning: Catalogue.refuseRemovedFields refuses a stored value, and tools/config-reference.py prints, for every
+  catalogue with a removed name, "Set in the source it was read from, a removed name is refused". The plugin does
+  not call refuseRemovedFields for this field, on purpose: a stored value is ignored, so a 0.3.0 archive still
+  imports and decides (ProcessorConfigurationTest.theDenySwitchIsGoneAndAStoredValueIsIgnored). So the generated
+  docs/configuration/rar-pdp-processor.md says the field is refused, which is wrong for it; the plugin's README says
+  what it does. The fix is a second meaning for a removed entry ("ignored"), which touches platform's Catalogue and
+  Removed, settings-scan.py, config-reference.py and settings-catalogue.md, none of them PLG's to edit.
