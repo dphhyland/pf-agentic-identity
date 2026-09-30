@@ -299,8 +299,9 @@ Count the digest lines instead: `grep -cE '^[0-9a-f]{64}  ' MANIFEST`.
    unset, from `PF_ARCHIVE_AGE_KEY`. The inline identity reaches `age` on a pipe, never a temporary file
    or an argument; the file is the operator's, read and left alone. The ciphertext is left where it is, so
    every start of the container decrypts it again, a restart included, and every start needs the identity
-   (F-0313: until 0.6.0 the first start removed the ciphertext, and a restart in production then refused the
-   plaintext the first start had written).
+   (F-0313: until 0.6.0 the first start removed a ciphertext baked into the drop-in directory - one mounted
+   through `PF_ARCHIVE_FILE` was always kept - and a restart in production then refused the plaintext the first
+   start had written).
 6. Refuses a plaintext archive unless `OIDF_DEPLOYMENT_PROFILE=development`. Production is the default
    when the variable is unset, and what any other value counts as.
 7. Extracts `pf.jwk` and `pingfederate-system-keys.xml` from inside the archive, on either path.

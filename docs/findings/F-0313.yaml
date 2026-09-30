@@ -34,9 +34,10 @@ notes: >
   test-entrypoint.sh case that restarts.
   Fixed by keeping the ciphertext (option two of the three above): every start decrypts it again over the plaintext
   the last start wrote, so the plaintext is never what a start boots from and no marker file is needed to tell it
-  from an operator's. Removing the plaintext once the bootstrap had copied it was rejected because the entrypoint
-  execs the bootstrap and has no point after the copy, and because a restart with /opt/out on a tmpfs - which the
-  image README recommends - is a first start that must import the archive again. A marker was rejected because
+  from an operator's. Removing the plaintext once the bootstrap had copied it (the entrypoint execs the bootstrap,
+  but a 07-apply-server-profile.sh.post hook, which the base image's run_hook runs, could do it) was rejected because
+  a restart with /opt/out on a tmpfs - which the image README recommends - is a first start that must import the
+  archive again, so the ciphertext has to survive the first start either way. A marker was rejected because
   whoever can write a data.zip into the drop-in directory can write the marker beside it. PingFederate's drop-in
   deployer ignores the data.zip.age the bootstrap now copies to /opt/out: it deploys data.zip only (seen on the rig).
   Every start now needs the identity, a restart included.
