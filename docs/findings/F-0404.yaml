@@ -1,0 +1,16 @@
+id: F-0404
+title: A sealed push authorization_header longer than about 3000 characters no longer fits the tables store's column
+severity: low
+area: ssf
+source: design
+status: open
+plan_items: [H-SSF-7]
+prs: [97]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-10-01 by package HSSF3. JdbcSsfStore's push_auth_header is VARCHAR(4096). Sealed, a header takes the
+  prefix, a 16-character key id, and the base64url of a 12-byte nonce, the ciphertext and a 16-byte tag: a third longer
+  than the clear value plus about 64 characters, so a header over about 3000 characters fails the insert (a 500 to the
+  receiver). Bearer tokens are far shorter; a very long JWT could reach it. DB-2's V300 baseline (Phase 4) can widen the
+  column, or stream management can refuse a header over the limit with a 400.

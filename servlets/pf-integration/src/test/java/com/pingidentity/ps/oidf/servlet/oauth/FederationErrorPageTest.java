@@ -41,17 +41,21 @@ class FederationErrorPageTest {
         verify(this.response).setHeader("Cache-Control", "no-store");
         verify(this.response).setHeader("X-Frame-Options", "DENY");
         assertTrue(page.contains("invalid_trust_chain"));
-        assertTrue(page.contains("no route to a trusted anchor"));
+        assertTrue(page.contains(PublicErrors.generic("invalid_trust_chain")));
+        assertFalse(page.contains("no route to a trusted anchor"), "the detail is logged, never shown (H-FED-4)");
         assertTrue(page.contains("tid-1"));
     }
 
     @Test
     void everyValueIsEscapedAndSubstitutedOnce() throws IOException {
-        String page = this.render(FederationErrorPage.builtIn(), "<b>", "\"'&${trackingId}", null);
+        String page = this.render(FederationErrorPage.builtIn(), "<b>", "\"'&${trackingId}", "${error}");
 
         assertTrue(page.contains("&lt;b&gt;"));
-        assertTrue(page.contains("&quot;&#39;&amp;${trackingId}"), "a placeholder in a value stays text");
+        assertTrue(page.contains("<code>${error}</code>"), "a placeholder in a value stays text");
         assertFalse(page.contains("<b>"));
+        assertFalse(page.contains("&amp;"), "the detail is never on the page");
+        assertEquals("&quot;&#39;&amp;", FederationErrorPage.escape("\"'&"));
+        assertEquals("", FederationErrorPage.escape(null));
     }
 
     @Test
@@ -59,7 +63,19 @@ class FederationErrorPageTest {
         Path file = dir.resolve("error.html");
         Files.writeString(file, "<p>${error}|${errorDescription}|${trackingId}|${other}</p>", StandardCharsets.UTF_8);
 
-        assertEquals("<p>e|d|t|${other}</p>", this.render(FederationErrorPage.from(file.toString()), "e", "d", "t"));
+        assertEquals("<p>e|" + PublicErrors.DEFAULT + "|t|${other}</p>", this.render(FederationErrorPage.from(file.toString()), "e", "d", "t"));
+    }
+
+    @Test
+    void withNoTrackingIdThePageCarriesAGeneratedReferenceAndTheLogTheDetail() throws IOException {
+        try (RefusalLog log = RefusalLog.open()) {
+            String page = this.render(FederationErrorPage.builtIn(), "invalid_trust_chain", "https://evil.example says no", null);
+            assertFalse(page.contains("evil"));
+            String line = log.last();
+            String reference = line.substring(line.indexOf("ref=") + 4, line.indexOf(' ', line.indexOf("ref=")));
+            assertTrue(reference.startsWith(PublicErrors.GENERATED_PREFIX + "-") && page.contains(reference), page);
+            assertTrue(line.contains("https://evil.example says no"), line);
+        }
     }
 
     @Test

@@ -66,6 +66,8 @@
         <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><scope>test</scope></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId><scope>test</scope></dependency>
+        <!-- H-FED-7: from log4j-api 2.24 the ThreadContext map is a no-op without an implementation; LoggingUtilAuditWriterTest reads it -->
+        <dependency><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-core</artifactId><scope>test</scope></dependency>
     </dependencies>
 
     <build>
@@ -155,6 +157,10 @@
                                         <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.protocolOf(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.auditDescription(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.record(*</include>
+                                        <!-- H-FED-7: the writer saves and puts back PingFederate's audit context -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.LoggingUtilAuditWriter.write(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.LoggingUtilAuditWriter.startClean(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.LoggingUtilAuditWriter.restore(*</include>
                                         <!-- health (O-4): add gate includes below this line -->
                                         <include>com.pingidentity.ps.oidf.platform.pf.health.BuildInfo.read(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.health.BuildInfo.version(*</include>

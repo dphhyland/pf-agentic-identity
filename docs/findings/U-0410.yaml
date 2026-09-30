@@ -1,0 +1,17 @@
+id: U-0410
+title: Kafka's producer properties have not been run against kafka-clients and a broker
+area: ssf
+source: design
+status: open
+plan_items: [H-SSF-7]
+prs: [97]
+recorded_in: servlets/ssf/README.md, Kafka; KafkaSetPublisher
+verify_by: >
+  Put the shaded kafka-clients jar in PingFederate's deploy directory, point OIDF_SSF_KAFKA_* at a broker with TLS (and
+  one with SASL_SSL and SCRAM), and see the producer start, a SET published, a password with a quote in it accepted,
+  and a broker that is down make send() give up after OIDF_SSF_KAFKA_MAX_BLOCK_MS.
+verification: ''
+notes: >
+  On 2026-10-01 the properties were checked as a Properties object and the JAAS line with the JDK's StreamTokenizer
+  configured as Kafka 4.0's JaasConfig configures it (KafkaTransportTest); the module has no kafka-clients dependency
+  and the rig runs no broker.

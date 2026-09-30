@@ -77,6 +77,10 @@ import java.lang.annotation.Target;
  * {@code §3.1}-{@code §3.3} the three profiled events. The suite's own ids ({@code CAEPIOP-2.5}) use the
  * same numbers.
  *
+ * <p>{@code OIDC-RPL} is OpenID Connect RP-Initiated Logout 1.0 (final, 12 September 2022), and {@code OIDC-BCL} OpenID
+ * Connect Back-Channel Logout 1.0 incorporating errata set 1 (15 December 2023), each by section: {@code OIDC-RPL §2} is
+ * the logout request and its {@code id_token_hint}, {@code OIDC-BCL §2.4} the logout token.
+ *
  * <p>{@code OIDFED} uses the specification's section numbers. A requirement that sits in a section's
  * own text, before its first subsection, takes the paragraph number in the item notation above:
  * {@code OIDFED §3(2)} is the second paragraph of §3 (the published page's {@code #section-3-2}

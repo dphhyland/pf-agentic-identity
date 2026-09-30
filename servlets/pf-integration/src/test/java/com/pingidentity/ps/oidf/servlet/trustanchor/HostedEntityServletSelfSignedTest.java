@@ -1,6 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
 import com.pingidentity.ps.oidf.pf.testkit.OperatorRequests;
+import com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert;
 import com.pingidentity.ps.oidf.platform.pf.auth.OperatorTestKit;
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -205,6 +206,45 @@ class HostedEntityServletSelfSignedTest {
         assertEquals("not_found", new Exchange("PUT", "/nobody/entity-configuration", this.configuration(exp, List.of(AUTHORITY)), false).error(404));
         assertEquals("invalid_entity_configuration",
                 new Exchange("PUT", "/a1/entity-configuration", this.configuration(exp, List.of("https://elsewhere.example")), false).error(400));
+    }
+
+    /**
+     * H-FED-4 (F-0046): a publication is refused before its signer is known, so whatever it carries - a JWS header's
+     * {@code alg} or {@code kid}, a body no parser accepts, an entity id in the path - is the caller's own text, and
+     * the answer is the code's fixed description and a reference, never that text. A store that cannot be read is a
+     * server error that names nothing of the store.
+     */
+    @Test
+    void aHostileMarkerNeverReachesAPublicationsRefusal() throws Exception {
+        this.enrolSelfSigned();
+        String marker = "hfede-marker-" + java.util.UUID.randomUUID();
+        java.util.Base64.Encoder b64 = java.util.Base64.getUrlEncoder().withoutPadding();
+        String header = b64.encodeToString(JsonUtil.toJson(Map.of("alg", marker, "kid", marker, "typ", "entity-statement+jwt"))
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String payload = b64.encodeToString(("{\"iss\":\"" + marker + "\"}").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        long exp = Instant.now().getEpochSecond() + 3600;
+        List<Map.Entry<String, Exchange>> refusals = new java.util.ArrayList<>();
+        refusals.add(Map.entry("invalid_entity_configuration", new Exchange("PUT", "/a1/entity-configuration", header + "." + payload + ".c2ln", false)));
+        refusals.add(Map.entry("invalid_entity_configuration", new Exchange("PUT", "/a1/entity-configuration", "not a JWS " + marker, false)));
+        refusals.add(Map.entry("invalid_entity_configuration",
+                new Exchange("PUT", "/a1/entity-configuration", this.configuration(exp, List.of("https://" + marker + ".example")), false)));
+        refusals.add(Map.entry("not_found", new Exchange("PUT", "/" + marker + "/entity-configuration", this.configuration(exp, List.of(AUTHORITY)), false)));
+        refusals.add(Map.entry("not_found", new Exchange("PUT", "/a1/" + marker, "x", false)));
+
+        AuthoritySupport.resetForTests();
+        javax.sql.DataSource unreachable = mock(javax.sql.DataSource.class);
+        when(unreachable.getConnection()).thenThrow(new java.sql.SQLException("the database is down " + marker));
+        AuthoritySupport.configureJdbcRegistry(unreachable);
+        AuthoritySupport.configureSigning(entity -> {
+            throw new AssertionError("nothing is signed on a publication");
+        }, AUTHORITY);
+        refusals.add(Map.entry("server_error", new Exchange("PUT", "/a1/entity-configuration", this.configuration(exp, List.of(AUTHORITY)), false)));
+
+        for (Map.Entry<String, Exchange> refusal : refusals) {
+            String body = refusal.getValue().body.toString();
+            assertTrue(!body.contains(marker), body);
+            PublicErrorsAssert.assertGeneric(refusal.getKey(), body);
+        }
     }
 
     @Test

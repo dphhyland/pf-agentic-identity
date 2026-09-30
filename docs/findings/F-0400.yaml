@@ -1,0 +1,18 @@
+id: F-0400
+title: shared-signals' CaepRiscEvents.assuranceLevelChange writes no namespace and can write change_direction unknown
+severity: low
+area: shared-signals
+source: design
+status: open
+plan_items: [H-SSF-5]
+prs: [97]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-10-01 by package HSSF3. CAEP 1.0 (final, 29 August 2025) §3.4.1 makes namespace "REQUIRED" and has
+  change_direction, if present, "MUST be one of" increase or decrease. libs/shared-signals'
+  CaepRiscEvents.assuranceLevelChange writes no namespace, works the direction out by comparing the two level names as
+  text, and writes "unknown" when it cannot - three ways to a payload a receiver checking CAEP refuses. Nothing in
+  production calls it: HSSF3 builds the payload in servlets/ssf (SsfEventEmitter.assuranceLevelPayload), and
+  libs/shared-signals was outside its scope. The fix is to take a namespace and a direction and drop the comparison, or
+  to remove the method.

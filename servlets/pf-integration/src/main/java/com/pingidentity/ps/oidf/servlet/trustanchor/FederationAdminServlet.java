@@ -213,7 +213,7 @@ public class FederationAdminServlet extends RequestScopedServlet {
                 default -> writeError(resp, 404, "not_found", "no such endpoint");
             }
         } catch (AuthorityRegistryException e) {
-            FederationErrors.write(resp, 500, "server_error", e.getMessage(), e);
+            FederationErrors.writeToOperator(resp, 500, "server_error", e.getMessage(), e);
         }
     }
 
@@ -253,7 +253,7 @@ public class FederationAdminServlet extends RequestScopedServlet {
                 writeError(resp, 409, AuthorityRegistryException.STALE_UPDATE, e.getMessage());
                 return;
             }
-            FederationErrors.write(resp, 500, "server_error", e.getMessage(), e);
+            FederationErrors.writeToOperator(resp, 500, "server_error", e.getMessage(), e);
         }
     }
 
@@ -439,7 +439,7 @@ public class FederationAdminServlet extends RequestScopedServlet {
     }
 
     private static void writeError(HttpServletResponse resp, int status, String error, String description) throws IOException {
-        FederationErrors.write(resp, status, error, description, null);
+        FederationErrors.writeToOperator(resp, status, error, description, null);
     }
 
     private static void writeJson(HttpServletResponse resp, int status, Map<String, Object> value) throws IOException {

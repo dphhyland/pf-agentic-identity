@@ -1,0 +1,22 @@
+id: F-0401
+title: The logout signal cannot see whether PingFederate's sign-off completed
+severity: medium
+area: ssf
+source: design
+status: open
+plan_items: [H-SSF-6]
+prs: [97]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-10-01 by package HSSF3 on the rig (PingFederate 13.1.3). H-SSF-6 asks that the logout signal be raised only
+  after PingFederate's logout succeeded, decided from the response the filter sees after the chain. That premise does
+  not hold on 13.1.3: /idp/init_logout.openid answers 200 in every case - an accepted hint gets an auto-submitting form
+  to /idp/startSLO.ping carrying only RequestStateRef, where PingFederate asks the user to confirm (consentGiven,
+  csrfToken) and signs them off on a later request; a refused hint gets the "Sign Off Error" page. PingFederate also
+  shows "Sign Off Successful" for a hint whose session is long gone, and audits the OIDC logout as SLO success with no
+  subject. So LogoutEventFilter can refuse a logout whose chain threw or answered 400 or more (and PingFederate's own
+  refusal of a bad hint coincides with the filter's hint checks), but it raises the signal before the user confirms and
+  cannot tell a declined confirmation. Options for the owner: map the filter over /idp/*/resume/idp/startSLO.ping and
+  carry the verified subject from init_logout by RequestStateRef; or accept "PingFederate accepted the hint" as the
+  bound and say so. F-0022's replay and age concerns are closed; this is its remainder.
