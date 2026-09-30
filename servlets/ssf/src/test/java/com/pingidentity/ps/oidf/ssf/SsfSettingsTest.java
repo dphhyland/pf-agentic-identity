@@ -70,7 +70,6 @@ class SsfSettingsTest {
     static {
         add("OIDF_SSF_ISSUER", "https://iss.example.com/", SsfConfiguration::issuer, "https://iss.example.com");
         add("OIDF_SSF_SIGNING_ALGORITHM", "PS256", SsfConfiguration::signingAlgorithm, "PS256");
-        add("OIDF_SSF_BASE_PATH", "/signals", SsfConfiguration::basePath, "/signals");
         add("OIDF_SSF_DATA_STORE_ID", "pf-ds", SsfConfiguration::dataStoreId, "pf-ds");
         add("OIDF_SSF_STORE_DIALECT", "ldm", SsfConfiguration::storeDialect, "ldm");
         add("OIDF_SSF_JDBC_URL", "jdbc:postgresql://db/ssf", SsfConfiguration::jdbcUrl, "jdbc:postgresql://db/ssf");
@@ -127,6 +126,9 @@ class SsfSettingsTest {
         add("OIDF_SSF_POLL_LONG_POLL_WAIT_SECONDS", "0", SsfConfiguration::pollLongPollWaitSeconds, 0);
         add("OIDF_SSF_RECEIVER_SUBJECT_ISSUERS", "https://idp.example.com", c -> c.receiverLocalIssuers(),
                 Set.of("https://idp.example.com", "https://op.example.com"));
+        add("OIDF_SSF_MAX_STREAMS_PER_CLIENT", "3", SsfConfiguration::maxStreamsPerClient, 3);
+        add("OIDF_SSF_MIN_VERIFICATION_INTERVAL_SECONDS", "0", SsfConfiguration::minVerificationIntervalSeconds, 0);
+        add("OIDF_SSF_INACTIVITY_TIMEOUT_SECONDS", "3600", SsfConfiguration::inactivityTimeoutSeconds, 3600L);
     }
 
 
@@ -180,7 +182,7 @@ class SsfSettingsTest {
             entries.add(s.name());
         }
         assertEquals(entries, new TreeSet<>(CASES.keySet()));
-        assertEquals(54, entries.size());
+        assertEquals(56, entries.size());
     }
 
     /**
@@ -315,7 +317,7 @@ class SsfSettingsTest {
             assertTrue(e.getMessage().contains(s.name()), e.getMessage());
             refused++;
         }
-        assertEquals(27, refused, "the switches, the numbers, the choices, the URLs, the event types and the issuers");
+        assertEquals(30, refused, "the switches, the numbers, the choices, the URLs, the event types and the issuers");
     }
 
     @Test
@@ -467,6 +469,24 @@ class SsfSettingsTest {
             boolean receiver = s.name().startsWith("OIDF_SSF_RECEIVER_") && !s.name().equals("OIDF_SSF_RECEIVER_SCOPE");
             assertEquals(receiver ? List.of("SSF_RECEIVER") : List.of("SSF", "SSF_RECEIVER"), CATALOGUE.componentsOf(s), s.name());
         }
+    }
+
+    /**
+     * Plan item H-SSF-3: OIDF_SSF_BASE_PATH changed the URLs the transmitter advertised and not the paths its servlets
+     * answer, so it is removed, and a deployment that still sets it - by any of its three names - is refused, naming it.
+     */
+    @Test
+    void theRemovedBasePathIsRefusedByEachOfItsNames() {
+        Map<String, String> issuer = Map.of("OIDF_SSF_ISSUER", "https://op.example.com");
+        SettingRefused e = assertThrows(SettingRefused.class, () -> read(
+                Map.of("OIDF_SSF_ISSUER", "https://op.example.com", "OIDF_SSF_BASE_PATH", "/ssf"), Map.of(), Map.of()));
+        assertEquals("OIDF_SSF_BASE_PATH", e.setting());
+        assertEquals("OIDF_SSF_BASE_PATH was removed in 0.6.0 and nothing replaces it; unset it", e.getMessage());
+        assertEquals("oidf.ssf.basePath",
+                assertThrows(SettingRefused.class, () -> read(issuer, Map.of("oidf.ssf.basePath", "/ssf"), Map.of())).setting());
+        assertEquals("basePath",
+                assertThrows(SettingRefused.class, () -> read(issuer, Map.of(), Map.of("basePath", "/ssf"))).setting());
+        assertEquals("https://op.example.com/ssf/streams", read(issuer, Map.of(), Map.of()).configurationEndpoint());
     }
 
     @Test

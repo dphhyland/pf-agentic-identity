@@ -26,6 +26,7 @@ public final class InMemorySsfStore implements SsfStore {
     private final Map<String, Set<SubjectId>> subjects = new ConcurrentHashMap<>();
     // streamId -> (jti -> PendingSet)
     private final Map<String, Map<String, PendingSet>> pending = new ConcurrentHashMap<>();
+    private final Map<String, ScimUser> scimUsers = new ConcurrentHashMap<>();
 
     /** SsfStore#peek's order, which dueForPush shares: oldest first, and a second's SETs by {@code jti}. */
     static final Comparator<PendingSet> ORDER =
@@ -160,6 +161,36 @@ public final class InMemorySsfStore implements SsfStore {
             }
         }
         return removed;
+    }
+
+    @Override
+    public boolean keepsOptionalStreamMembers() {
+        return true;
+    }
+
+    @Override
+    public boolean keepsScimUsers() {
+        return true;
+    }
+
+    @Override
+    public Optional<ScimUser> getScimUser(String id) {
+        return Optional.ofNullable(this.scimUsers.get(id));
+    }
+
+    @Override
+    public List<ScimUser> listScimUsers() {
+        return new ArrayList<>(this.scimUsers.values());
+    }
+
+    @Override
+    public void putScimUser(ScimUser user) {
+        this.scimUsers.put(user.id(), user);
+    }
+
+    @Override
+    public boolean deleteScimUser(String id) {
+        return this.scimUsers.remove(id) != null;
     }
 
     private void requireStream(String streamId) {

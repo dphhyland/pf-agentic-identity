@@ -1,0 +1,18 @@
+id: F-0389
+title: An SSF stream's inactivity_timeout is reported and never acted on
+severity: low
+area: ssf
+source: design
+status: open
+plan_items: [S10c]
+prs: [90]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-09-30 by package HSSF2. From 0.6.0 a stream carries the inactivity_timeout OIDF_SSF_INACTIVITY_TIMEOUT_SECONDS
+  gives it (0 by default: none), and it is returned; nothing measures receiver activity or pauses, disables or deletes an
+  inactive stream. SSF 1.0 §8.1.1: "After the timeout duration passes with no eligible activity from the Receiver, as
+  defined below, the Transmitter MAY either pause, disable, or delete the stream", and "If the Transmitter decides to
+  pause or disable the stream, it MUST send a Stream Updated Event". Pausing, holding and resuming is S10c (Phase 4),
+  with the stream-updated event. Until then an operator who sets a timeout is advertising one it does not enforce,
+  which the MAY allows.

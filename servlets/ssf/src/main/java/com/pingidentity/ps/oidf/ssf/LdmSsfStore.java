@@ -40,6 +40,16 @@ import org.jose4j.json.JsonUtil;
  * MUST attributes only, so the attribute needs no migration to be written - and it has to stay a MAY if
  * the model repo declares it, because the trigger runs on UPDATE too and the streams already there have none.
  *
+ * <p>The model declares no attribute for the optional stream members of SSF 1.0 §8.1.1 (plan item H-SSF-3) and no
+ * class for the SCIM endpoint's user records (H-SSF-4), and this repo does not change the model: the Phase 3 plan's
+ * cross-repo rule raises them in the model repo as MAY attributes and a class of their own (the 0.6.0 release notes'
+ * owner action, F-0387). Until they land this store keeps neither ({@link #keepsOptionalStreamMembers},
+ * {@link #keepsScimUsers}): a stream reads back with no {@code description}, {@code minVerificationInterval} or
+ * {@code inactivityTimeout}, so the service refuses a {@code description} and reports the transmitter's settings for
+ * the two Transmitter-Supplied members, which SSF 1.0 makes OPTIONAL; and the SCIM endpoint sees only the subjects
+ * the streams hold. No {@code ssfStreamSubject} is written without a stream as its parent, which is the class's
+ * meaning in the model.
+ *
  * <p>Postgres-specific SQL (JSONB operators, {@code ANY(object_classes)}). The schema is owned by the
  * model repo's migration workflow — this store never creates tables. Connections come from the supplied
  * {@link DataSource} (in PF, the managed pool for the configured JDBC data store).
@@ -297,6 +307,41 @@ public final class LdmSsfStore implements SsfStore {
                     ps.setString(1, PENDING_CLASS);
                     ps.setLong(2, now);
                 });
+    }
+
+    // ─────────────────────────────── what the model has no place for ───────────────────────────────
+
+    /** {@code false} until the model declares the members as MAY attributes of {@code ssfStream} (the class comment). */
+    @Override
+    public boolean keepsOptionalStreamMembers() {
+        return false;
+    }
+
+    /** {@code false} until the model has a class for a SCIM user record (the class comment). */
+    @Override
+    public boolean keepsScimUsers() {
+        return false;
+    }
+
+    @Override
+    public Optional<ScimUser> getScimUser(String id) {
+        return Optional.empty();
+    }
+
+    @Override
+    public List<ScimUser> listScimUsers() {
+        return List.of();
+    }
+
+    /** Kept nowhere: see {@link #keepsScimUsers}. */
+    @Override
+    public void putScimUser(ScimUser user) {
+        // The model has no class for it yet.
+    }
+
+    @Override
+    public boolean deleteScimUser(String id) {
+        return false;
     }
 
     // ─────────────────────────────── attrs mapping ───────────────────────────────

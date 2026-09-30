@@ -58,10 +58,10 @@ account-enabled - the first three are the CAEP Interop Profile's (see [CAEP Inte
 | Path | Class | What |
 |---|---|---|
 | `GET /.well-known/ssf-configuration`, `/ssf/.well-known/ssf-configuration` | `SsfConfigurationServlet` (`loadOnStartup=1`) | Transmitter metadata; also the servlet that starts the transmitter at deploy ([Start-up](#start-up)), so the logout filter can emit immediately and the [push loop](#push-delivery) runs before any request arrives. |
-| `POST/GET/PATCH/PUT/DELETE /ssf/streams`, `/ssf/status`, `/ssf/subjects:add`, `/ssf/subjects:remove`, `/ssf/verify` | `SsfStreamManagementServlet` | Stream Management API. `aud` is assigned from the caller's `client_id` when the create names none; `GET` without `stream_id` returns a bare array; PATCH and PUT take `stream_id` in the body (PATCH still reads the query parameter); PUT cannot change `delivery.method`; add-subject answers 200, remove-subject and verify 204. Every operation is scoped to the caller's own streams; another receiver's stream is a 404, and a create from a token naming no client a 403. |
+| `POST/GET/PATCH/PUT/DELETE /ssf/streams`, `/ssf/status`, `/ssf/subjects:add`, `/ssf/subjects:remove`, `/ssf/verify` | `SsfStreamManagementServlet` | Stream Management API. `aud` is assigned from the caller's `client_id` when the create names none; `GET` without `stream_id` returns a bare array; PATCH and PUT take `stream_id` in the body (PATCH still reads the query parameter); PUT cannot change `delivery.method`; add-subject answers 200, remove-subject and verify 204. Every operation is scoped to the caller's own streams; another receiver's stream is a 404, and a create from a token naming no client a 403. A create with no `delivery` is a poll stream; one past `maxStreamsPerClient` is a 409, and a verification sooner than the stream's `min_verification_interval` a 429 with `Retry-After` ([Stream management](#stream-management)). |
 | `POST /ssf/poll?stream_id=` | `SsfPollServlet` | RFC 8936 poll: `maxEvents` (0 = acknowledge only; capped at `pollMaxEventsCap`), `returnImmediately` (absent is `false`, a long poll), `ack`, `setErrs`. A stream that is not enabled returns nothing. Only the stream's owner can poll it; anyone else gets a 404 and acknowledges nothing. See [Poll delivery](#poll-delivery). |
 | `POST/GET /ssf/receiver/events` | `SsfReceiverServlet` | RFC 8935 receiver (`application/secevent+jwt`; 202 on accept, 400 with `err`, `description` and `Content-Language` on failure - a SET carrying `exp` or `sub` among them). Active only when `receiverExpectedIssuer` is set. See [The receiver](#the-receiver). |
-| `POST/PUT/PATCH/DELETE /ssf/scim/v2/Users[/*]` | `SsfScimSubjectServlet` | SCIM 2.0 `/Users` mapping provisioning to stream membership (`urn:ietf:params:scim:schemas:extension:ssf:2.0:Subject`); `active:false`/`DELETE` emits RISC account-disabled. Bearer must hold `provisionerScope` (unset by default = 403 for everyone; the receiver scope is refused). A provisioner acts across every receiver's streams. |
+| `GET/POST/PUT/PATCH/DELETE /ssf/scim/v2/Users[/*]` | `SsfScimSubjectServlet` | SCIM 2.0 `/Users` mapping provisioning to stream membership (`urn:ietf:params:scim:schemas:extension:ssf:2.0:Subject`): `GET` by id or with a `filter`, `PUT` replaces, `active:false`/`DELETE` emits RISC account-disabled and `active` back to true account-enabled; errors in the SCIM error schema ([SCIM](#scim)). Bearer must hold `provisionerScope` (unset by default = 403 for everyone; the receiver scope is refused). A provisioner acts across every receiver's streams. |
 | `POST /ssf/events:emit` | `SsfEventEmitServlet` | Raise an event the transmitter did not observe itself: `{"event_type", "subject", "event"?, "stream_id"?}` (`EmitRequest`). Bearer must hold `provisionerScope`, like SCIM and for the same reason - the transmitter signs a SET about a subject of the caller's choosing to every receiver. It admits nothing the emitter does not: a stream still has to subscribe (`SsfEventEmitter.subscribes`), and `stream_id` only narrows the fan-out (404 if absent). For the three interop events the subject is `email` or `iss_sub`, `reason_admin` is supplied if absent, and `credential_type`/`change_type`/`previous_status`/`current_status` take only their defined values (400 otherwise). Answers `{"event_type", "emitted":[{stream_id, jti, delivery}], "count"}`; a count of 0 is nothing subscribed, not an error. |
 | filter `SsfLogoutSignal` over `/idp/init_logout.openid` | `LogoutEventFilter` | Emits CAEP session-revoked after PF processes an OIDC logout. Not annotated - registered in `pf-runtime.war`'s `web.xml` by `build/pingfederate/assemble-pf-runtime-war.sh`. Fail-open, fail-quiet: logout always proceeds. |
 
@@ -96,7 +96,7 @@ development profile reads a switch's legacy spelling (`yes`, `no`, `1`, `0`, `on
 
 | Group | Settings (defaults) |
 |---|---|
-| Transmitter | `signingAlgorithm` (RS256/PS256), `basePath` (`/ssf`), `setTtlSeconds` (7 days), `defaultEventTypes`, `defaultSubjects` (`NONE`; `ALL` = every enabled stream hears every subject without an add-subject, SSF §7.1.1, and is what [CAEP Interop](#caep-interop) needs), `verificationEventEnabled` (true), `pollMaxEvents` (100), `pollMaxEventsCap` (100, 1-1000), `pollLongPollWaitSeconds` (10, 0-30), `pushRetryMaxAttempts` (5), `pushRetryBackoffSeconds` (5) |
+| Transmitter | `signingAlgorithm` (RS256/PS256), `setTtlSeconds` (7 days), `defaultEventTypes`, `defaultSubjects` (`NONE`; `ALL` = every enabled stream hears every subject without an add-subject, SSF §7.1.1, and is what [CAEP Interop](#caep-interop) needs), `verificationEventEnabled` (true), `pollMaxEvents` (100), `pollMaxEventsCap` (100, 1-1000), `pollLongPollWaitSeconds` (10, 0-30), `pushRetryMaxAttempts` (5), `pushRetryBackoffSeconds` (5), `maxStreamsPerClient` (10, 1-1000), `minVerificationIntervalSeconds` (30, 0-86400), `inactivityTimeoutSeconds` (0 = none, 0-31536000). `basePath` was removed in 0.6.0 ([Stream management](#stream-management)). |
 | Store | `dataStoreId` (PF JDBC data store id, on PostgreSQL) or `jdbcUrl`+`jdbcUsername`+`jdbcPassword`; `storeDialect` (`tables` \| `ldm`); blank = in-memory, which production allows only with the `in-memory-state` risk accepted |
 | Receiver auth | `receiverScope` (`ssf.manage`), `provisionerScope` (unset - nobody may use SCIM; suggested `ssf.provision`, must differ from `receiverScope` or SSF is `FAILED_CONFIG`), `allowedAudiences` (`clientA=aud1,aud2;clientB=aud3` - the `aud` values a client may name on create besides its own id, see [What the transmitter signs](#what-the-transmitter-signs)), `unownedStreamOwner` (unset - see [Stream ownership](#stream-ownership)), `introspectionEndpoint` (`<issuer>/as/introspect.oauth2`), `introspectionClientId`/`introspectionClientSecret` (deployed as secrets), `introspectionInsecureTls` (false; `true` trusts any certificate chain on the introspection call through libs/platform's `InsecureTls`, which warns once - the host name is still checked; refused in production) |
 | Receiver | `receiverExpectedIssuer` (turns the receiver on), `receiverJwksUrl`, `receiverAudience` and `receiverEndpointAuthToken` (**both required once the receiver is on** - missing either, `SSF_RECEIVER` is `FAILED_CONFIG` and an ERROR says which),  `receiverJwksCacheSeconds` (300), `receiverInsecureTls` (false; `true` trusts any certificate chain on the JWKS fetch, the poll and the stream calls through libs/platform's `InsecureTls`, which warns once - the host name is still checked; refused in production), `receiverPollUrl`/`receiverPollIntervalSeconds` (10), `receiverPollToken` (development only; refused in production), `receiverTokenEndpoint`/`receiverClientId`/`receiverClientSecret` or `receiverClientKey`/`receiverClientScope` (the receiver's token by client credentials), `receiverTransmitterConfigurationUrl`/`receiverPushEndpointUrl`/`receiverEventsRequested` (the receiver's own stream), `receiverSubjectIssuers`, `receiverActionsEnabled` (true) - see [The receiver](#the-receiver) |
@@ -371,6 +371,91 @@ streams (below).
 **What ownership does not settle.** It decides who may manage and drain a stream, not what the stream's
 SETs say. That is the next section.
 
+## Stream management
+
+From 0.6.0 (plan item H-SSF-3; SSF 1.0 final, 29 August 2025):
+
+- **The optional stream members** of SSF 1.0 §8.1.1 are stored, returned and checked. `description` is the
+  receiver's ("Receiver-Supplied, OPTIONAL. A string that describes the properties of the stream"): any string,
+  cut at 1,024 characters (the section allows it: "The transmitter MAY truncate the string beyond an allowed max
+  length"); PATCH changes it, and a PUT without it deletes it. `min_verification_interval` and
+  `inactivity_timeout` are "Transmitter-Supplied": a stream is given `minVerificationIntervalSeconds` and
+  `inactivityTimeoutSeconds` when it is created (0 gives it none), a receiver cannot set them, and one it echoes
+  back on PATCH or PUT must match or is a 400. A stream stored before 0.6.0 reports, and is held to, the current
+  settings, and so does every stream on the `ldm` store, which keeps none of the three and refuses a `description`
+  with a 400 until the model declares them ([SCIM](#scim), "The `ldm` store"). `inactivity_timeout` is recorded and
+  reported only: nothing pauses or deletes an inactive stream on this release (S-10's, Phase 4).
+- **429 on verification.** A verification request sooner than the stream's `min_verification_interval` after the
+  last one accepted is answered 429 with `Retry-After` (the seconds left, rounded up), and nothing is signed. §8.1.1:
+  "If an Event Receiver submits verification requests more frequently than this, the Event Transmitter MAY respond
+  with a 429 status code. An Event Transmitter SHOULD NOT respond with a 429 status code if an Event Receiver is not
+  exceeding this frequency." The time of the last one is kept per node, in memory: on n nodes a receiver can have
+  up to n verifications signed per interval.
+- **A cap on streams per receiver**, `maxStreamsPerClient` (10). One more create is a 409: §8.1.1.1 answers "409
+  Conflict" when "the Transmitter does not allow multiple streams with the same Receiver", and a cap is that rule
+  with a larger number - the receiver reuses, replaces or deletes a stream, and waiting does not help, which a 429
+  would suggest. The count is read before the insert, so two creates racing can leave a receiver one over.
+- **The metadata** carries every member §7.1 defines, under its own name, except `critical_subject_members`: this
+  transmitter names none, and §7.2.3 says "Claims with zero elements MUST be omitted from the response". None was
+  missing before 0.6.0; `events_supported` and `all_events_supported` are this transmitter's own (§7.2.3: "Other
+  Claims MAY also be returned").
+- **An https issuer.** §7.1 has the `issuer` "URL using the https scheme with no query or fragment component", and
+  every endpoint the metadata lists is the issuer and a path, each of which "MUST use HTTP over TLS". An http
+  `OIDF_SSF_ISSUER` is `FAILED_CONFIG` in production; the development profile starts it with a WARN. One with a
+  query, a fragment or no host is `FAILED_CONFIG` in either profile.
+- **`basePath` is removed.** It changed the URLs the transmitter advertised and not the paths its servlets answer -
+  their `@WebServlet` paths are fixed when the module is built - so anything but `/ssf` sent receivers to endpoints
+  nothing served. Every URL the transmitter builds (the metadata's endpoints, a poll stream's `endpoint_url`, a SCIM
+  user's `meta.location`) is the issuer and a path in `SsfPaths`, each held to a mapped pattern by a test. Set by any
+  of its names (`OIDF_SSF_BASE_PATH`, `oidf.ssf.basePath`, the init-param `basePath`), SSF is `FAILED_CONFIG`
+  naming it.
+
+## SCIM
+
+`/ssf/scim/v2/Users` from 0.6.0 (plan item H-SSF-4; RFC 7644):
+
+- **The resource.** The SCIM `id` is the subject's canonical key (`email:alice@example.com`); the subject comes from
+  the user's primary or first e-mail, else `userName` (as `iss_sub` under the issuer), else `externalId`. A user
+  exists when this endpoint keeps a record of it - its `userName`, `externalId`, `active`, and the streams a
+  deactivation took it off - or when any stream holds its subject, whoever put it there. An active user's `streams`
+  (in the extension) are the streams holding its subject; an inactive user's are the ones a reactivation restores.
+  The JDBC store keeps the records in `ssf_scim_users`; the `ldm` store keeps none yet (below).
+- **`GET /Users/{id}`**, and **`GET /Users`** with `filter`, `startIndex` and `count` (at most 200 a page), answering
+  a ListResponse ordered by id. The filter subset: the attributes `id`, `userName`, `externalId`, `active`,
+  `emails.value` (or `emails`) and the extension's `streams`, with or without their schema URN; the operators `eq`,
+  `ne`, `co`, `sw`, `ew` and `pr` (on `active`, `eq`, `ne` and `pr`); `and`, `or`, `not ( )` and brackets.
+  Everything else - `gt`, `ge`, `lt`, `le`, a value path such as `emails[type eq "work"]`, another attribute - is 400
+  `invalidFilter`. `userName` and e-mail addresses compare ignoring case, `id`, `externalId` and stream ids exactly
+  (RFC 7643's `caseExact`).
+- **`POST`** creates, adding the subject to the streams named; a user already recorded is 409 `uniqueness` (RFC 7644
+  §3.3). **`PUT` replaces** (§3.5.1): an attribute the body leaves out is removed - no `userName` clears it, no SSF
+  extension takes the subject off every stream - and a PUT to an id that does not exist is 404, since "HTTP PUT MUST
+  NOT be used to create new resources", unless it sets `active` false (below). The body's subject must be the path's (400 `mutability`). **`PATCH`**
+  applies `add`, `replace` and `remove` to `active`, `userName`, `externalId` and `streams`, and ignores attributes
+  this endpoint does not keep. **`DELETE`** deactivates an active user and forgets it (204).
+- **Deactivation and reactivation.** `active` true to false emits RISC `account-disabled` to the streams holding the
+  subject, then takes it off them and keeps them to restore; a user already inactive emits nothing again. `active`
+  false to true puts the subject back on the streams named, or those it was taken off (less any since deleted),
+  and then emits `account-enabled` (RISC 1.0 §2.4: "Account Enabled signals that the account identified by the
+  subject has been enabled"), so those streams hear it. A deactivation is never lost for want of a record: a
+  subject with no record, on a stream or not, counts as an active user, as every `active:false` did before 0.6.0. So
+  a PATCH or PUT setting `active` false, or a DELETE, for a user with no record on no stream - one provisioned before
+  0.6.0 and heard about through `OIDF_SSF_DEFAULT_SUBJECTS=ALL` - emits `account-disabled`, and the PATCH or PUT
+  leaves an inactive record so that a reactivation emits `account-enabled`. Any other request for such an id is 404.
+- **Errors** are in the RFC 7644 §3.12 schema - `{"schemas":["urn:ietf:params:scim:api:messages:2.0:Error"],
+  "status":"400","scimType":"invalidFilter","detail":"..."}` - as `application/scim+json`, the 401, 403 and 503 of
+  token validation included (their `WWW-Authenticate` kept). The component gate's 503 and 404, the same on every SSF
+  surface, are not rewritten.
+- **The `ldm` store.** The Identity Object Model has no class for a SCIM user record and no attributes for the
+  optional stream members, and this repo does not change the model, so the store keeps neither
+  (`keepsOptionalStreamMembers` and `keepsScimUsers` are false). A stream there reports the transmitter's
+  `minVerificationIntervalSeconds` and `inactivityTimeoutSeconds` - both "Transmitter-Supplied, OPTIONAL" in SSF 1.0
+  §8.1.1 - and a `description` is refused with a 400, since SSF lets a transmitter truncate one ("The transmitter MAY
+  truncate the string beyond an allowed max length") and not drop it. The SCIM endpoint keeps no records there: a
+  user is the subject the streams hold, a deactivated user is forgotten, a second POST adds to its streams, and
+  reactivating a forgotten user is a POST, which emits no `account-enabled`. The model repo (idp-scim-service) is
+  asked to declare the MAY attributes and a class for the records (F-0387).
+
 ## CAEP Interop
 
 The [CAEP Interoperability Profile 1.0](https://openid.net/specs/openid-caep-interoperability-profile-1_0.html)
@@ -433,7 +518,11 @@ push endpoint itself no longer has an open state: no configured token, no delive
   `FAILED_CONFIG` naming the switch ([docs/operator/components.md](../../docs/operator/components.md)).
 - **The store in production**: a PostgreSQL data store (`OIDF_SSF_DATA_STORE_ID`), or `in-memory-state` in
   `OIDF_ACCEPTED_RISKS` for the in-memory store; anything else is `REFUSED`.
-- The whole list, with how to tell and the development escape, is in the 0.6.0 release notes (package ST5C).
+- **An https issuer** in production, **a cap on streams per receiver** (10), **`OIDF_SSF_BASE_PATH` removed** and
+  **SCIM `PUT` replaces** (a provisioner that sent part of a user must send all of it): [Stream management](#stream-management)
+  and [SCIM](#scim).
+- The whole list, with how to tell and the development escape, is in the 0.6.0 release notes (packages ST5C and
+  HSSF2).
 
 ### Upgrading to this
 

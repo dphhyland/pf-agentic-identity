@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.LongSupplier;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.lang.JoseException;
@@ -48,6 +50,42 @@ public final class StreamManagementService {
         }
     }
 
+    /**
+     * The receiver already has as many streams as {@code OIDF_SSF_MAX_STREAMS_PER_CLIENT} allows - servlets map to 409.
+     * SSF 1.0 §8.1.1.1 names a status for a transmitter that allows a receiver no second stream: "If the Transmitter
+     * does not allow multiple streams with the same Receiver, it MUST respond with HTTP status code "409 Conflict"."
+     * It names none for a limit above one, and a cap is that rule with a larger number: a cap of 1 has to answer 409,
+     * and the receiver's way out is the same whatever the cap - "The Receiver MAY then GET the existing stream
+     * configuration and, if desired, use PATCH or PUT to update or replace the existing stream configuration", or
+     * delete one. Not 429, which says waiting helps; it does not.
+     */
+    public static final class StreamLimitException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        public StreamLimitException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * A verification request sooner than the stream's {@code min_verification_interval} after its last one - servlets
+     * map to 429 with {@code Retry-After} (SSF 1.0 §8.1.1 and Table 10). {@link #retryAfterSeconds()} is how long until
+     * the next one is accepted, rounded up, and at least 1.
+     */
+    public static final class TooManyRequestsException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+        private final long retryAfterSeconds;
+
+        public TooManyRequestsException(String message, long retryAfterSeconds) {
+            super(message);
+            this.retryAfterSeconds = retryAfterSeconds;
+        }
+
+        public long retryAfterSeconds() {
+            return this.retryAfterSeconds;
+        }
+    }
+
     /** The receiver is authenticated but may not do this — servlets map to 403. */
     public static final class ForbiddenException extends RuntimeException {
         private static final long serialVersionUID = 1L;
@@ -63,6 +101,17 @@ public final class StreamManagementService {
     private final SetPublisher publisher;
     private final OutboundUrlPolicy outboundPolicy;
     private final StreamAccess access;
+    private final LongSupplier nowMillis;
+    /**
+     * When each stream's last accepted verification request came, in epoch milliseconds, for its
+     * {@code min_verification_interval}. In memory and per node, which the Phase 3 plan (decision 9) allows a rate
+     * limit: counted per node, a receiver spreading its requests over n nodes gets n verifications per interval,
+     * which is weaker and not unsafe. A stream's entry goes when the stream is deleted here.
+     */
+    private final ConcurrentHashMap<String, Long> lastVerification = new ConcurrentHashMap<>();
+
+    /** The longest {@code description} kept; SSF 1.0 §8.1.1: "The transmitter MAY truncate the string beyond an allowed max length." */
+    static final int DESCRIPTION_MAX = 1024;
 
     public StreamManagementService(SsfStore store, SetMinter minter, SsfConfiguration config) {
         this(store, minter, config, SetPublisher.NOOP);
@@ -75,6 +124,13 @@ public final class StreamManagementService {
     /** Test seam: a stubbed-resolver policy, so endpoint screening is exercised without real DNS. */
     public StreamManagementService(SsfStore store, SetMinter minter, SsfConfiguration config, SetPublisher publisher,
             OutboundUrlPolicy outboundPolicy) {
+        this(store, minter, config, publisher, outboundPolicy, System::currentTimeMillis);
+    }
+
+    /** Test seam: a clock for the verification interval, in epoch milliseconds. */
+    StreamManagementService(SsfStore store, SetMinter minter, SsfConfiguration config, SetPublisher publisher,
+            OutboundUrlPolicy outboundPolicy, LongSupplier nowMillis) {
+        this.nowMillis = nowMillis;
         this.store = store;
         this.minter = minter;
         this.config = config;
@@ -122,13 +178,27 @@ public final class StreamManagementService {
      * ({@link SsfConfiguration#allowedAudiences}), and is otherwise a 400. Every SET on the stream is signed
      * to this {@code aud}, so a receiver free to pick it could have SETs minted that another receiver
      * accepts as its own.
+     *
+     * <p>A body with no {@code delivery} is a poll stream. SSF 1.0 §8.1.1.1: "If the request does not contain the
+     * delivery property, then the Transmitter MUST assume that the method is "urn:ietf:rfc:8936" (poll)."
+     *
+     * <p>The optional members (SSF 1.0 §8.1.1, plan item H-SSF-3): {@code description} is the receiver's, a string,
+     * truncated to {@value #DESCRIPTION_MAX} characters; {@code min_verification_interval} and
+     * {@code inactivity_timeout} are "Transmitter-Supplied", so what a receiver sends for them here is ignored, as for
+     * the other Transmitter-Supplied members, and the stream is given this transmitter's settings.
+     *
+     * <p>A receiver that already has {@code OIDF_SSF_MAX_STREAMS_PER_CLIENT} streams is refused another
+     * ({@link StreamLimitException}, 409). Counted before the insert, so two creates racing past the count can leave
+     * the receiver one stream over, on a store no other node is writing to at that moment; the cap bounds what one
+     * receiver can make the transmitter hold, which that does not undo.
      */
     public Map<String, Object> createStream(Map<String, Object> body, AuthContext caller) {
         String owner = StreamAccess.clientIdOf(caller);
         if (owner == null) {
             throw new ForbiddenException("the token names no client, so there is nobody for a stream to belong to");
         }
-        DeliveryMethod method = parseDeliveryMethod(body);
+        requireRoomForAnotherStream(owner);
+        DeliveryMethod method = body.containsKey("delivery") ? parseDeliveryMethod(body) : DeliveryMethod.POLL;
         String audience = resolveAudience(body, caller, owner);
         List<String> requested = parseEvents(body.get("events_requested"));
         List<String> delivered = narrowToDeliverable(requested);
@@ -143,7 +213,11 @@ public final class StreamManagementService {
                 .eventsDelivered(delivered)
                 .status(StreamStatus.ENABLED)
                 .createdAt(now)
-                .updatedAt(now);
+                .updatedAt(now)
+                .description(description(body))
+                .minVerificationInterval(this.config.minVerificationIntervalSeconds() > 0
+                        ? this.config.minVerificationIntervalSeconds() : null)
+                .inactivityTimeout(this.config.inactivityTimeoutSeconds() > 0 ? this.config.inactivityTimeoutSeconds() : null);
         if (method == DeliveryMethod.PUSH) {
             Map<String, Object> delivery = asMap(body.get("delivery"));
             String pushUrl = requireString(delivery, "endpoint_url");
@@ -170,11 +244,18 @@ public final class StreamManagementService {
         return out;
     }
 
-    /** PATCH: update mutable fields (events_requested, delivery endpoint) of an existing stream. */
+    /**
+     * PATCH: update the Receiver-Supplied members the body names (events_requested, the delivery endpoint,
+     * description); SSF 1.0 §8.1.1.3: "Any properties missing in the request MUST NOT be changed by the Transmitter."
+     * A {@code description} of {@code null} is present, and removes it.
+     */
     public Map<String, Object> updateStream(String streamId, Map<String, Object> body, AuthContext caller) {
         Stream existing = requireStream(streamId, caller);
         requireTransmitterSuppliedToMatch(existing, body);
         Stream.Builder b = existing.toBuilder().updatedAt(SetMinter.nowSeconds());
+        if (body.containsKey("description")) {
+            b.description(description(body));
+        }
         if (body.containsKey("events_requested")) {
             List<String> requested = parseEvents(body.get("events_requested"));
             b.eventsRequested(requested).eventsDelivered(narrowToDeliverable(requested));
@@ -200,6 +281,8 @@ public final class StreamManagementService {
      * {@code events_requested} leaves the stream delivering nothing, and a push stream replaced without
      * an {@code authorization_header} stops sending one.
      *
+     * <p>{@code description} is Receiver-Supplied too, so a PUT without one removes it.
+     *
      * <p>{@code delivery} cannot be deleted - a stream with no delivery is not a stream - so its absence
      * is a 400. Nor can its method change here: a receiver moving between push and poll deletes the
      * stream and creates another, which leaves no question about SETs already queued for the old method.
@@ -218,6 +301,7 @@ public final class StreamManagementService {
         Stream.Builder b = existing.toBuilder()
                 .eventsRequested(requested)
                 .eventsDelivered(narrowToDeliverable(requested))
+                .description(description(body))
                 .updatedAt(SetMinter.nowSeconds());
         if (method == DeliveryMethod.PUSH) {
             Map<String, Object> delivery = asMap(body.get("delivery"));
@@ -234,6 +318,7 @@ public final class StreamManagementService {
         if (!this.store.deleteStream(streamId)) {
             throw new NotFoundException("no such stream: " + streamId);
         }
+        this.lastVerification.remove(streamId);
     }
 
     // ─────────────────────────────── status ───────────────────────────────
@@ -275,12 +360,20 @@ public final class StreamManagementService {
      * Emit a verification SET for a stream (SSF §Verification): mint a signed SET carrying the verification
      * event with the receiver's {@code state} echoed, and enqueue it. Poll streams drain it via {@link #poll};
      * push streams via the push executor (later phase). Returns the SET's {@code jti} for correlation.
+     *
+     * <p>A request sooner than the stream's {@code min_verification_interval} after the last one accepted is refused
+     * with {@link TooManyRequestsException} (429) and nothing is minted. SSF 1.0 §8.1.1: "If an Event Receiver submits
+     * verification requests more frequently than this, the Event Transmitter MAY respond with a 429 status code. An
+     * Event Transmitter SHOULD NOT respond with a 429 status code if an Event Receiver is not exceeding this
+     * frequency." So a request exactly the interval after the last is accepted, and a refused one does not restart
+     * the interval.
      */
     public String verify(String streamId, String state, AuthContext caller) throws JoseException {
         Stream s = requireStream(streamId, caller);
         if (!this.config.verificationEventEnabled()) {
             throw new IllegalStateException("verification events are disabled");
         }
+        admitVerification(s);
         LinkedHashMap<String, Object> payload = new LinkedHashMap<>();
         if (state != null && !state.isBlank()) {
             payload.put("state", state);
@@ -416,6 +509,101 @@ public final class StreamManagementService {
 
     // ─────────────────────────────── helpers ───────────────────────────────
 
+    /** Refuses a create that would take {@code owner} past {@code OIDF_SSF_MAX_STREAMS_PER_CLIENT} streams. */
+    private void requireRoomForAnotherStream(String owner) {
+        int max = this.config.maxStreamsPerClient();
+        int held = 0;
+        for (Stream s : this.store.listStreams()) {
+            if (owner.equals(s.ownerClientId())) {
+                held++;
+            }
+        }
+        if (held >= max) {
+            throw new StreamLimitException("this receiver already has " + held + " streams, the most this transmitter "
+                    + "allows one receiver (" + max + "); delete one, or update or replace an existing stream");
+        }
+    }
+
+    /**
+     * Records this verification request as the stream's last, or refuses it if it comes within the stream's
+     * interval of the last one. Atomic per stream: two requests arriving together cannot both be admitted.
+     */
+    private void admitVerification(Stream s) {
+        Integer interval = effectiveMinVerificationInterval(s);
+        if (interval == null) {
+            return;
+        }
+        long now = this.nowMillis.getAsLong();
+        long intervalMillis = interval * 1000L;
+        long[] wait = {0};
+        this.lastVerification.compute(s.id(), (id, last) -> {
+            if (last != null && now - last < intervalMillis) {
+                wait[0] = last + intervalMillis - now;
+                return last;
+            }
+            return now;
+        });
+        if (wait[0] > 0) {
+            long seconds = Math.max(1, (wait[0] + 999) / 1000);
+            throw new TooManyRequestsException("verification requested again within the stream's "
+                    + "min_verification_interval of " + interval + " seconds", seconds);
+        }
+    }
+
+    /**
+     * The stream's {@code min_verification_interval}: what it was given when it was created, or, for a stream stored
+     * before 0.6.0 with none, this transmitter's current setting; {@code null} when that is 0.
+     */
+    private Integer effectiveMinVerificationInterval(Stream s) {
+        if (s.minVerificationInterval() != null) {
+            return s.minVerificationInterval();
+        }
+        return this.config.minVerificationIntervalSeconds() > 0 ? this.config.minVerificationIntervalSeconds() : null;
+    }
+
+    /** As {@link #effectiveMinVerificationInterval}, for {@code inactivity_timeout}. */
+    private Long effectiveInactivityTimeout(Stream s) {
+        if (s.inactivityTimeout() != null) {
+            return s.inactivityTimeout();
+        }
+        return this.config.inactivityTimeoutSeconds() > 0 ? this.config.inactivityTimeoutSeconds() : null;
+    }
+
+    /**
+     * {@link #parseDescription}, refused on a store that cannot keep it ({@link SsfStore#keepsOptionalStreamMembers}):
+     * SSF 1.0 §8.1.1 lets a transmitter truncate a description ("The transmitter MAY truncate the string beyond an
+     * allowed max length") and says nothing of dropping one, so a stream that would lose it is a 400 rather than a
+     * stream created without it.
+     */
+    private String description(Map<String, Object> body) {
+        String d = parseDescription(body);
+        if (d != null && !this.store.keepsOptionalStreamMembers()) {
+            throw new IllegalArgumentException("description is not supported by this transmitter's stream store (ldm) "
+                    + "until the Identity Object Model declares it; send the stream without one");
+        }
+        return d;
+    }
+
+    /**
+     * The body's {@code description}: absent or {@code null} is none; anything but a string is a 400; a longer string
+     * is cut at {@value #DESCRIPTION_MAX} characters, never inside a surrogate pair.
+     */
+    private static String parseDescription(Map<String, Object> body) {
+        Object d = body.get("description");
+        if (d == null) {
+            return null;
+        }
+        if (!(d instanceof String)) {
+            throw new IllegalArgumentException("description must be a string");
+        }
+        String text = (String) d;
+        if (text.length() <= DESCRIPTION_MAX) {
+            return text;
+        }
+        int end = Character.isHighSurrogate(text.charAt(DESCRIPTION_MAX - 1)) ? DESCRIPTION_MAX - 1 : DESCRIPTION_MAX;
+        return text.substring(0, end);
+    }
+
     /**
      * The stream, if it exists and is the caller's. One exception and one message for both failures, thrown
      * from one place: a stream that belongs to someone else has to look exactly like one that was never
@@ -456,10 +644,21 @@ public final class StreamManagementService {
         } else {
             // Poll streams are addressed by the transmitter-assigned poll URL (RFC 8936); the receiver
             // POSTs the RFC 8936 body (maxEvents/returnImmediately/ack) there.
-            delivery.put("endpoint_url", this.config.issuer() + this.config.basePath() + "/poll?stream_id=" + s.id());
+            delivery.put("endpoint_url", this.config.issuer() + SsfPaths.POLL + "?stream_id=" + s.id());
         }
         m.put("delivery", delivery);
         m.put("status", s.status().value());
+        if (s.description() != null) {
+            m.put("description", s.description());
+        }
+        Integer interval = effectiveMinVerificationInterval(s);
+        if (interval != null) {
+            m.put("min_verification_interval", interval);
+        }
+        Long timeout = effectiveInactivityTimeout(s);
+        if (timeout != null) {
+            m.put("inactivity_timeout", timeout);
+        }
         return m;
     }
 
@@ -490,6 +689,24 @@ public final class StreamManagementService {
         requireMatch(body, "aud", existing.audience());
         if (body.containsKey("events_delivered") && !parseEvents(body.get("events_delivered")).equals(existing.eventsDelivered())) {
             throw new IllegalArgumentException("events_delivered does not match the stream");
+        }
+        requireNumberMatch(body, "min_verification_interval", effectiveMinVerificationInterval(existing));
+        requireNumberMatch(body, "inactivity_timeout", effectiveInactivityTimeout(existing));
+    }
+
+    /**
+     * A Transmitter-Supplied number echoed back must be the stream's (SSF 1.0 §8.1.1.3: "they MUST match the expected
+     * value"); one the stream does not have matches only {@code null}.
+     */
+    private static void requireNumberMatch(Map<String, Object> body, String key, Number expected) {
+        if (!body.containsKey(key)) {
+            return;
+        }
+        Object sent = body.get(key);
+        boolean matches = sent == null ? expected == null
+                : sent instanceof Number n && expected != null && n.doubleValue() == expected.doubleValue();
+        if (!matches) {
+            throw new IllegalArgumentException(key + " is Transmitter-Supplied and does not match the stream");
         }
     }
 

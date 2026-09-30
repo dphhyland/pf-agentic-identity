@@ -11,6 +11,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.platform.component.ComponentRegistry;
 import com.pingidentity.ps.oidf.platform.component.ComponentState;
 import com.pingidentity.ps.oidf.platform.component.ComponentStatus;
@@ -271,6 +272,62 @@ class SsfComponentsTest {
 
         assertEquals(ComponentState.FAILED_CONFIG, part.status().state());
         assertTrue(this.retries.isEmpty());
+    }
+
+    /**
+     * Plan item H-SSF-3. SSF 1.0 §7.1: the issuer is a "URL using the https scheme with no query or fragment
+     * component", and each endpoint it advertises "MUST use HTTP over TLS". An http issuer is FAILED_CONFIG in
+     * production, before any store is opened, and never retried.
+     */
+    @Test
+    @Requirement("SSF §7.1")
+    void anHttpIssuerIsAFailedConfigurationInProduction() throws IOException {
+        profile(DeploymentProfile.PRODUCTION);
+        AcceptedRisks risks = AcceptedRisks.parse("in-memory-state", LocalDate.now(ZoneOffset.UTC));
+
+        ComponentParts.Part part = transmitter(Map.of("OIDF_SSF_ISSUER", "http://op.example.com"),
+                context(DeploymentProfile.PRODUCTION, risks, config -> new InMemorySsfStore()));
+
+        assertEquals(ComponentState.FAILED_CONFIG, part.status().state());
+        assertTrue(part.status().reason().startsWith("OIDF_SSF_ISSUER is http: SSF 1.0 §7.1 requires an https issuer"),
+                part.status().reason());
+        assertEquals(1, this.errors.size());
+        assertTrue(this.errors.get(0).startsWith("SSF transmitter NOT started: OIDF_SSF_ISSUER is http"), this.errors.get(0));
+        assertEquals(0, this.opened.get(), "no store was opened");
+        assertTrue(this.retries.isEmpty());
+        assertEquals(503, gate(part));
+    }
+
+    /** The development profile's escape: an http issuer starts, with a WARN. */
+    @Test
+    @Requirement("SSF §7.1")
+    void anHttpIssuerStartsInDevelopment() {
+        ComponentParts.Part part = transmitter(Map.of("OIDF_SSF_ISSUER", "http://localhost:9031"), development());
+
+        assertEquals(ComponentState.READY, part.status().state());
+        assertEquals(List.of(), this.errors);
+        assertEquals("http://localhost:9031/ssf/streams", SsfSupport.configuration().configurationEndpoint());
+    }
+
+    /** What SSF 1.0 §7.1 rules out whatever the profile: no host, a query, a fragment, a scheme that is not http(s). */
+    @Test
+    @Requirement("SSF §7.1")
+    void anIssuerThatIsNoHttpsUrlIsAFailedConfigurationInEitherProfile() {
+        SsfComponents.Context development = development();
+        for (String issuer : List.of("https://op.example.com?tenant=a", "https://op.example.com#x", "urn:example:op", "ftp://op.example.com",
+                "https:///nohost", "https://op example.com")) {
+            String problem = SsfComponents.issuerProblem(issuer, development);
+            assertTrue(problem != null && problem.startsWith("OIDF_SSF_ISSUER "), issuer + ": " + problem);
+        }
+        ComponentParts.Part part = transmitter(Map.of("OIDF_SSF_ISSUER", "https://op.example.com?tenant=a"), development);
+        assertEquals(ComponentState.FAILED_CONFIG, part.status().state());
+        assertEquals("OIDF_SSF_ISSUER must be an https URL with a host and no query or fragment (SSF 1.0 §7.1)", part.status().reason());
+    }
+
+    @Test
+    void anHttpsIssuerIsAcceptedInProduction() {
+        assertEquals(null, SsfComponents.issuerProblem("https://op.example.com/tenant-a", context(DeploymentProfile.PRODUCTION,
+                config -> new InMemorySsfStore())));
     }
 
     @Test

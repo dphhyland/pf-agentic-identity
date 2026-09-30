@@ -187,6 +187,35 @@ class SsfStreamManagementServletTest {
         assertEquals(1, ((Map<?, ?>) svc.poll(id, null, 10, true, RECEIVER).get("sets")).size());
     }
 
+    /** SSF 1.0 Table 10: 429 "if the Event Receiver is sending too many requests in a given amount of time". */
+    @Test
+    @Requirement({"SSF §8.1.1", "SSF §8.1.4.2"})
+    void aSecondVerificationInsideTheIntervalIs429WithRetryAfter() throws Exception {
+        String id = createPollStream();
+        verify(call("POST", "/ssf/verify", null, "{\"stream_id\":\"" + id + "\"}").resp).setStatus(204);
+
+        Exchange again = call("POST", "/ssf/verify", null, "{\"stream_id\":\"" + id + "\"}");
+
+        verify(again.resp).setStatus(429);
+        verify(again.resp).setHeader(org.mockito.ArgumentMatchers.eq("Retry-After"),
+                org.mockito.ArgumentMatchers.matches("[1-9][0-9]*"));
+        assertEquals("too_many_requests", again.json().get("error"));
+        assertEquals(1, store.peek(id, 10).size());
+    }
+
+    /** SSF 1.0 §8.1.1.1: a transmitter that allows no more streams answers "409 Conflict". */
+    @Test
+    @Requirement("SSF §8.1.1.1")
+    void aCreatePastTheCapIs409() throws Exception {
+        for (int i = 0; i < 10; i++) {
+            createPollStream();
+        }
+        Exchange x = call("POST", "/ssf/streams", null, "{}");
+        verify(x.resp).setStatus(409);
+        assertEquals("conflict", x.json().get("error"));
+        assertEquals(10, store.listStreams().size(), "the default cap is 10");
+    }
+
     // ─────────────────────────────── whose stream it is ───────────────────────────────
 
     /** One per-stream request, addressed to whichever stream id it is given. */
