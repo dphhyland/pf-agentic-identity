@@ -4,7 +4,7 @@ area: rar-paz-plugin
 source: design
 status: closed
 plan_items: [S-2]
-prs: []
+prs: [92]
 recorded_in: 'docs/releases/0.4.0.md, Before you deploy, the item on an https PDP URL'
 verify_by: >
   On the rig under the production profile, import an archive whose RAR processor instance names an http PDP

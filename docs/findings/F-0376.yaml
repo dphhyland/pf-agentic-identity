@@ -5,7 +5,7 @@ area: rar-paz-plugin, platform
 source: design
 status: open
 plan_items: [O-2]
-prs: []
+prs: [92]
 verification: ''
 target_release: 0.7.0
 notes: >

@@ -5,7 +5,7 @@ area: rar-paz-plugin
 source: reviewer-report
 status: closed
 plan_items: [H-RAR-1]
-prs: []
+prs: [92]
 verification: >
   2026-09-30, package PLG (branch prod/p3-rar-plugin-hardening). The AuthZEN context allow-list: the processor's new
   field "AuthZEN context members merged into details" names per type the context members a PDP may merge

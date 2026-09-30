@@ -4,7 +4,7 @@ area: rar-paz-plugin
 source: design
 status: open
 plan_items: [H-RAR-1]
-prs: []
+prs: [92]
 recorded_in: plugins/rar-paz-plugin/paz/README.md, How the policies are shaped
 verify_by: >
   Bring up a PingAuthorize Server whose policy decision service is external, pointed at the Policy Editor of

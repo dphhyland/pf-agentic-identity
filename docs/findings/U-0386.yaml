@@ -4,7 +4,7 @@ area: rar-paz-plugin
 source: design
 status: open
 plan_items: [PR-3]
-prs: []
+prs: [92]
 recorded_in: plugins/rar-paz-plugin/README.md, Configuration (The production profile's refusals)
 verify_by: >
   On the rig under the production profile, open the RAR processor instance in the admin console, turn "Skip TLS

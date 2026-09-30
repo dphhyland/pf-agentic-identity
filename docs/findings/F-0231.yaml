@@ -5,7 +5,7 @@ area: platform, rar-paz-plugin
 source: design
 status: closed
 plan_items: [ST-5, PR-3]
-prs: [62]
+prs: [62, 92]
 verification: >
   2026-09-30, package PLG: rar-pdp-processor.json lists "Deny unless PERMIT" under removed, from plugin-field,
   release 0.4.0, no replacement (PR5's form), so the settings scan and the generated
