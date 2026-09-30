@@ -5,11 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
+import com.pingidentity.ps.oidf.federation.testkit.Racing;
 import com.pingidentity.ps.oidf.testkit.Migrations;
 import com.pingidentity.ps.oidf.testkit.PostgresDatabase;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Duration;
+import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -73,5 +76,79 @@ class JdbcTrustMarkRegistryTest extends TrustMarkRegistryContract {
                 + " VALUES ('t', 's', 'REVOKED', CURRENT_TIMESTAMP)"));
         assertThrows(SQLException.class, () -> this.execute("INSERT INTO trust_mark_grant (trust_mark_type, subject, status, granted_at)"
                 + " VALUES ('t', 's', 'SUSPENDED', CURRENT_TIMESTAMP)"));
+    }
+
+    // ---- H-FED-3: two changes to one grant whose transactions overlap -----------------------------------------------
+
+    private JdbcTrustMarkRegistry racing(String sqlPrefix) {
+        return new JdbcTrustMarkRegistry(Racing.meetingAt(this.dataSource, sqlPrefix), this.clock);
+    }
+
+    /** One change applied and one refused as stale; the audit trail grew by exactly one line, the winner's. */
+    private void exactlyOneApplied(List<Object> outcomes, int auditLinesBefore) throws Exception {
+        assertEquals(1, outcomes.stream().filter(o -> o instanceof TrustMarkGrant).count(), String.valueOf(outcomes));
+        assertEquals(1, outcomes.stream().filter(o -> o instanceof AuthorityRegistryException e
+                && AuthorityRegistryException.STALE_UPDATE.equals(e.reason())).count(), String.valueOf(outcomes));
+        TrustMarkGrant winner = (TrustMarkGrant) outcomes.stream().filter(o -> o instanceof TrustMarkGrant).findFirst().orElseThrow();
+        JdbcTrustMarkRegistry registry = new JdbcTrustMarkRegistry(this.dataSource, this.clock);
+        assertEquals(winner, registry.find(CERTIFIED, AGENT).orElseThrow());
+        List<TrustMarkAuditEntry> trail = registry.auditTrail(CERTIFIED, AGENT);
+        assertEquals(auditLinesBefore + 1, trail.size(), "the refused change wrote no audit line");
+        assertEquals(winner.actor(), trail.get(trail.size() - 1).actor());
+    }
+
+    @Test
+    void twoRevocationsThatOverlapOneIsRefusedAsStale() throws Exception {
+        this.newRegistry().grant(CERTIFIED, AGENT, null, "admin:0");
+        JdbcTrustMarkRegistry racing = this.racing("UPDATE trust_mark_grant");
+
+        this.exactlyOneApplied(Racing.together(() -> racing.revoke(CERTIFIED, AGENT, "first", "admin:a"),
+                () -> racing.revoke(CERTIFIED, AGENT, "second", "admin:b")), 1);
+    }
+
+    @Test
+    void aRevocationAndAGrantAgainThatOverlapApplyExactlyOne() throws Exception {
+        this.newRegistry().grant(CERTIFIED, AGENT, null, "admin:0");
+        this.clock.advance(Duration.ofMinutes(1));
+        JdbcTrustMarkRegistry racing = this.racing("UPDATE trust_mark_grant");
+
+        this.exactlyOneApplied(Racing.together(() -> racing.revoke(CERTIFIED, AGENT, "first", "admin:a"),
+                () -> racing.grant(CERTIFIED, AGENT, null, "admin:b")), 1);
+    }
+
+    @Test
+    void twoReinstatementsThatOverlapOneIsRefusedAsStale() throws Exception {
+        TrustMarkRegistry setup = this.newRegistry();
+        setup.grant(CERTIFIED, AGENT, null, "admin:0");
+        setup.revoke(CERTIFIED, AGENT, "lapsed", "admin:0");
+        this.clock.advance(Duration.ofMinutes(1));
+        JdbcTrustMarkRegistry racing = this.racing("UPDATE trust_mark_grant");
+
+        this.exactlyOneApplied(Racing.together(() -> racing.grant(CERTIFIED, AGENT, null, "admin:a"),
+                () -> racing.grant(CERTIFIED, AGENT, null, "admin:b")), 2);
+    }
+
+    @Test
+    void twoFirstGrantsThatOverlapOneIsRefusedAsStale() throws Exception {
+        this.newRegistry();
+        JdbcTrustMarkRegistry racing = this.racing("INSERT INTO trust_mark_grant");
+
+        this.exactlyOneApplied(Racing.together(() -> racing.grant(CERTIFIED, AGENT, null, "admin:a"),
+                () -> racing.grant(CERTIFIED, AGENT, null, "admin:b")), 0);
+    }
+
+    /** H-FED-9: the standing grants are one statement, however many grants the type has. */
+    @Test
+    void theStandingGrantsAreOneStatement() throws Exception {
+        TrustMarkRegistry setup = this.newRegistry();
+        for (int i = 0; i < 20; i++) {
+            setup.grant(CERTIFIED, "https://pf.example.com/federation/agents/n" + i, null, null);
+        }
+        Racing.Counting counting = Racing.counting(this.dataSource);
+        JdbcTrustMarkRegistry registry = new JdbcTrustMarkRegistry(counting.dataSource(), this.clock);
+
+        assertEquals(20, registry.standing(CERTIFIED, null, this.clock.instant()).size());
+        assertEquals(1, registry.standing(CERTIFIED, "https://pf.example.com/federation/agents/n7", this.clock.instant()).size());
+        assertEquals(2, counting.statements(), counting.sql().toString());
     }
 }

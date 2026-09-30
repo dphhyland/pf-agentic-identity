@@ -114,11 +114,17 @@ public final class JdbcKeyHistoryStore implements KeyHistoryStore {
         if (found.get().revokedAt() != null) {
             return found.get();
         }
-        try (PreparedStatement ps = c.prepareStatement("UPDATE federation_key_history SET revoked_at = ?, reason = ? WHERE kid = ?")) {
+        // Only a key still unrevoked when read is revoked (plan item H-FED-3): of two revocations at once, the second to
+        // commit finds it revoked and changes nothing - its reason included.
+        try (PreparedStatement ps = c.prepareStatement("UPDATE federation_key_history SET revoked_at = ?, reason = ? WHERE kid = ?"
+                + " AND revoked_at IS NULL")) {
             ps.setTimestamp(1, Timestamp.from(revokedAt));
             ps.setString(2, reason);
             ps.setString(3, kid);
-            ps.executeUpdate();
+            if (ps.executeUpdate() != 1) {
+                throw new AuthorityRegistryException(AuthorityRegistryException.STALE_UPDATE,
+                        "key " + kid + " was revoked while this revocation was being made; read it again");
+            }
         }
         return find(c, kid).orElseThrow();
     }

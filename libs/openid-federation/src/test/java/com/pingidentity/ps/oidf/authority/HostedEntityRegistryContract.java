@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.federation.testkit.Racing;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -227,5 +228,31 @@ abstract class HostedEntityRegistryContract {
         assertEquals(List.of(suspended, this.entityId), this.registry.all().stream().map(HostedEntity::entityId).toList(),
                 "in entity id order, not listable, one suspended");
         assertEquals(List.of(), this.registry.list(null), "which a resolver never sees");
+    }
+
+    /**
+     * H-FED-3: two operators revoking one entity at once. Whether their changes overlap (the JDBC store, where the second
+     * to commit is refused) or are serialised (the in-memory one, where the second finds it done), exactly one revocation
+     * is recorded and each caller is either answered or told its change is stale.
+     */
+    @Test
+    void twoRevocationsAtOnceRecordOneRevocation() throws Exception {
+        List<Object> outcomes = Racing.together(
+                () -> {
+                    this.registry.setStatus(this.entityId, EntityStatus.REVOKED, "first", "admin:a");
+                    return null;
+                },
+                () -> {
+                    this.registry.setStatus(this.entityId, EntityStatus.REVOKED, "second", "admin:b");
+                    return null;
+                });
+
+        for (Object outcome : outcomes) {
+            assertTrue("done".equals(outcome) || outcome instanceof AuthorityRegistryException e
+                    && AuthorityRegistryException.STALE_UPDATE.equals(e.reason()), String.valueOf(outcome));
+        }
+        assertEquals(1L, this.registry.auditTrail(this.entityId).stream()
+                .filter(e -> AuthorityAuditEntry.ENTITY_REVOKED.equals(e.eventCode())).count());
+        assertEquals(EntityStatus.REVOKED, this.registry.find(this.entityId).orElseThrow().status());
     }
 }

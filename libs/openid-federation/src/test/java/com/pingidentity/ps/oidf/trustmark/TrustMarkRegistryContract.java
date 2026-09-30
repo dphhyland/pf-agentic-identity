@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
 import com.pingidentity.ps.oidf.federation.testkit.MutableClock;
+import com.pingidentity.ps.oidf.federation.testkit.Racing;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -111,5 +112,42 @@ abstract class TrustMarkRegistryContract {
         assertEquals("admin:2", trail.get(1).actor());
         assertEquals(this.clock.instant(), trail.get(1).at());
         assertNull(registry.auditTrail(CERTIFIED, OTHER).get(0).detail(), "a grant with no end says nothing of one");
+    }
+
+    /** H-FED-9: the standing grants of a type, to one subject in either spelling or to anyone - revoked and ended ones left out. */
+    @Test
+    void theStandingGrantsOfATypeAreReadByTypeAndSubject() throws Exception {
+        TrustMarkRegistry registry = this.newRegistry();
+        registry.grant(CERTIFIED, AGENT, null, null);
+        registry.grant(CERTIFIED, OTHER, this.clock.instant().plus(Duration.ofMinutes(1)), null);
+        registry.grant(CERTIFIED, "https://pf.example.com/federation/agents/a3", null, null);
+        registry.revoke(CERTIFIED, "https://pf.example.com/federation/agents/a3", "lapsed", null);
+        registry.grant(AUDITED, AGENT, null, null);
+
+        Instant now = this.clock.instant();
+        assertEquals(List.of(AGENT, OTHER), registry.standing(CERTIFIED, null, now).stream().map(TrustMarkGrant::subject).toList());
+        assertEquals(List.of(AGENT), registry.standing(CERTIFIED, AGENT + "/", now).stream().map(TrustMarkGrant::subject).toList(),
+                "the trailing slash names the same entity");
+        assertEquals(List.of(AGENT), registry.standing(CERTIFIED, null, now.plus(Duration.ofMinutes(1)))
+                .stream().map(TrustMarkGrant::subject).toList(), "a grant past its end no longer stands");
+        assertEquals(List.of(), registry.standing(CERTIFIED, "https://pf.example.com/federation/agents/a3", now));
+        assertEquals(List.of(), registry.standing("https://pf.example.com/marks/none", null, now));
+    }
+
+    /** H-FED-3: two operators revoking one grant at once record one revocation; each is answered or told it is stale. */
+    @Test
+    void twoRevocationsAtOnceRecordOneRevocation() throws Exception {
+        TrustMarkRegistry registry = this.newRegistry();
+        registry.grant(CERTIFIED, AGENT, null, "admin:1");
+
+        List<Object> outcomes = Racing.together(() -> registry.revoke(CERTIFIED, AGENT, "first", "admin:a"),
+                () -> registry.revoke(CERTIFIED, AGENT, "second", "admin:b"));
+
+        for (Object outcome : outcomes) {
+            assertTrue(outcome instanceof TrustMarkGrant || outcome instanceof AuthorityRegistryException e
+                    && AuthorityRegistryException.STALE_UPDATE.equals(e.reason()), String.valueOf(outcome));
+        }
+        assertEquals(List.of(TrustMarkAuditEntry.GRANTED, TrustMarkAuditEntry.REVOKED),
+                registry.auditTrail(CERTIFIED, AGENT).stream().map(TrustMarkAuditEntry::eventCode).toList());
     }
 }

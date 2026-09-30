@@ -14,6 +14,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * In-memory {@link HostedEntityRegistry}. State does not survive a restart, which is fine for tests and
  * a single-node demo but wrong for anything the authority is meant to serve durably — a restart would
  * silently un-host every entity. Production deployments use {@link JdbcHostedEntityRegistry}.
+ *
+ * <p>Every change holds this registry's lock from the status it reads to the status it writes, so two changes never
+ * interleave: the second always reads the first's outcome, and a transition it no longer applies to is refused just as
+ * the JDBC registry's conditional update refuses it ({@code HostedEntityRegistryContract} holds both to that).
  */
 public final class InMemoryHostedEntityRegistry implements HostedEntityRegistry {
 
@@ -74,6 +78,7 @@ public final class InMemoryHostedEntityRegistry implements HostedEntityRegistry 
         String code = status == EntityStatus.REVOKED
                 ? AuthorityAuditEntry.ENTITY_REVOKED : AuthorityAuditEntry.ENTITY_STATUS_CHANGED;
         appendAudit(entityId, code, status + ": " + reason, actor);
+        HostedEntityConfigurationCache.changed(entityId);
     }
 
     @Override
@@ -82,6 +87,7 @@ public final class InMemoryHostedEntityRegistry implements HostedEntityRegistry 
         HostedEntity current = require(entityId);
         this.entities.put(entityId, current.withMetadata(metadata));
         appendAudit(entityId, AuthorityAuditEntry.ENTITY_METADATA_UPDATED, "types=" + metadata.keySet(), actor);
+        HostedEntityConfigurationCache.changed(entityId);
     }
 
     @Override
@@ -90,6 +96,7 @@ public final class InMemoryHostedEntityRegistry implements HostedEntityRegistry 
         HostedEntity current = require(entityId);
         this.entities.put(entityId, current.withMetadataPolicy(metadataPolicy));
         appendAudit(entityId, AuthorityAuditEntry.ENTITY_METADATA_POLICY_UPDATED, "types=" + metadataPolicy.keySet(), actor);
+        HostedEntityConfigurationCache.changed(entityId);
     }
 
     @Override
@@ -98,6 +105,7 @@ public final class InMemoryHostedEntityRegistry implements HostedEntityRegistry 
         HostedEntity current = require(entityId);
         this.entities.put(entityId, current.withHostingKeyRef(newHostingKeyRef));
         appendAudit(entityId, AuthorityAuditEntry.ENTITY_KEY_ROTATED, "hostingKeyRef rotated", actor);
+        HostedEntityConfigurationCache.changed(entityId);
     }
 
     @Override
@@ -107,6 +115,7 @@ public final class InMemoryHostedEntityRegistry implements HostedEntityRegistry 
         this.entities.put(entityId, current.withEntityConfiguration(entityConfiguration));
         // The entity published it, authorised by its own signature: it is the actor, not an administrator.
         appendAudit(entityId, AuthorityAuditEntry.ENTITY_METADATA_UPDATED, "self-signed entity configuration published", entityId);
+        HostedEntityConfigurationCache.changed(entityId);
     }
 
     @Override

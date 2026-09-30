@@ -248,6 +248,11 @@ public class FederationAdminServlet extends RequestScopedServlet {
                 default -> writeError(resp, 404, "not_found", "no such endpoint");
             }
         } catch (AuthorityRegistryException e) {
+            if (AuthorityRegistryException.STALE_UPDATE.equals(e.reason())) {
+                // Another operator's change to the same entity, grant or key committed first; this one wrote nothing (H-FED-3).
+                writeError(resp, 409, AuthorityRegistryException.STALE_UPDATE, e.getMessage());
+                return;
+            }
             FederationErrors.write(resp, 500, "server_error", e.getMessage(), e);
         }
     }

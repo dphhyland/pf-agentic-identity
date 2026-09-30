@@ -4,7 +4,6 @@
 package com.pingidentity.ps.oidf.trustmark;
 
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
-import com.pingidentity.ps.oidf.federation.EntityId;
 import com.pingidentity.ps.oidf.federation.FederationError;
 import com.pingidentity.ps.oidf.federation.FederationException;
 import com.pingidentity.ps.oidf.federation.TrustMarkIssuing;
@@ -131,6 +130,11 @@ public final class TrustMarkIssuer implements TrustMarkIssuing {
         return held;
     }
 
+    /**
+     * The subjects holding a mark of {@code type} now - {@code subject} alone when it is given (§8.5). The standing grants
+     * come from one read of the registry, which does the filtering (plan item H-FED-9); for a type issued to hosted
+     * entities only, each subject it returns is then checked to be one.
+     */
     @Override
     public List<String> marked(String type, String subject) {
         TrustMarkType configured = this.types.get(type);
@@ -139,8 +143,8 @@ public final class TrustMarkIssuer implements TrustMarkIssuing {
         }
         Instant now = this.clock.instant();
         List<String> marked = new ArrayList<>();
-        for (TrustMarkGrant grant : this.read(() -> this.registry.grantsOf(type))) {
-            if (grant.activeAt(now) && (subject == null || EntityId.same(grant.subject(), subject)) && this.subjectMayHold(configured, grant.subject())) {
+        for (TrustMarkGrant grant : this.read(() -> this.registry.standing(type, subject, now))) {
+            if (this.subjectMayHold(configured, grant.subject())) {
                 marked.add(grant.subject());
             }
         }

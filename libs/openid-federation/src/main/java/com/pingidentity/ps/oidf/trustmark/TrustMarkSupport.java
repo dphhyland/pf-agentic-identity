@@ -46,6 +46,11 @@ public final class TrustMarkSupport {
         }
 
         @Override
+        public List<TrustMarkGrant> standing(String type, String subject, Instant now) throws AuthorityRegistryException {
+            return registry().standing(type, subject, now);
+        }
+
+        @Override
         public TrustMarkGrant revoke(String type, String subject, String reason, String actor)
                 throws AuthorityRegistryException {
             return registry().revoke(type, subject, reason, actor);

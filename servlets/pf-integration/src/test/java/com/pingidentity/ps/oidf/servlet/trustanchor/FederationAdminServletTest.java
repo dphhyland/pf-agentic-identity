@@ -313,6 +313,11 @@ class FederationAdminServletTest {
             }
 
             @Override
+            public List<TrustMarkGrant> standing(String type, String subject, Instant now) throws AuthorityRegistryException {
+                throw this.down();
+            }
+
+            @Override
             public TrustMarkGrant revoke(String type, String subject, String reason, String actor) throws AuthorityRegistryException {
                 throw this.down();
             }
