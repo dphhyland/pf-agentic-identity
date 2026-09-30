@@ -98,7 +98,8 @@
   `WWW-Authenticate: Bearer` - every error body in the RFC 7644 §3.12 schema as `application/scim+json`.
 - `mvn verify` of servlets/ssf (547 tests, the Postgres store contracts on a local Postgres 16 through
   `OIDF_TEST_JDBC_URL`, the 100% METHOD gate with the new methods added) passed on JDK 20, and with libs/conformance
-  (549 tests) on JDK 17.
+  (549 tests, none skipped) on JDK 17 and on JDK 21.0.12 (`maven:3-eclipse-temurin-21`, the Postgres suites against
+  the same database).
 - Normative text was read on 2026-09-30 from the published documents: SSF 1.0 final (29 August 2025) §7.1, §7.2.3,
   §8.1.1, §8.1.1.1, §8.1.1.3, §8.1.1.4 and Table 10; RFC 7644 §3.3, §3.4.2, §3.4.2.2, §3.4.2.4, §3.5.1 and §3.12;
   RFC 7643 §3.1, §4.1.1 and §8.7.1; RISC 1.0 final §2.3 and §2.4.

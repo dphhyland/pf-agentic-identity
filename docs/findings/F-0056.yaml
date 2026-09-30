@@ -5,7 +5,7 @@ area: ssf
 source: reviewer-report
 status: closed
 plan_items: [H-SSF-4]
-prs: []
+prs: [90]
 verification: >
   2026-09-30, branch prod/p3-ssf-streams-scim (package HSSF2): /ssf/scim/v2/Users answers GET by id and GET
   with filter, startIndex and count (a ListResponse; the RFC 7644 §3.4.2.2 subset written down in ScimFilter and the

@@ -4,7 +4,7 @@ area: ssf
 source: design
 status: open
 plan_items: [H-SSF-4]
-prs: []
+prs: [90]
 recorded_in: servlets/ssf/README.md, SCIM; ScimSubjectService
 verify_by: >
   Point PingFederate's outbound SCIM provisioning (or another SCIM 2.0 client) at /ssf/scim/v2/Users with a

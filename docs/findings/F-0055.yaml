@@ -5,7 +5,7 @@ area: ssf
 source: reviewer-report
 status: closed
 plan_items: [H-SSF-3]
-prs: []
+prs: [90]
 verification: >
   2026-09-30, branch prod/p3-ssf-streams-scim (package HSSF2): SSF 1.0 (final, 29 August 2025) §8.1.1's
   description, min_verification_interval and inactivity_timeout are stored by all three stores (JDBC columns added by
