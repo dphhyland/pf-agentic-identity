@@ -18,8 +18,17 @@ A PF SDK plugin: discovered via `PF-INF/custom-drivers` (one line, `…registry.
 built as `pf.plugins.instance-registry-datasource.jar` — without the `pf.plugins.` prefix PF ignores the jar
 silently — and loaded on PF's per-plugin isolated classloader. The package
 `com.pingidentity.ps.oidf.registry` is named in the descriptor, so it did not move in the split-package
-unwind. The PostgreSQL driver is `provided`: PF ships one on its own classpath, and bundling a second
-copy risks a `LinkageError`.
+unwind. libs/platform is shaded into the jar under `com.pingidentity.ps.oidf.registry.shaded.platform`, for the strict
+reads of the `instance-registry` settings catalogue, the deployment profile and `ProfileRefusals` (0.6.0);
+`ShadedJarCheck` holds the jar to it. `libs/device-instance` is not shaded in yet (X-A20), so it is deployed beside
+the jar.
+
+The PostgreSQL driver is `provided` and is **not** in PingFederate 13.1.3's image: no jar under `/opt` in the image
+this repository builds holds `org/postgresql/Driver.class` (checked 2026-09-30 on `pfai-p3-pr5/pingfederate:local`,
+built from `build/pingfederate/Dockerfile` on 13.1.3, which has H2 and HSQLDB in `server/default/lib` and no
+PostgreSQL driver). A PingFederate JDBC data store on PostgreSQL needs the driver in `server/default/lib` anyway,
+and the data store way (below) needs nothing more in this plugin; the development JDBC URL way needs the driver
+where this plugin's loader can see it.
 
 ## Classes
 
@@ -37,12 +46,18 @@ copy risks a `LinkageError`.
 
 ## PF admin console
 
-Data Stores → Custom → **Agent Instance Registry**. Two fields:
+Data Stores → Custom → **Agent Instance Registry**. Three fields, read strictly through the `instance-registry`
+settings catalogue ([docs/configuration/instance-registry.md](../../docs/configuration/instance-registry.md)):
 
 | Field | Meaning |
 |---|---|
-| `JDBC URL` | the Identity Object Model directory holding the registry — the **same** database `services/device-enrolment`'s `IDM_DATABASE_URL` and `proofing-directory` point at, e.g. `jdbc:postgresql://host:5432/railway`. A different database resolves every lookup to "unknown instance". |
-| `User verification max age (seconds)` | the window for `uv_fresh`; default 300. **Must match the enrolment service's `UV_MAX_AGE_SECONDS`**, or the two disagree about when an agent stops |
+| `PingFederate data store` | **the production way** (0.6.0, plan item PR-3): a PingFederate JDBC data store on the Identity Object Model directory holding the registry — the **same** database `services/device-enrolment`'s `IDM_DATABASE_URL` and `proofing-directory` point at — chosen from PingFederate's own list (the SDK's `JdbcDatastoreFieldDescriptor`). Its value is the data store's JNDI name, which PingFederate 13.1.3 sets to the data store's id (`JdbcDataSource.getJndiName()` returns `getId()`), and each connection comes from `DataSourceAccessor.getConnection(jndiName)`: PingFederate's pool and credentials, no URL or password in this driver's configuration. Under the production profile a data store whose database is not PostgreSQL is refused at the first lookup (`INSTANCE_REGISTRY`, one ERROR); under development it is a warning. It wins over the JDBC URL |
+| `JDBC URL` | **development only**: a `jdbc:postgresql:` URL of the same directory, credentials included. Under the production profile (`OIDF_DEPLOYMENT_PROFILE` unset or anything but `development`) the driver refuses it at `configure` - a plugin's fields are not seen by the start-up sweep - and answers every lookup with the refusal, which names `PingFederate data store` to use instead. A different database resolves every lookup to "unknown instance" |
+| `User verification max age (seconds)` | the window for `uv_fresh`; default 300. **Must match the enrolment service's `UV_MAX_AGE_SECONDS`**, or the two disagree about when an agent stops. Not a whole number: the driver configures nothing and every lookup fails, naming the field (before 0.6.0 it fell back to 300) |
+
+With neither a data store nor (under development) a URL, every lookup fails naming the data store field. A refused
+or unconfigured driver never returns values: `retrieveValues` throws `CustomDataSourceDriverException` and
+`testConnection` is false, so an issuance criterion on `instance_active` refuses the token.
 
 Filter field: `instance_id` — the instance identifier. That is the attestation's `agent_id` (pf-integration's
 `ClientAttestationUtils.attestationClaim(…, "agent_id")` reads it for a mapping), which is right in every mode:
