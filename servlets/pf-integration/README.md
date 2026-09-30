@@ -48,8 +48,8 @@ rules `filters.xml` declares hold (the table's order is not the mapping order):
 | Filter name | Class | Over | Does |
 |---|---|---|---|
 | `Fapi2Profile` | `…servlet.fapi2.Fapi2ProfileFilter` | `/as/par.oauth2`, `/as/token.oauth2`, `/as/introspect.oauth2`, `/as/revoke_token.oauth2`, `/as/bc-auth.ciba`, `/idp/userinfo.openid` | FAPI 2.0 for the clients `OIDF_FAPI2_CLIENTS` names (`*` for every client; unset, none): a client assertion's `aud` is this server's issuer as one string (§5.3.2.1), and a DPoP proof is signed with PS256, ES256 or EdDSA (§5.4.1). It can only refuse. Mapped first of this module's filters, so an assertion it refuses registers nobody, and it judges the client's own assertion before `ClientAttestationAuth` replaces it. See [the PingFederate audience switch](#the-pingfederate-audience-switch) below. |
-| `FapiResourceServer` | `…servlet.fapi1.FapiResourceServerFilter` | `/idp/userinfo.openid` | FAPI 1.0 Baseline §6.2.1 at UserInfo, the one resource PF serves itself: echoes a UUID `x-fapi-interaction-id` or mints one, and refuses an access token in the query. |
-| `OAuthErrorDescription` | `…servlet.oauth.OAuthErrorDescriptionFilter` | `/as/bc-auth.ciba`, `/as/token.oauth2`, `/as/par.oauth2` | Keeps a 4xx JSON `error_description` inside RFC 6749 §5.2's character set. It sees only what runs after it - PF's servlets and the filters mapped below it - so it is mapped before those and after `Fapi2Profile`, whose refusals are inside the set already. |
+| `FapiResourceServer` | `…servlet.fapi1.FapiResourceServerFilter` | `/idp/userinfo.openid` | FAPI 1.0 Baseline §6.2.1 (and FAPI 2.0 §5.3.4's query rule) at UserInfo, the one resource PF serves itself, for the clients `OIDF_FAPI2_CLIENTS` names (`*` for every client; unset, none): echoes a UUID `x-fapi-interaction-id` or mints one, and refuses an access token in the query - any `access_token` parameter, its name percent-decoded and in any case, repeated or not. The client is the `client_id` of a JWT access token, unverified, as `Fapi2Profile` reads it at UserInfo; a reference token names no client and is held to the rules only under `*`. A refusal is `fapi.request.refused`. See [The FAPI filters](#the-fapi-filters). |
+| `OAuthErrorDescription` | `…servlet.oauth.OAuthErrorDescriptionFilter` | `/as/bc-auth.ciba`, `/as/token.oauth2`, `/as/par.oauth2` | Keeps an error's JSON `error_description` inside RFC 6749 §5.2's character set. It holds a body only when the status is an error (400 or above) at its first byte; a token response goes straight through. A `sendError` or `reset` after a body was held drops what was held. It sees only what runs after it - PF's servlets and the filters mapped below it - so it is mapped before those and after `Fapi2Profile`, whose refusals are inside the set already. |
 | `ClientAttestationAuth` | `ClientAttestationAuthFilter` | `/as/token.oauth2`, `/as/par.oauth2`, `/as/bc-auth.ciba`, `/as/device_authz.oauth2`, `/as/introspect.oauth2`, `/as/revoke_token.oauth2`, `/as/authorization.oauth2` | `attest_jwt_client_auth` wherever PF authenticates a client: verifies `OAuth-Client-Attestation` (+`-PoP` addressed to the issuer alone, or a `DPoP` proof naming the URL PF advertises for the endpoint - see [Attestation audience and `htu`](#attestation-audience-and-htu)), holds the request's `authorization_details` to the attestation's and forwards the details it granted in place of the client's, at the token, PAR, CIBA and device endpoints ([below](#the-attestations-authorization_details)), publishes the verified context for the issuance criterion and the token attribute mapping, then forwards a wrapped request that authenticates to PF as native `private_key_jwt` - a `client_assertion` signed with **that client's own key**, whose public half is already in the client's registered JWKS, typed `client-authentication+jwt` and addressed to the issuer alone, as a string. Fail-closed on a bad attestation; **no attestation header = pass-through untouched**, so it can never widen access - except for a client with `attestation_required=true`, which is refused 401 at every endpoint where it authenticates. At introspection and revocation it authenticates and bridges only. At the authorization endpoint it verifies nothing and refuses, with an error page and never a redirect, `authorization_details` an attestation-required client sends there without PAR. Mapped after `Fapi2Profile`, `OidfAutoRegistration` and `OidfFrontChannelAutoRegistration` wherever they share a path (checked by the war assembler). Keys from `OIDF_BRIDGE_SIGNING_KEYS` + `OIDF_BRIDGE_SIGNER_BACKING`; **nothing configured = `ATTESTATION_AUTH` `FAILED_CONFIG`**: attestation traffic answers 503 and every other request goes on. Switched off (`OIDF_ATTESTATION_AUTH_ENABLED=false`), a request with an attestation answers 401 `invalid_client` and every other request goes on ([S-9's table](../../docs/operator/components.md#each-surfaces-rule)). |
 | `OidfAutoRegistration` | `TokenEndpointAutoRegistrationFilter` | `/as/token.oauth2` | §12.1 and §12.3, before PF authenticates the request. The client is the `client_assertion`'s `sub`, else `client_id`, else the `OAuth-Client-Attestation` header's `sub` - so an attested request that sends no `client_id` has its registration's expiry enforced like any other. None is verified here: the name only picks which registration is looked up, and `ClientAttestationAuth` (after this filter) refuses the request unless the attestation's verified `sub` is the same one. Because `ClientAttestationAuth` forwards an attested request as the attestation's `sub` whatever `client_assertion` it carried, that client's registration is checked as well when the request names another - a decoy assertion adds a lookup and never removes one. One PF doesn't know is registered from the chain in the assertion's `trust_chain` header (leaf must advertise `client_registration_types` ⊇ `automatic`), checked as it stands - nothing is fetched on a presented chain's say-so - and otherwise by discovery from the client's own configuration. An RP that publishes keys for `openid_relying_party` is registered with them. An `auto_registered` one is renewed in its last `OIDF_REGISTRATION_REFRESH_BEFORE_EXPIRY_SECONDS`, or at once when the request presents a newer entity configuration with other keys or metadata (§12.5 - how key rotation works); an older one is never used. Past its expiry it is renewed from the presented chain or by discovery, or refused: **401 `invalid_client`**, or **503 `temporarily_unavailable`** (with `Retry-After`) when the federation can't be reached or too many registrations are under way. An explicit registration is only ever renewed by its RP registering again. Clients this module didn't register are never touched. **Fail-closed** from 0.3.0 (`OIDF_AUTO_REGISTRATION_FAIL_CLOSED=false` restores 0.2.0's pass-through). Starts the expiry sweeper. |
 | `OidfFrontChannelAutoRegistration` | `FrontChannelAutoRegistrationFilter` | `/as/authorization.oauth2`, `/as/par.oauth2` | §12.1.1: an RP PF doesn't know sends its request with its Entity Identifier as `client_id` and proves it holds its keys - a signed request object, or at PAR a `private_key_jwt` assertion. The request object is held to §12.1.1.1 before anything is fetched (`aud` this OP alone, `iss` and `client_id` the RP, no `sub`, `jti`, `exp`); the RP's chain is resolved (its `trust_chain` header tried as it stands, else discovery); it is registered from its `openid_relying_party` metadata with the keys it publishes for that type (`jwks`, `signed_jwks_uri` or `jwks_uri`), once the proof verifies against them, and its `jti` is spent. An encrypted request object (or client assertion) cannot be verified here - it is encrypted to PingFederate - so under the production profile it registers nothing (400 `invalid_request_object`; register with a signed request object or at PAR), the first registration or a renewal; under development it registers with a warning. A current registration's encrypted request objects go on to PingFederate, which decrypts them and checks the signature inside. `request_object_signing_alg` is the RP's declared one, else the signed proof's, and only ever an asymmetric JWS algorithm - never a JWE `alg` such as `RSA-OAEP`; otherwise it is left unset and PingFederate's default applies. Registered with signed requests required (or PAR-only, if it proved itself at PAR), PKCE, its redirect URIs, and `code` / `openid` unless it declared otherwise. Every later request from it is held to the same: §12.1.1 says *every* authentication request demonstrates control of the RP's keys, so its proof is checked against §12.1.1.1 again, verified with the keys it is registered with (a `jwks_uri` is fetched at most once a minute) and its `jti` spent. A `request_uri` is never dereferenced here. Refusals: JSON at PAR, an error page - never a redirect - at the authorization endpoint (§12.1.3). Mapped after `Fapi2Profile` and `OAuthErrorDescription` (checked by the war assembler). |
@@ -95,17 +95,54 @@ has the gate), and forwards to PingFederate **the details it granted, never the 
   `invalid_request` with the error page (`OIDF_FEDERATION_ERROR_PAGE`, else the built-in one) - never a redirect. A
   client manager that cannot answer is 503 on the same page. A request with none, and every request from any other
   client, passes.
-- A refusal is 400 `invalid_authorization_details` (0.3.0 answered 401 `access_denied`), with a fixed description:
-  `authorization_details is malformed`, `... exceeds a size limit`, `... carries a field its type does not define`,
-  `... names a type this server does not support`, or `authorization_details exceeds what the client attestation
-  allows` (for a request object, `the request object's authorization_details is not one this server accepts` for
-  the first four). Attestation details the model cannot evaluate - a type this server has no model for, say - are 401
-  `invalid_client`, `the client attestation's authorization_details cannot be evaluated by this server`. The log
-  line names the detail and the field; neither response carries a value.
+- A refusal is 400 `invalid_authorization_details` (0.3.0 answered 401 `access_denied`). Attestation details the
+  model cannot evaluate - a type this server has no model for, say - are 401 `invalid_client`. Like every refusal to a
+  caller that has not authenticated, the description is the code's fixed text and a reference
+  ([Errors](#errors-to-callers-that-have-not-authenticated)); the log line with the same reference names the reason
+  (`authorization_details is malformed`, `... exceeds a size limit`, `... carries a field its type does not define`,
+  `... names a type this server does not support`, `authorization_details exceeds what the client attestation
+  allows`, `the client attestation's authorization_details cannot be evaluated by this server`) and the field; no
+  response carries a value.
 - The model set is loaded once per classloader from `OIDF_RAR_MODELS_FILE` or `OIDF_RAR_MODELS`, and its
   fingerprint (lower-case hex SHA-256) is logged once and published in the attestation context as
   `rar_models_fingerprint`, which the RAR plugin compares with its own from plan item S1c. A document that cannot be read stops the
   filter starting; the criterion then refuses every attested token.
+
+### Errors to callers that have not authenticated
+
+Plan item H-FED-4 (finding F-0046). Every refusal this module writes to a caller that has not authenticated - the
+token, PAR, CIBA, device, introspection and revocation endpoints before the client is verified (the attestation,
+registration and FAPI filters), the authorization endpoint's error page, `/federation/register`, and the federation
+endpoints - carries two things: the error code's fixed description (`PublicErrors`, one per code; `Client
+authentication failed` for `invalid_client`, for example) and a correlation id, as
+`"error_description": "Client authentication failed (reference oidf-1a2b3c4d)"`, and `${trackingId}` on the error
+page. The detail - a trust chain's messages, a claim the attestation carried, the URL the request named, what to
+configure - is on one `server.log` line that carries the same reference:
+
+```
+INFO [com.pingidentity.ps.oidf.servlet.oauth.PublicErrors] OAuth endpoint filter refused a request: ref=oidf-1a2b3c4d status=401 error=invalid_client detail="..."
+```
+
+The reference is PingFederate's tracking id when the request thread has one, else a generated `oidf-<8 hex>`. On
+PingFederate 13.1.3 (rig, 2026-10-01) the tracking id is not yet on the thread when this module's filters over
+`/as/token.oauth2` and `/idp/userinfo.openid` run, so a refusal there carries a generated reference. An operator
+authenticated by `OperatorAuthenticator` (`/federation/admin`, the hosted-entity administration) keeps the detail,
+except for a server error. The RFC 6749 §5.2 description is optional ("error_description OPTIONAL. Human-readable
+ASCII [USASCII] text providing additional information, used to assist the client developer in understanding the
+error that occurred."), so the codes, statuses and headers are unchanged; only the text is.
+
+### The FAPI filters
+
+Plan item H-FED-6 (finding F-0048). Both FAPI filters hold the clients `OIDF_FAPI2_CLIENTS` names and nobody else:
+`Fapi2Profile` at the token endpoint and its neighbours, and `FapiResourceServer` at UserInfo. One list, because FAPI
+2.0 Security Profile (final) §5.3.4 has FAPI 1.0 Baseline §6.2.1's rule that resource servers with the FAPI endpoints
+"shall not accept access tokens in the query parameters stated in Section 2.3 of OAuth 2.0 Bearer Token Usage", and a
+second list would be a second place to leave a FAPI client out. Until 0.6.0 `FapiResourceServer` refused a query token
+and set `x-fapi-interaction-id` for every client, and read the query as written, so `access%5Ftoken=` or
+`Access_Token=` passed. Each refusal of either filter is `fapi.request.refused` in the `fapi` event catalogue - the
+filter, the rule (`repeated_client_assertion`, `unreadable_client_assertion`, `client_assertion_audience`,
+`unreadable_dpop_proof`, `dpop_algorithm`, `access_token_in_query`), the client as its subject and the endpoint -
+written to `server.log` and PingFederate's audit log (protocol `FAPI`) and counted in `oidf_events_total`.
 
 ### The PingFederate audience switch
 

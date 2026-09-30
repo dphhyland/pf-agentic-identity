@@ -231,13 +231,13 @@ OIDF_FAPI2_CLIENTS=conformance-fapi2-client1,conformance-fapi2-client2
 ALLOWED_ALGORITHMS =
   Set.of("PS256", "ES256", "EdDSA");</code></pre>
   </div>
-  <p>Two smaller filters sit beside it: one meets FAPI 1.0 Baseline at the UserInfo endpoint, echoing an
-  <code>x-fapi-interaction-id</code> and refusing an access token in the query string; the other keeps a 4xx
-  <code>error_description</code> inside the character set RFC 6749 allows, which PingFederate's own message breaks
+  <p>Two smaller filters sit beside it: one meets FAPI 1.0 Baseline at the UserInfo endpoint for the same listed
+  clients, echoing an <code>x-fapi-interaction-id</code> and refusing an access token in the query string; the other
+  keeps an error's <code>error_description</code> inside the character set RFC 6749 allows, which PingFederate's own message breaks
   by quoting a Java date. None of the three is registered by an annotation: the image build maps them over
   PingFederate's endpoints when it assembles the runtime.</p>
   <a class="src" href="../conformance/README.md" data-lines="123-132">conformance/README.md:123-132</a>
-  <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/fapi2/Fapi2ProfileFilter.java" data-lines="40-65">Fapi2ProfileFilter.java:40-65</a>
+  <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/fapi2/Fapi2ProfileFilter.java" data-lines="38-63">Fapi2ProfileFilter.java:38-63</a>
   <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/fapi2/Fapi2RequestPolicy.java" data-lines="31-110">Fapi2RequestPolicy.java:31-110</a>
   <a class="src" href="../servlets/pf-integration/README.md" data-lines="45-49">servlets/pf-integration/README.md:45-49</a>
   <a class="src" href="../conformance/vars.env" data-lines="62-73">conformance/vars.env:62-73</a>

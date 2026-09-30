@@ -10,4 +10,4 @@ Under the production profile a violation by one of these settings refuses `FAPI`
 
 | Setting | Default | What it does | When it's wrong | Profile | Security |
 |---|---|---|---|---|---|
-| `OIDF_FAPI2_CLIENTS` (init-param `clients`, then system property `oidf.fapi2.clients`, then env `OIDF_FAPI2_CLIENTS`) | Unset; a list | The clients the FAPI 2.0 filter holds to issuer-only assertion audiences and PS256, ES256 or EdDSA DPoP proofs, space- or comma-separated; * is every client | **Doesn't start**: A list of nothing (a comma alone): FAPI does not start. An id that names no client holds nobody | Any | Yes |
+| `OIDF_FAPI2_CLIENTS` (init-param `clients`, then system property `oidf.fapi2.clients`, then env `OIDF_FAPI2_CLIENTS`) | Unset; a list | The FAPI clients, space- or comma-separated; * is every client. The FAPI 2.0 filter holds them to issuer-only assertion audiences and PS256, ES256 or EdDSA DPoP proofs, and at UserInfo the resource-server filter sets x-fapi-interaction-id for them and refuses their access tokens in the query | **Doesn't start**: A list of nothing (a comma alone): FAPI does not start. An id that names no client holds nobody | Any | Yes |

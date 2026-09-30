@@ -1,0 +1,21 @@
+id: F-0395
+title: A refusal's reference is never PingFederate's tracking id, so it joins our log line but not PingFederate's
+severity: low
+area: pf-integration
+source: design
+status: open
+plan_items: [H-FED-4, O-6]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  H-FED-4 asks for PingFederate's tracking id as a refusal's correlation id where it reaches our code. On the rig
+  (PingFederate 13.1.3, 2026-10-01) it reaches none of the sites that answer callers that have not authenticated:
+  server.log lines written by Fapi2ProfileFilter, FapiResourceServerFilter, FederationErrors (the federation
+  endpoints and /federation/register) and PublicErrors (PAR and the authorization endpoint) carry no tid, while a line
+  written from an OGNL issuance criterion inside the token endpoint does. PingFederate's HttpRequestIdFilter, mapped at
+  /* before ours, puts httprequestid on the thread; the trackingid is set later, by PingFederate's own endpoint code
+  (its TrackingIdSupport callers). So every reference HFEDE issues is a generated oidf-<8 hex>: an operator finds our
+  detail line by it, but not PingFederate's own lines for the request. O-6 (Phase 4, trackingid and traceparent
+  correlation) is where to decide whether to log httprequestid, which PingFederate's default patterns do not print,
+  or to set a tracking id ourselves. Found while building HFEDE, 2026-10-01.

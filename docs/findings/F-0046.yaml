@@ -3,13 +3,32 @@ title: Federation errors leak detail to unauthenticated callers
 severity: medium
 area: pf-integration, openid-federation
 source: reviewer-report
-status: open
+status: closed
 plan_items: [H-FED-4]
 prs: []
-verification: ''
+verification: >
+  2026-10-01, on prod/p3-federation-errors (HFEDE): every refusal this module writes to a caller that has not
+  authenticated goes through OAuthErrorWriter, FederationErrorPage or FederationErrors.write, which answer the error
+  code's fixed description (PublicErrors.generic) and a correlation id, and log the detail on a server.log line that
+  carries the same id. ClientAttestationAuthFilter.reject, Fapi2ProfileFilter's and FapiResourceServerFilter's
+  refusals, the registration filters, /federation/register, the federation endpoints and HostedEntityServlet's public
+  GET all use them; an operator's responses (FederationAdminServlet, through FederationErrors.writeToOperator) keep the
+  detail. Marker tests, each named aHostileMarkerNeverReachesTheResponse (ClientAttestationAuthFilterTest,
+  TokenEndpointAutoRegistrationFilterTest, FrontChannelAutoRegistrationFilterTest, OpenIdRegistrationServletTest,
+  OpenIdFederationServletTest, Fapi2ProfileFilterTest, FapiResourceServerFilterTest) and
+  FederationErrorsTest.aHostileMarkerNeverReachesAnUnauthenticatedCaller, send a random marker in a client id, a proof's
+  audience, a header, a content type, a query parameter and an exception message, and assert it is in no response body;
+  OAuthErrorWriterTest and FederationErrorsTest hold the reference in the body equal to the one on the log line. On the
+  rig (PingFederate 13.1.3, federation profile) nine hostile requests to /federation/fetch, /resolve, /list,
+  /register, PAR, the token and the authorization endpoints carried a marker and no response did; the seven this
+  module answered each carried a reference, and the server.log line with that reference held the detail.
 target_release: 0.6.0
 notes: >
   From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
   register's rule for these items. ClientAttestationAuthFilter.java:309-313, RegistrationService.java:977-982
   and TrustChainValidator.java:268-269,952-953 (f95b522) put internal detail in error text. H-FED-4: generic
   text for unauthenticated callers, plus a correlation id.
+  Closed by HFEDE (H-FED-4), 2026-10-01. The texts the plan cited at f95b522 - ClientAttestationAuthFilter's attester
+  binding advice, RegistrationService's metadata_policy advice and TrustChainValidator's route and budget messages -
+  are kept: they are now server.log detail under a reference, never a response. The correlation id could not be
+  PingFederate's tracking id at any of the sites (F-0395).

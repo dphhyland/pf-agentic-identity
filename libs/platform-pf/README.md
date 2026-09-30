@@ -67,10 +67,15 @@ The record's columns: `event` (the code), `status`, `subject` (the event's subje
 `PfRequestScope`), the request `jti` and a description carrying the reason and fields. `protocol` is per component, from
 its catalogue's `auditProtocol`: `OpenID Federation` for `federation`, `Client Attestation` for
 `attestation-issuer`, and `DEFAULT_PROTOCOL` (`OpenID Federation`) for a component with no catalogue. The writer
-calls `LoggingUtil.init`, the setters, `log` and, in a `finally`, `cleanup`, in the order `PfAuditEventSink` did,
-and puts `protocol` in the log4j `ThreadContext` under the key PingFederate's own AuditLogger uses, never through
-`LoggingUtil.setProtocol`, which on 13.0 and 13.1 writes the `ip` column. Whether `cleanup` also strips
-PingFederate's own audit context is finding [F-0049](../../docs/findings/F-0049.yaml) (H-FED-7, Phase 3).
+calls `LoggingUtil.init`, the setters and `log`, and puts `protocol` in the log4j `ThreadContext` under the key
+PingFederate's own AuditLogger uses, never through `LoggingUtil.setProtocol`, which on 13.0 and 13.1 writes the `ip`
+column. It never calls `LoggingUtil.cleanup` (H-FED-7, finding [F-0049](../../docs/findings/F-0049.yaml)): on 13.1.3
+`cleanup` removes every audit column on the thread, and a record written in the middle of one of PingFederate's own
+requests (an OGNL issuance criterion at the token endpoint) emptied the columns of PingFederate's own line for that
+request - its event, subject, ip, client, protocol and host (rig, 2026-10-01). The writer copies the whole
+`ThreadContext` first, starts the record from the request's correlation keys alone (`trackingid`, `transactionid`,
+`httprequestid`), and in a `finally` puts back exactly what was there. `LoggingUtilAuditWriterTest` pins it through the
+SDK's `LoggingUtil`.
 
 `OIDF_EVENTS_AUDIT` (system property `oidf.events.audit` first) and `OIDF_EVENTS_MAX_VALUE_LENGTH` keep their names
 and meanings: audit is on unless the value is `false`, and a value that is neither `true` nor `false` leaves it on

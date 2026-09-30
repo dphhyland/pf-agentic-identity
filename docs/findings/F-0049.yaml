@@ -3,12 +3,27 @@ title: 'LoggingUtil.cleanup() may strip PingFederate''s own audit context'
 severity: medium
 area: pf-integration
 source: reviewer-report
-status: open
+status: closed
 plan_items: [H-FED-7]
 prs: []
-verification: ''
+verification: >
+  2026-10-01, on the rig (PingFederate 13.1.3, pfai-p3-hfede), a client-credentials token request with an OGNL
+  issuance criterion on the access-token mapping that wrote one of our events through PfAuditSink.loggingUtil()
+  mid-request. At origin/main 6815222e the ThreadContext after our write held only httprequestid, trackingid,
+  transactionid and inmsgmap, and PingFederate's own success line for the request had empty event, subject, ip,
+  connectionid, protocol and host columns and a response time of 0 (the inprogress line before it was complete). On
+  prod/p3-federation-errors the same request's success line carried event OAuth, subject and connectionid
+  conformance-ssf-emitter, ip, protocol OAuth20, host, role AS and its response time. javap on pf-protocolengine
+  13.1.3.0: AuditLogger.cleanup removes every key of AuditLogger.MDC_KEY (56 audit columns) and calls
+  TrackedParamsAuditLogger.cleanup. LoggingUtilAuditWriter now copies the ThreadContext, starts the record from
+  trackingid, transactionid and httprequestid alone, and in a finally puts back exactly what was there; it never calls
+  cleanup. LoggingUtilAuditWriterTest pins it through the SDK's LoggingUtil
+  (pingFederatesOwnAuditContextIsExactlyAsItWasAfterOurRecord, theSdksCleanupIsWhatStrippedIt,
+  aRecordThatFailsToWriteStillPutsTheContextBack).
 target_release: 0.6.0
 notes: >
   From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
   register's rule for these items. PfAuditEventSink.java:154-156 (f95b522). To verify on the rig whether
   cleanup() strips PingFederate's own audit context; if it does, save and restore it around the sink's write.
+  Closed by HFEDE (H-FED-7), 2026-10-01: the premise held - cleanup does strip PingFederate's own audit context. Our
+  record no longer inherits PingFederate's columns either: before, it carried the request's connectionid and role.
