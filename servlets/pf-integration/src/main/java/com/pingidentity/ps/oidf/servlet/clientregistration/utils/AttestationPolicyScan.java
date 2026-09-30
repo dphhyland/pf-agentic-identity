@@ -41,8 +41,8 @@ public final class AttestationPolicyScan {
     public static final String PART = "AttestationPolicyScan";
     /** How often the scan runs again. */
     public static final Duration INTERVAL = Duration.ofMinutes(10);
-    /** How many client ids the health detail names before it counts the rest. */
-    static final int NAMED = 20;
+    /** The longest health detail: the registry's, beyond which it cuts. */
+    static final int DETAIL = com.pingidentity.ps.oidf.platform.component.ComponentRegistry.MAX_REASON;
 
     private static final Object LOCK = new Object();
     private static final AtomicInteger STARTS = new AtomicInteger();
@@ -101,9 +101,7 @@ public final class AttestationPolicyScan {
                     resolver.parse(id, AttestationPolicyResolver.properties(client)).apply(global, Set.of());
                 } catch (AttestationPolicyException e) {
                     bad.add(id);
-                    if (named.size() < NAMED) {
-                        named.add(id + " (" + e.property() + ")");
-                    }
+                    named.add(id + " (" + e.property() + ")");
                     if (!before.contains(id)) {
                         LOGGER.warn((Object) ("attestation policy: " + e.getMessage() + "; the client is refused (401 invalid_client)"));
                         AttestationEvents.policyInvalid(AttestationEvents.SCAN, e);
@@ -114,9 +112,7 @@ public final class AttestationPolicyScan {
             if (bad.isEmpty()) {
                 part.ready();
             } else {
-                part.degraded(bad.size() + " client(s) have attestation properties that are refused, and are answered 401"
-                        + " invalid_client until they are fixed: " + String.join(", ", named)
-                        + (bad.size() > named.size() ? " and " + (bad.size() - named.size()) + " more" : ""));
+                part.degraded(AttestationPolicyScan.detail(named));
             }
             return bad;
         } catch (Exception | LinkageError e) {
@@ -124,6 +120,29 @@ public final class AttestationPolicyScan {
                     + e.getClass().getSimpleName() + ")");
             return null;
         }
+    }
+
+    /**
+     * The health detail for the refused clients {@code named} ("id (property)"): as many as fit in {@link #DETAIL}
+     * characters, then how many more. The log names every one when it is first found.
+     */
+    static String detail(List<String> named) {
+        StringBuilder text = new StringBuilder(named.size() + " client(s) with refused attestation properties, answered 401 invalid_client: ");
+        int shown = 0;
+        for (String one : named) {
+            String more = " and " + (named.size() - shown - 1) + " more";
+            String next = (shown == 0 ? "" : ", ") + one;
+            boolean last = shown == named.size() - 1;
+            if (text.length() + next.length() + (last ? 0 : more.length()) > DETAIL) {
+                break;
+            }
+            text.append(next);
+            shown++;
+        }
+        if (shown < named.size()) {
+            text.append(shown == 0 ? "" : " and ").append(named.size() - shown).append(shown == 0 ? " not named here (see the log)" : " more");
+        }
+        return text.toString();
     }
 
     /** Tests only: stop this copy's scan and forget what it found. */
