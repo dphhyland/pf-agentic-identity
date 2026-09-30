@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.BiPredicate;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -13,7 +14,11 @@ import org.apache.commons.logging.LogFactory;
  * Thread-safe, optionally size-bounded cache of subordinate/entity statements keyed by
  * authority issuer and subject. Entries carry {@code exp}/{@code iat} so reads can evict on
  * expiry-buffer or max-age, and an access-ordered LRU eviction bounds the size. {@link PendingWrites}
- * lets a caller stage writes during a chain walk and commit or discard them atomically.
+ * lets a caller stage writes during a chain walk and commit or discard them atomically - or commit only
+ * those of the route that validated ({@link PendingWrites#commitOnly}).
+ *
+ * <p>Both parts of a key are compared as {@link EntityId#comparable} forms, so {@code https://a.example/} and
+ * {@code https://a.example} are one entry, however a caller spelled them (plan item H-FED-8).
  */
 public final class SubordinateStatementCache {
     private static final Log LOGGER = LogFactory.getLog(SubordinateStatementCache.class);
@@ -145,8 +150,8 @@ public final class SubordinateStatementCache {
         private final String subject;
 
         private Key(String authorityIssuer, String subject) {
-            this.authorityIssuer = Objects.requireNonNull(authorityIssuer, "authorityIssuer");
-            this.subject = Objects.requireNonNull(subject, "subject");
+            this.authorityIssuer = EntityId.comparable(Objects.requireNonNull(authorityIssuer, "authorityIssuer"));
+            this.subject = EntityId.comparable(Objects.requireNonNull(subject, "subject"));
         }
 
         public boolean equals(Object o) {
@@ -197,11 +202,22 @@ public final class SubordinateStatementCache {
         public String find(String authorityIssuer, String subject) {
             for (int i = this.writes.size() - 1; i >= 0; i--) {
                 BufferedWrite w = this.writes.get(i);
-                if (w.authorityIssuer.equals(authorityIssuer) && w.subject.equals(subject)) {
+                if (EntityId.same(w.authorityIssuer, authorityIssuer) && EntityId.same(w.subject, subject)) {
                     return w.jwt;
                 }
             }
             return null;
+        }
+
+        /**
+         * Commits only the staged statements whose issuer and subject {@code onRoute} accepts - those of the route that
+         * validated - and drops the rest: a statement fetched on a route the search abandoned was never validated, and
+         * must not answer a later resolution from the cache (plan item H-FED-8).
+         */
+        public void commitOnly(BiPredicate<String, String> onRoute) {
+            Objects.requireNonNull(onRoute, "onRoute");
+            this.writes.removeIf(w -> !onRoute.test(w.authorityIssuer, w.subject));
+            this.commit();
         }
 
         public void commit() {

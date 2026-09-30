@@ -60,6 +60,13 @@ class TrustChainValidatorPolicyTest {
     private static TrustChainValidationResult validateWithAnchorPolicy(PublicJsonWebKey leafKey,
             PublicJsonWebKey anchorKey, Map<String, Object> leafOauthClient,
             Map<String, Object> anchorPolicyForOauthClient) throws Exception {
+        return validateWithAnchorPolicy(leafKey, anchorKey, anchorKey, leafOauthClient, anchorPolicyForOauthClient);
+    }
+
+    /** As above, the anchor's Subordinate Statement signed with {@code subordinateSigner}. */
+    private static TrustChainValidationResult validateWithAnchorPolicy(PublicJsonWebKey leafKey,
+            PublicJsonWebKey anchorKey, PublicJsonWebKey subordinateSigner, Map<String, Object> leafOauthClient,
+            Map<String, Object> anchorPolicyForOauthClient) throws Exception {
         String leafConfig = entityStatement(leafKey, LEAF, LEAF, Map.of(
                 "jwks", jwks(leafKey),
                 "authority_hints", List.of(ANCHOR),
@@ -71,7 +78,7 @@ class TrustChainValidatorPolicyTest {
         if (!anchorPolicyForOauthClient.isEmpty()) {
             subordinateClaims.put("metadata_policy", Map.of("oauth_client", anchorPolicyForOauthClient));
         }
-        String subordinate = entityStatement(anchorKey, ANCHOR, LEAF, subordinateClaims);
+        String subordinate = entityStatement(subordinateSigner, ANCHOR, LEAF, subordinateClaims);
 
         Map<String, String> responses = new HashMap<>();
         responses.put(LEAF + "/.well-known/openid-federation", leafConfig);
@@ -155,5 +162,38 @@ class TrustChainValidatorPolicyTest {
         assertEquals(FederationError.INVALID_METADATA, e.error(), "§8.9: a policy conflict is invalid_metadata");
         assertTrue(e.getCause() instanceof MetadataPolicy.PolicyException, String.valueOf(e.getCause()));
         assertTrue(e.getMessage().contains("token_endpoint_auth_method"), e.getMessage());
+    }
+
+    /** A policy whose operators do not parse, in a statement whose signature verifies, fails the chain as a policy. */
+    @Test
+    @Requirement({"OIDFED §3.2(2.17)", "OIDFED §6.1.4(2)", "OIDFED §10.2(6)"})
+    void aPolicyThatDoesNotParseFailsTheChainOnceItsStatementHasVerified() throws Exception {
+        PublicJsonWebKey leafKey = ec("leaf-1");
+        PublicJsonWebKey anchorKey = ec("anchor-1");
+
+        TrustChainValidationException e = assertThrows(TrustChainValidationException.class, () -> validateWithAnchorPolicy(leafKey,
+                anchorKey, Map.of("client_name", "Payment Agent"), Map.of("client_name", Map.of("essential", "yes"))));
+
+        assertEquals(TrustChainValidationException.Kind.POLICY, e.kind());
+        assertEquals(ANCHOR, e.issuer());
+        assertEquals(FederationError.INVALID_METADATA, e.error());
+    }
+
+    /**
+     * H-FED-8: the same policy in a statement whose signature does not verify is never read. The chain is refused for the
+     * signature - which the policy, parsed first, used to pre-empt - and nothing the unverified statement says is acted on.
+     */
+    @Test
+    @Requirement({"OIDFED §3.2(1)", "OIDFED §10.2(3.5)", "OIDFED §10.2(6)"})
+    void aPolicyInAStatementWhoseSignatureFailsIsNeverParsed() throws Exception {
+        PublicJsonWebKey leafKey = ec("leaf-1");
+        PublicJsonWebKey anchorKey = ec("anchor-1");
+        PublicJsonWebKey impostor = ec("anchor-1");
+
+        TrustChainValidationException e = assertThrows(TrustChainValidationException.class, () -> validateWithAnchorPolicy(leafKey,
+                anchorKey, impostor, Map.of("client_name", "Payment Agent"), Map.of("client_name", Map.of("essential", "yes"))));
+
+        assertEquals(TrustChainValidationException.Kind.SIGNATURE, e.kind(), e.getMessage());
+        assertEquals(FederationError.INVALID_TRUST_CHAIN, e.error());
     }
 }

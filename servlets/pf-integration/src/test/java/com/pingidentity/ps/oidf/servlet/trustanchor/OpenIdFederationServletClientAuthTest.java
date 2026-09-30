@@ -22,14 +22,10 @@ import com.pingidentity.ps.oidf.pf.testkit.AuditCapture;
 import com.pingidentity.ps.oidf.trustmark.InMemoryTrustMarkRegistry;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkType;
-import jakarta.servlet.ServletConfig;
-import jakarta.servlet.ServletContext;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.util.Collections;
-import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -62,27 +58,9 @@ class OpenIdFederationServletClientAuthTest {
 
     private OpenIdFederationServlet servlet(String endpointAuth) {
         Map<String, String> params = Map.of("trustAnchorIssuers", PF, "resolveDiscovery", "any");
-        FederationConfiguration configuration = FederationConfiguration.fromServletConfig(new ServletConfig() {
-            @Override
-            public String getServletName() {
-                return "federation";
-            }
-
-            @Override
-            public ServletContext getServletContext() {
-                return null;
-            }
-
-            @Override
-            public String getInitParameter(String name) {
-                return params.get(name);
-            }
-
-            @Override
-            public Enumeration<String> getInitParameterNames() {
-                return Collections.enumeration(params.keySet());
-            }
-        });
+        // resolveDiscovery=any is the resolve-any accepted risk: set by init-param it is read under development here.
+        FederationConfiguration configuration = FederationConfiguration.from(com.pingidentity.ps.oidf.platform.settings.Sources.of(
+                Map.of("OIDF_DEPLOYMENT_PROFILE", "development")::get, name -> null, params::get));
         FederationService service = FederationService.builder(configuration, Keys.signingKeys(PF_KEY))
                 .hostedSubordinateLookup(sub -> HOSTED.equals(sub) ? Map.of("jwks", Keys.publicJwks(HOSTED_KEY)) : null)
                 .hosting(() -> true)

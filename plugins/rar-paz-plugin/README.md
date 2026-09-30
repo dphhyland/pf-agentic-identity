@@ -35,8 +35,8 @@ have, so it does not link there. The last build for 13.0.x is v0.1.5.
 | Path | What |
 |---|---|
 | [`src/`](src) · [`pom.xml`](pom.xml) | the plugin (`com.pingidentity.ps.oidf.rar`) + tests; `PF-INF` marker; shaded jackson and [`libs/rar-model`](../../libs/rar-model/README.md) |
-| [`paz/`](paz) | PingAuthorize Trust Framework + policy-authoring scripts (PAP REST API) — **author-local** compose, see its README |
-| [`probe-decision.sh`](probe-decision.sh) | POSTs the plugin's exact governance-engine request shape to a PDP |
+| [`paz/`](paz) | reference PingAuthorize policies for the three built-in types (`paz/policies`), the script that authors them, their decision tests and a Policy Editor compose file; see its README |
+| [`probe-decision.sh`](probe-decision.sh) | POSTs the plugin's exact governance-engine request shape to a PDP; the secret from `PAZ_PDP_SECRET` or `PAZ_PDP_SECRET_FILE`, no default; the PDP's certificate verified (its CA in `PAZ_CA_FILE`), unverified only on `localhost` |
 | [`../../conformance/verify-rar-principal.sh`](../../conformance/verify-rar-principal.sh) | boots the rig with this jar and drives every flow at a stub PDP; the evidence below |
 | [`.claude/skills/pf-rar-paz-plugin/`](.claude/skills/pf-rar-paz-plugin) | build/deploy/configure knowledge as a reusable skill |
 
@@ -56,6 +56,21 @@ The PF SDK and servlet API are `provided`. HTTP is libs/platform's `OutboundHttp
 `java.net.http` before), shaded with platform under `com.pingidentity.ps.oidf.rar.shaded.platform`, and platform
 carries its own relocated HttpCore, so the jar holds no `org/apache/hc/` class (`ShadedJarCheck`). The package
 name is in the descriptor, so it was left alone by the split-package unwind that renamed the libraries.
+
+**What the jar carries** (0.6.0, counted 2026-09-30): the plugin's own classes (50 under
+`com.pingidentity.ps.oidf.rar`, and `au.idp.rar.FedRar`, the short plugin id), and three libraries, each relocated
+under `com.pingidentity.ps.oidf.rar.shaded`: Jackson (`jackson-core`, `-databind`, `-annotations`; 1,100 classes, as
+`.shaded.jackson`), `libs/rar-model` (15, `.shaded.rarmodel`) and `libs/platform` (190, `.shaded.platform`, with the
+165 classes of the HttpCore it carries relocated inside it, `.shaded.platform.http.internal.hc5`). Resources: the
+`PF-INF` marker, the catalogues of this plugin and of the bundled libraries (`META-INF/oidf-settings`,
+`META-INF/oidf-events`, the two event indexes appended into one so the relocated platform reads both), Jackson's two
+service files renamed and rewritten to the relocated classes, and the libraries' `LICENSE`, `NOTICE` (merged) and
+third-party notices. Nothing else: no Maven descriptor of a bundled artefact, and none of Jackson's multi-release
+classes (`META-INF/versions`), which sat under their unrelocated names in a jar whose manifest is not
+`Multi-Release`, so no JVM loaded them. `ShadedJarCheck` holds the jar to exactly that - every class the plugin's or
+under one of the three relocated packages, no class naming `com/fasterxml/` or another package of this repository,
+each service file relocated, no resource twice - and `tools/pf-linkcheck.py` against PingFederate 13.1.3's jars
+finds nothing unresolved in it (1,520 own classes, 2026-09-30).
 
 ## Architecture
 
@@ -248,7 +263,8 @@ PingFederate 13.1.3 passes, read with `javap` from `pf-protocolengine` (the call
 Two names are the caller's own: the `login_hint` request parameter and the `_principal_sub` marker a
 front-end folds into `authorization_details`. They are used only when the resolution above found nobody,
 "Trust a client-asserted principal" is on, AND `OIDF_DEPLOYMENT_PROFILE=development` - labelled
-`client_asserted`, and gone at 1.0 (plan decision 9). In production the switch is inert and configure says so.
+`client_asserted`, and gone at 1.0 (plan decision 9). In production the switch is refused, on save and at configure
+(below).
 `_principal_sub` is stripped from the detail on every path. The request attribute
 `com.pingidentity.ps.oidf.rar.resource_owner_sub` is no longer read.
 
@@ -350,8 +366,18 @@ platform's `OutboundHttp` ([libs/platform#http](../../libs/platform/README.md#ht
 `half_open`). No label carries a principal, a client or a detail value. The plugin shades platform, so they are in
 the plugin's own registry, not the webapp's: in a JMX console, the MBean
 `com.pingidentity.ps.oidf:type=Metrics,copy="com.pingidentity.ps.oidf.rar.shaded.platform.metrics from <the jar's
-location>"`, attribute `Samples`. The plugin emits no events yet; the `rar.decision.*` family arrives with the
-plugin's GUI package (Phase 3, PLG).
+location>"`, attribute `Samples`. `oidf_rar_context_dropped_total{form}` counts the AuthZEN context members dropped
+because the allow-list does not name them (below), `form` `member` or `statement`.
+
+**Events.** From 0.6.0 `enrich`'s decision step emits one event per detail it decides, catalogued in
+[`META-INF/oidf-events/rar.json`](src/main/resources/META-INF/oidf-events/rar.json): `rar.decision.permitted`,
+`rar.decision.denied` (the reason is the class: `pdp_deny`, `pdp_widened`, `pdp_unreachable` or `pdp_failed`) and
+`rar.decision.failopen`, each with the `type`, the `principal_source`, the `principal` hashed as the log lines hash it
+(`sha256:` and sixteen hex characters) and the `client_id`; never a detail value, a PDP message or a secret. A refusal
+before any PDP call (the model's, a missing principal) is not a decision and emits none. They go through the plugin's
+own relocated copy of `platform.events`, which has no audit sink (platform-pf is not in the jar), so they reach
+`server.log` under the logger `com.pingidentity.ps.oidf.rar.event` and are not audit events; each is counted in the
+same relocated registry as the metrics above, `oidf_events_total{code, outcome}` in the plugin's own MBean.
 
 The switch that turned deny-unless-PERMIT off ("Deny unless PERMIT") is gone; the decision is always
 deny-unless-PERMIT. A value stored under the old name is carried by PingFederate and never read: 13.1.3
@@ -359,7 +385,12 @@ hands an instance with no parent its stored configuration as it is (`Configurati
 and the admin API's `PluginConfigTranslator` raises no error for an undeclared field - both read with `javap`,
 2026-09-27. On the rig the same day, an archive exported under 0.3.0 (the instance held the field, `true`)
 imported under this jar, the instance on disk still held it beside the declared fields, the plugin configured
-and decided, and saving the instance again dropped it.
+and decided, and saving the instance again dropped it. From 0.6.0 the settings catalogue lists it as a removed plugin
+field (release 0.4.0, nothing replaces it), so the settings scan and the generated
+[configuration page](../../docs/configuration/rar-pdp-processor.md) show it; the plugin still ignores a stored value
+rather than refusing it, so a 0.3.0 archive still imports and decides. The generated page's sentence that a removed
+name is refused is the generator's for every catalogue and is wrong for this one field
+([F-0375](../../docs/findings/F-0375.yaml)).
 
 ## Reserved attribute names (governance-engine dialect)
 
@@ -407,7 +438,7 @@ fail-open, timeout and the shared-secret header are dialect-independent.
 | Principal / agent | `UserID` = the resolved principal, else client id; `principal_source`; `actor` = `agent_id` when minted and distinct, with `actor_iss` | `subject = {type: user\|client, id}` (`client` when the principal source is `client`, or the client was the fallback); `context.principal_source`; `context.actor = {type: agent, id: agent_id, iss}` (RFC 8693 delegation) |
 | Attested ceiling | `attestation.entitlement / workload / cnf_thumbprint / iss` | `context.attestation.{entitlement, workload, cnf_thumbprint, iss}` |
 | Decision | `decision: PERMIT\|DENY\|…` (a string) + `authorised` (a boolean, which wins when present) | boolean `decision`, required |
-| Obligations | `statements: [{name, payload}]` | response `context` mapped into the same statement pipeline: `context.statements` verbatim, every other member one statement; `id` / `reason_*` never merged |
+| Obligations | `statements: [{name, payload}]` | response `context` mapped into the same statement pipeline: `context.statements` and every other member one statement each, held to "AuthZEN context members merged into details" for the detail's type (below); `id` / `reason_*` never merged |
 
 ## Configuration (PF admin fields — same names the config-as-code sets)
 
@@ -419,16 +450,17 @@ fail-open, timeout and the shared-secret header are dialect-independent.
 | Attribute Prefix / Prefix Attributes with Type | `idp` / on | an empty prefix with the type prefix off lets a requested field reach a reserved name, which is then refused |
 | Shared Secret Header / Shared Secret | `CLIENT-TOKEN` / required, **stored encrypted** | the same field name as before; a value stored in the clear by an older jar still works (below) but re-save it |
 | Types requiring an authenticated principal | `payment_initiation,account_information` | refused before any PDP call with `principal_source` `none` or `client`; comma- or space-separated; a single `-` means none |
-| Fail open on engine error | off | grants through an unreachable PDP only (above); never a wrong secret, a bad answer or a TLS failure |
-| Trust a client-asserted principal | off | `login_hint` / `_principal_sub` as the subject when nobody else is known - in development only, inert elsewhere, gone at 1.0 |
+| Fail open on engine error | off | grants through an unreachable PDP only (above); never a wrong secret, a bad answer or a TLS failure. In production it needs `pdp-fail-open` in `OIDF_ACCEPTED_RISKS`: refused on save and at configure without it |
+| Trust a client-asserted principal | off | `login_hint` / `_principal_sub` as the subject when nobody else is known - development only: refused on save and at configure in production; gone at 1.0 |
 | Trust the PAR-carried agent marker | off | where the attestation is not in the request (the authorization endpoint), take the agent instance from the `_agent_id` the attestation filter put in each entry at PAR; only for clients that must use PAR |
-| Skip TLS verification (dev only) | off | trusts any PDP certificate only with `OIDF_DEPLOYMENT_PROFILE=development`; elsewhere it is inert and configure logs a WARNING. The host name is checked either way (below) |
+| Skip TLS verification (dev only) | off | trusts any PDP certificate, development only: refused on save and at configure in production. The host name is checked either way (below) |
 | Request timeout (ms) | 2500 | the call's total deadline, connect to last byte, held to 1000-10000; past it the PDP is unreachable. Was 10000 per call, not counting the body, before 0.6.0 |
 | PDP TLS trust | `jvm-default` | `jvm-default`, `pingfederate-trusted-cas` or `pinned-ca` (below); anything else is refused on save and at configure |
 | PDP CA certificates (PEM) | blank | the CAs `pinned-ca` trusts; blank or not a certificate with `pinned-ca` is refused |
 | AuthZEN batch URL | blank | `authzen` only; https unless development; refused with the governance-engine dialect |
 | Decision cache types / Decision cache TTL (s) | blank / 30 | never `payment_initiation` or a type requiring an authenticated principal; TTL 1-60 |
 | Circuit breaker failures / Circuit breaker open (s) | 5 / 30 | 1-1000 / 1-3600 |
+| AuthZEN context members merged into details | `sales_agent: @model; account_information: @model` | `authzen` only: per type, the members of a decision's `context` that may reach the detail (below); refused on save and at configure when it cannot be read |
 | Types allowed on the JWT-bearer grant | blank (none) | the types a JWT-bearer token request may carry; any other of this processor's types is refused by `validate` there. A listed type passes `validate`'s model check and is issued without a PDP decision. Never a type requiring an authenticated principal: refused on save and at configure |
 
 A switch missing from a stored configuration - an instance saved before the field existed (a 0.3.0 instance
@@ -442,9 +474,43 @@ One setting is not a field: `OIDF_RAR_EXTRA_TYPES` (the system property `oidf.ra
 types PingFederate may bind to the processor beyond the three built in, whitespace- or comma-separated. PingFederate
 reads the supported types from the descriptor before any instance is configured, so it cannot be an instance
 field. The fields, their defaults, profile classes and what a wrong value does are in the
-[rar-pdp-processor](src/main/resources/META-INF/oidf-settings/rar-pdp-processor.json) settings catalogue;
-the removed "Deny unless PERMIT" is not there, because the catalogue format records a removed name only for
-an environment variable, a system property or an init-param ([F-0231](../../docs/findings/F-0231.yaml)).
+[rar-pdp-processor](src/main/resources/META-INF/oidf-settings/rar-pdp-processor.json) settings catalogue, with the
+removed "Deny unless PERMIT" under `removed` ([F-0231](../../docs/findings/F-0231.yaml), closed in 0.6.0).
+
+**The production profile's refusals** (plan item PR-3; 0.6.0). Under the production profile (an unset
+`OIDF_DEPLOYMENT_PROFILE` is production) the processor refuses a configuration with "Skip TLS verification (dev
+only)" or "Trust a client-asserted principal" on, and one with "Fail open on engine error" on unless `pdp-fail-open`
+is in `OIDF_ACCEPTED_RISKS` - the catalogue's classes for those fields (`forbidden-in-production`,
+`accepted-risk:pdp-fail-open`), applied by platform's read-time rule (`ProfileRules`, through `Settings.parse`), so
+the message names the field, the value, the fix and the development escape. A plaintext PDP URL or AuthZEN batch URL
+(classed `forbidden-in-production` for `http`) keeps its own rule, `PdpUrlPolicy`, and a decision cache type that is
+`payment_initiation` or needs an authenticated principal is refused in either profile. Each is checked twice: the
+descriptor's validators run when the admin console or the admin API saves the instance (a 422 with the message), and
+`configure` runs the same rules on a stored configuration, which is all an imported archive gets - a refusal there
+leaves the instance unconfigured, and it refuses every request that reaches it. In development the switches save and
+take effect as before. What PingFederate 13.1.3 does with an instance whose `configure` throws, seen on the rig on
+2026-09-30 (U-0068): the import succeeds (HTTP 200 from `/configArchive/import`, and a drop-in archive deploys at
+start), the admin API reads the instance back with its fields and no sign of the failure, PingFederate configures it
+lazily at its first use and logs `Unexpected exception thrown attempting to configure plugin` at ERROR with the
+plugin's message, and does so again after the next import, not per request; a token request carrying one of its types
+is answered `400 invalid_authorization_details` ("the processor bound to it is not configured"), while client
+credentials without details, discovery and PingFederate's other flows keep serving.
+
+**The AuthZEN context allow-list** (plan item H-RAR-1, [F-0065](../../docs/findings/F-0065.yaml); 0.6.0). Until 0.6.0
+every member of an AuthZEN decision's `context` but `id`, `reason_admin` and `reason_user` became a statement merged
+into the detail. Now "AuthZEN context members merged into details" names, per type, the members that may be: `type:
+member, member` entries separated by `;` or new lines, `@model` for every member the type's model declares (the two
+markers left out), `-` for none. An entry splits at its last colon, so a URI type is named as it is (`urn:example:transfer:
+amount`). A type it does not name merges nothing. The default, `sales_agent: @model;
+account_information: @model`, merges nothing into a `payment_initiation` detail. A member it does not name is dropped,
+counted in `oidf_rar_context_dropped_total` and logged once by name (a name that is not a plain member name is logged
+as a placeholder), and never merged; the symmetric form, `context.statements: [{name, payload}]`, is held to the same
+list by the first dot-separated part of each name. A member it names that would widen the detail is still refused by
+the model's `within`, as before. Dropping is not refusing: a PDP that permits on condition of a narrowing it writes
+through a member the field does not name gets the detail granted without that narrowing, so list every member such a
+policy narrows through. The field does not touch the governance-engine dialect's `statements`, which a
+PingAuthorize policy author writes. A field that cannot be read - an entry without `:`, a type named twice, a member
+with a dot, or `type`, `_principal_sub` or `_agent_id` listed - is refused on save and at configure.
 
 `OIDF_DEPLOYMENT_PROFILE` is read through libs/platform's `DeploymentProfile` (plan item PR-1), shaded into
 the jar under `com.pingidentity.ps.oidf.rar.shaded.platform`; `development` (trimmed, any case) is development,
@@ -594,9 +660,20 @@ Saving the instance through the admin API with "Types allowed on the JWT-bearer 
 a token with `"authorization_details": []`. An instance created before the field existed read it back from the
 admin API as blank after the upgrade. The plugin's lines in `server.log` carry no detail value.
 
-Not verified there: the device flow's user key (U-0066), the `subject` recipe on an authentication *policy* contract rather than an
-adapter mapping (U-0067), and what PingFederate makes of an instance whose `configure` threw (U-0068; the rig
-runs as `development`, where a plaintext URL is allowed).
+**The production refusals on the rig (2026-09-30, PingFederate 13.1.3.0, this jar at 0.6.0-SNAPSHOT, package PLG,
+slot 2 `pfai-p3-plg`).** In development an instance with "Skip TLS verification (dev only)" on saved (201), was bound
+to `sales_agent` with a client-credentials client, and the configuration was exported. The same rig, recreated with
+`OIDF_DEPLOYMENT_PROFILE=production` and booting from that archive (age-encrypted, as production requires), read the
+instance back with the switch on; a client-credentials request carrying `sales_agent` got `400
+invalid_authorization_details` ("the processor bound to it is not configured"), the same request without details got
+a token, and `server.log` held `Unexpected exception thrown attempting to configure plugin: plgSkipTls
+(au.idp.rar.FedRar)` with the refusal's text. Through the admin API, saving a new instance with the switch on, or with
+"Fail open on engine error" on and no accepted risk, was refused 422 with the refusal's text; with every switch off it
+saved (201). Importing the development archive again through `/configArchive/import` answered 200 and left the same
+state. Discovery answered 200 throughout.
+
+Not verified there: the device flow's user key (U-0066) and the `subject` recipe on an authentication *policy*
+contract rather than an adapter mapping (U-0067).
 
 ## Build, test, deploy
 

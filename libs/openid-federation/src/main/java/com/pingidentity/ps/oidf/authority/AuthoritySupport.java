@@ -85,7 +85,8 @@ public final class AuthoritySupport {
             }
             HostedEntitySigner signer = Objects.requireNonNull(hostedEntitySigner, "hostedEntitySigner");
             String entityId = com.pingidentity.ps.oidf.jose.Claims.requireNonBlank(configuredAuthorityEntityId, "authorityEntityId");
-            signing = new Signing(signer, entityId, new HostedEntityConfigurationBuilder(signer, entityId, AuthoritySupport::trustMarksFor));
+            signing = new Signing(signer, entityId, new HostedEntityConfigurationBuilder(signer, entityId, AuthoritySupport::trustMarksFor,
+                    HostedEntityConfigurationCache.shared()));
         }
     }
 
@@ -136,6 +137,8 @@ public final class AuthoritySupport {
      */
     public static void configureTrustMarks(Function<String, List<Map<String, Object>>> issuedTo) {
         trustMarks = issuedTo;
+        // A configuration signed before carries the marks the previous lookup gave.
+        HostedEntityConfigurationCache.shared().clear();
     }
 
     /** The {@code trust_marks} this authority issues {@code entityId}; empty when it issues none. */
@@ -168,6 +171,7 @@ public final class AuthoritySupport {
             signing = null;
             domainDefaultMetadataPolicy = Map.of();
             trustMarks = null;
+            HostedEntityConfigurationCache.shared().clear();
         }
     }
 

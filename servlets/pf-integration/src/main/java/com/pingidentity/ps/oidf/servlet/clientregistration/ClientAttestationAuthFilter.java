@@ -21,6 +21,8 @@ import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 import com.pingidentity.ps.oidf.rar.model.Omission;
 import com.pingidentity.ps.oidf.rar.model.RarModelException;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
@@ -134,7 +136,6 @@ public final class ClientAttestationAuthFilter implements Filter {
     /** Where this authority hosts agents as federation entities (HostedEntityServlet). */
     static final String AGENTS_PATH = "/federation/agents/";
     static final String REQUIRE_HOSTED_AGENT_ENV = "OIDF_ATTESTATION_REQUIRE_HOSTED_AGENT";
-    static final String REQUIRE_HOSTED_AGENT_PROP = "oidf.attestation.require_hosted_agent";
 
     private volatile boolean bridgeConfigured;
     /** This filter's part of ATTESTATION_AUTH, from init; null when a test's constructor made it and init never ran. */
@@ -231,8 +232,11 @@ public final class ClientAttestationAuthFilter implements Filter {
         // Everything is resolved into locals and published at the end, so a retry after a failure starts clean
         // and a request never meets half of one attempt. OIDF_ATTESTATION_AUTH_ENABLED=false - or its superseded
         // name OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false - disables the part before any of this runs.
-        boolean requireHostedAgent = requireHostedAgentSetting(System.getProperty(REQUIRE_HOSTED_AGENT_PROP),
-                System.getenv(REQUIRE_HOSTED_AGENT_ENV));
+        // The two global attestation-endpoint settings, through their attestation-token-endpoint catalogue entries and
+        // strictly (plan item ST-5): the required claims are read per request as well, and read here so that a value
+        // their entry refuses fails the start rather than every request.
+        boolean requireHostedAgent = requireHostedAgentSetting(Sources.process());
+        ClientAttestationUtils.requiredClaimsDefault(Sources.process());
         boolean bridgeConfigured;
         RarModels rarModels = null;
         // Signing keys are per client and resolved per request, so what is checked here is whether bridge
@@ -677,9 +681,15 @@ public final class ClientAttestationAuthFilter implements Filter {
      * unless {@code requireHosted} ({@value #REQUIRE_HOSTED_AGENT_ENV}=true) says every attested agent must
      * be a member. A registry that cannot answer throws, and the filter fails closed.
      */
-    /** The system property wins when set; otherwise the environment variable; otherwise false. */
-    static boolean requireHostedAgentSetting(String property, String environment) {
-        return Boolean.parseBoolean(property != null && !property.isBlank() ? property : environment);
+    /**
+     * {@value #REQUIRE_HOSTED_AGENT_ENV} from {@code sources}: the system property when set, otherwise the environment
+     * variable, otherwise false; strictly, so a value that is not {@code true} or {@code false} is refused, naming it,
+     * where the reader before 0.6.0 read it as false.
+     */
+    static boolean requireHostedAgentSetting(Sources sources) {
+        Settings settings = Settings.load(ClientAttestationAuthFilter.class.getClassLoader(), ClientAttestationUtils.ENDPOINT_SETTINGS)
+                .with(sources);
+        return settings.bool(REQUIRE_HOSTED_AGENT_ENV);
     }
 
     /** For tests: whether every attested agent must be a hosted member of this authority. */

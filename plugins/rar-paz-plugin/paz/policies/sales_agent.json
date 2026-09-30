@@ -1,0 +1,76 @@
+{
+  "type": "sales_agent",
+  "name": "RAR sales_agent",
+  "description": "A sales agent may act only in regions its attestation names. A request is permitted when every requested region is one the attestation names, compared as whole regions, and a principal stands behind it: a person (authenticated, or from a subject token) or the client itself. A client alone (no person) that asks for EMEA among them is narrowed to EMEA. Anything else - a region the attestation does not name, a part of one, an empty list, or a principal from an identity hint or none - is denied.",
+  "domain": "idpartners.authorization_details.sales_agent",
+  "combining": "DenyUnlessPermit",
+  "rules": [
+    {
+      "name": "narrow a client-only request to EMEA",
+      "description": "No person stands behind a client-credentials request, so it is held to the home region.",
+      "when": {
+        "all": [
+          [
+            "principal_source",
+            "Equals",
+            "client"
+          ],
+          [
+            "req_sales_regions",
+            "RegularExpression",
+            "(.* )?EMEA( .*)?"
+          ],
+          [
+            "req_sales_regions",
+            "RegularExpression",
+            {
+              "attribute": "att_sales_regions_pattern"
+            }
+          ]
+        ]
+      },
+      "statements": [
+        {
+          "name": "sales_regions",
+          "payload": [
+            "EMEA"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "permit the attested regions",
+      "description": "Every requested region is one the attestation names: the space-joined request matches att_sales_regions_pattern, which accepts only a list of whole attested regions. An identity hint or no principal is not enough.",
+      "when": {
+        "all": [
+          {
+            "any": [
+              [
+                "principal_source",
+                "Equals",
+                "authenticated"
+              ],
+              [
+                "principal_source",
+                "Equals",
+                "subject_token"
+              ],
+              [
+                "principal_source",
+                "Equals",
+                "client"
+              ]
+            ]
+          },
+          [
+            "req_sales_regions",
+            "RegularExpression",
+            {
+              "attribute": "att_sales_regions_pattern"
+            }
+          ]
+        ]
+      }
+    }
+  ]
+}

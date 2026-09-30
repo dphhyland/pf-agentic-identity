@@ -1,0 +1,22 @@
+id: U-0390
+title: That on PingFederate 13.1.3 the resolve endpoint's caller is the connection's address and a forwarding header does not change it
+area: pf-integration
+source: design
+status: closed
+plan_items: [H-FED-9]
+prs: [88]
+recorded_in: libs/openid-federation/README.md, The resolve endpoint's cap and cache; docs/releases/unreleased/HFEDL.md
+verify_by: Nothing further is needed.
+verification: >
+  Checked 2026-09-30 on the conformance rig (slot 3, pfai-p3-hfedl, PingFederate 13.1.3, PF_PROFILE=federation-op,
+  modules built from prod/p3-federation-correctness at 65235d83 with the change committed as e0e81ca9). Thirty
+  requests to /federation/resolve from this machine, each about a different subject and each with a different
+  X-Forwarded-For (198.51.100.1 to .30), were answered 404 invalid_subject; the thirty-first, about a subject not yet
+  asked and with yet another X-Forwarded-For, was answered 503 temporarily_unavailable with Retry-After: 60. So the
+  thirty were counted against one caller whatever the header said: HttpServletRequest.getRemoteAddr() in
+  pf-runtime is the connection's address. A request made from inside the container (another address) was answered
+  200, and the same request three seconds later returned the identical resolve response, iat included - served from
+  the cache.
+notes: >
+  Why it mattered: a caller that could name itself in a header could spread its subjects over any number of
+  minutes. Behind a proxy every client shares the proxy's address; F-0382 records that.

@@ -184,6 +184,11 @@
                 the decision cache and its refusal of payments and principal types; the AuthZEN batch and the reading
                 of its answer; the new fields' checks; and the processor's batch candidates and trust choice. The
                 transport's tests open real sockets on loopback, so its post is gated too.
+
+                The 0.6.0 plugin hardening (PLG): the production profile's refusal of the development-only switches and
+                of failing open without its risk, on save and at configure (ProfileRules); the AuthZEN context
+                allow-list, its field and the drop count (ContextAllowList, and ModelGate.declaredMembers behind
+                @model); and the rar.decision events (DecisionEvents).
             -->
             <plugin>
                 <groupId>org.jacoco</groupId>
@@ -289,6 +294,21 @@
                                         <include>com.pingidentity.ps.oidf.rar.GovernanceEngineConfig.authenticatedPrincipalTypesOf(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.GovernanceEngineConfig.isClientAssertedPrincipalHonoured(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.GovernanceEngineConfig.isInsecureTlsHonoured(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ProfileRules.problem(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ProfileRules.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ProfileRules.Validator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ContextAllowList.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ContextAllowList.problem(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ContextAllowList.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ContextAllowList.allowed(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ContextAllowList.filter(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ContextAllowList.memberOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ContextAllowList.printable(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ContextAllowList.Validator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.declaredMembers(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionEvents.permitted(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionEvents.denied(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionEvents.failOpen(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
@@ -328,7 +348,14 @@
                  authenticator and the issuer load their own unrelocated copy; relocated, this jar's copy
                  can never be the class another jar's code links to, whatever order PingFederate's
                  classloaders search in, and the fingerprint is what says the two copies agree.
-                 ShadedJarCheck holds the jar to that after package. -->
+                 ShadedJarCheck holds the jar to that after package.
+
+                 What the jar carries is exactly the three artifacts below and HttpCore, which platform carries
+                 relocated inside itself (S2C): each relocated, nothing else bundled (package PLG, H-RAR-1). Jackson's
+                 multi-release classes (META-INF/versions) are left out: they sit under their unrelocated names, and the
+                 jar's manifest is not Multi-Release, so no JVM ever loaded them. The service files are relocated with
+                 the classes they name, and the event indexes of this plugin and of platform are appended into one, so
+                 the relocated platform reads both catalogues. The bundled artifacts' Maven descriptors are left out. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
@@ -374,6 +401,15 @@
                                         <Implementation-Version>${project.version}</Implementation-Version>
                                     </manifestEntries>
                                 </transformer>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                                <!-- Jackson's and HttpCore's NOTICE files merged, so every attribution the Apache licence
+                                     asks for is kept; their LICENSE files are one licence, Apache 2.0, and one copy stays. -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer">
+                                    <addHeader>false</addHeader>
+                                </transformer>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                                    <resource>META-INF/oidf-events/index.txt</resource>
+                                </transformer>
                             </transformers>
                             <filters>
                                 <filter>
@@ -383,6 +419,8 @@
                                         <exclude>META-INF/*.DSA</exclude>
                                         <exclude>META-INF/*.RSA</exclude>
                                         <exclude>module-info.class</exclude>
+                                        <exclude>META-INF/versions/**</exclude>
+                                        <exclude>META-INF/maven/**</exclude>
                                     </excludes>
                                 </filter>
                             </filters>

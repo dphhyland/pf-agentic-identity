@@ -5,7 +5,7 @@ area: openid-federation
 source: reviewer-report
 status: open
 plan_items: [H-FED-8]
-prs: []
+prs: [91]
 verification: ''
 target_release: 0.6.0
 notes: >
@@ -13,3 +13,7 @@ notes: >
   register's rule for these items. Four fixes: the /federation/entity?sub=self authority_hints; isTrustAnchor
   via EntityId.same with validated anchor ids; commit only the validated route's statements and normalise
   cache keys; parse metadata_policy after the signature check.
+  ST5F (PR #91, 2026-09-30) did the anchor item: FederationConfiguration refuses an OIDF_FEDERATION_TRUST_ANCHORS
+  entry that is not an Entity Identifier (FEDERATION FAILED_CONFIG naming it), and isTrustAnchor compares with
+  EntityId.same after folding the scheme and host to lower case (RFC 3986 §6.2.2.1). The other three items are
+  HFEDL's; whichever of the two packages merges second closes this finding.

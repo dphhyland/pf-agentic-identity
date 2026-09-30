@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.federation.testkit.Racing;
 import com.pingidentity.ps.oidf.testkit.Migrations;
 import com.pingidentity.ps.oidf.testkit.PostgresDatabase;
 import java.sql.Connection;
@@ -118,5 +119,59 @@ class JdbcHostedEntityRegistryTest extends HostedEntityRegistryContract {
 
         assertEquals(AuthorityRegistryException.STORAGE_FAILURE, e.reason());
         assertEquals(Map.of("client_name", "before"), registry.find(id).orElseThrow().metadata().get("oauth_client"), "rolled back");
+    }
+
+    // ---- H-FED-3: two status changes whose transactions overlap ------------------------------------------------------
+
+    private static final String ID = "https://as.example.com/agents/raced";
+
+    /**
+     * Runs {@code first} and {@code second} as two threads whose status updates wait for each other, so both have read the
+     * status before either writes: the second to commit finds the row no longer in the status it read.
+     */
+    private List<Object> overlapping(EntityStatus from, EntityStatus first, EntityStatus second) throws Exception {
+        HostedEntityRegistry setup = newRegistry();
+        setup.register(HostedEntity.hosted(ID, "k1", Map.of("oauth_client", Map.of()), null));
+        if (from != EntityStatus.ACTIVE) {
+            setup.setStatus(ID, from, "setup", "admin:setup");
+        }
+        HostedEntityRegistry racing = new JdbcHostedEntityRegistry(Racing.meetingAt(this.dataSource, "UPDATE hosted_entity SET status"));
+        return Racing.together(() -> {
+            racing.setStatus(ID, first, "first", "admin:first");
+            return first;
+        }, () -> {
+            racing.setStatus(ID, second, "second", "admin:second");
+            return second;
+        });
+    }
+
+    /** Exactly one change applied, the other refused as stale; the audit log has the winner's line and nothing of the loser. */
+    private void exactlyOneApplied(List<Object> outcomes, int auditLinesBefore) throws Exception {
+        List<Object> applied = outcomes.stream().filter(o -> o instanceof EntityStatus).toList();
+        List<Object> stale = outcomes.stream().filter(o -> o instanceof AuthorityRegistryException e
+                && AuthorityRegistryException.STALE_UPDATE.equals(e.reason())).toList();
+        assertEquals(1, applied.size(), String.valueOf(outcomes));
+        assertEquals(1, stale.size(), String.valueOf(outcomes));
+        HostedEntityRegistry registry = new JdbcHostedEntityRegistry(this.dataSource);
+        assertEquals(applied.get(0), registry.find(ID).orElseThrow().status());
+        List<AuthorityAuditEntry> trail = registry.auditTrail(ID);
+        assertEquals(auditLinesBefore + 1, trail.size(), "the refused change wrote no audit line");
+        String winner = outcomes.get(0) instanceof EntityStatus ? "admin:first" : "admin:second";
+        assertEquals(winner, trail.get(trail.size() - 1).actor());
+    }
+
+    @Test
+    void twoRevocationsThatOverlapOneIsRefusedAsStale() throws Exception {
+        this.exactlyOneApplied(this.overlapping(EntityStatus.ACTIVE, EntityStatus.REVOKED, EntityStatus.REVOKED), 1);
+    }
+
+    @Test
+    void aSuspensionAndARevocationThatOverlapApplyExactlyOne() throws Exception {
+        this.exactlyOneApplied(this.overlapping(EntityStatus.ACTIVE, EntityStatus.SUSPENDED, EntityStatus.REVOKED), 1);
+    }
+
+    @Test
+    void aReactivationAndARevocationThatOverlapApplyExactlyOne() throws Exception {
+        this.exactlyOneApplied(this.overlapping(EntityStatus.SUSPENDED, EntityStatus.ACTIVE, EntityStatus.REVOKED), 2);
     }
 }

@@ -126,6 +126,11 @@ class OpenIdFederationServletKeyHistoryTest {
             }
 
             @Override
+            public HistoricalKey revokeUnrevoked(String kid, Instant revokedAt, String reason) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
             public List<HistoricalKey> retired() {
                 return List.of();
             }

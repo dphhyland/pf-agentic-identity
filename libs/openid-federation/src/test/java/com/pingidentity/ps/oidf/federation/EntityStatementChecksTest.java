@@ -205,16 +205,17 @@ class EntityStatementChecksTest {
         assertRefused(Kind.SYNTAX, with(configuration(), "metadata", Map.of("openid_relying_party", nullParameter)));
     }
 
+    /**
+     * The shape of {@code metadata_policy} is checked with the other claims, before any key is tried; its operators are
+     * not read until the statement's signature has verified (TrustChainValidatorPolicyTest refuses the chain then).
+     */
     @Test
     @Requirement("OIDFED §3.2(2.17)")
-    void metadataPolicyMustBeAValidPolicy() {
+    void metadataPolicyMustBeObjectsOfEntityTypesBeforeAnyKeyIsTried() {
         check(with(subordinate(), "metadata_policy", Map.of("openid_relying_party", Map.of("contacts", Map.of("essential", true)))));
         assertRefused(Kind.SYNTAX, with(subordinate(), "metadata_policy", List.of()));
         assertRefused(Kind.SYNTAX, with(subordinate(), "metadata_policy", Map.of("openid_relying_party", "strict")));
-        TrustChainValidationException e = refused(with(subordinate(), "metadata_policy",
-                Map.of("openid_relying_party", Map.of("contacts", Map.of("essential", "yes")))));
-        assertEquals(Kind.POLICY, e.kind());
-        assertEquals(FederationError.INVALID_METADATA, e.error());
+        check(with(subordinate(), "metadata_policy", Map.of("openid_relying_party", Map.of("contacts", Map.of("essential", "yes")))));
     }
 
     @Test

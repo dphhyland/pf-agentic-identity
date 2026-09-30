@@ -1,0 +1,49 @@
+{
+  "description": "The Trust Framework the three reference policies read: the governance-engine domains the processor decides under (its PDP Domain Prefix, idpartners.authorization_details, then the type) and the request attributes GovernanceEngineRequestBuilder sends. Each attribute is resolved from the request, except one with \"from\" and \"spel\", which author-policies.py derives from the attribute \"from\" names with that SpEL expression over its value (#this); a dotted name is a path of parents, as the PDP reads the processor's <prefix>.<type>.<field> attributes.",
+  "domains": [
+    "idpartners",
+    "idpartners.authorization_details",
+    "idpartners.authorization_details.sales_agent",
+    "idpartners.authorization_details.payment_initiation",
+    "idpartners.authorization_details.account_information"
+  ],
+  "attributes": [
+    {
+      "name": "principal_source",
+      "type": "STRING",
+      "description": "How the processor established the decision's subject: authenticated, identity_hint, subject_token, client or none"
+    },
+    {
+      "name": "req_sales_regions",
+      "type": "STRING",
+      "description": "The requested sales_regions, space-joined"
+    },
+    {
+      "name": "att_sales_regions",
+      "type": "STRING",
+      "description": "The attested entitlement's sales_regions, space-joined"
+    },
+    {
+      "name": "att_sales_regions_pattern",
+      "type": "STRING",
+      "from": "att_sales_regions",
+      "spel": "'^(?:\\\\Q' + #this.replace(' ', '\\\\E|\\\\Q') + '\\\\E)(?: (?:\\\\Q' + #this.replace(' ', '\\\\E|\\\\Q') + '\\\\E))*$'",
+      "description": "A regular expression, made from att_sales_regions, that a requested region list matches only when every space-separated region in it is one the attestation names, as a whole token (each quoted with \\Q...\\E)"
+    },
+    {
+      "name": "req_actions",
+      "type": "STRING",
+      "description": "The requested actions, space-joined"
+    },
+    {
+      "name": "req_datatypes",
+      "type": "STRING",
+      "description": "The requested datatypes, space-joined"
+    },
+    {
+      "name": "idp.payment_initiation.amount",
+      "type": "NUMBER",
+      "description": "The flat amount a payment_initiation detail requests, as the processor sends it with its default attribute prefix"
+    }
+  ]
+}

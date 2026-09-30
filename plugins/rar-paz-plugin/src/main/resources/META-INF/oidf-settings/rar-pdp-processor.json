@@ -26,7 +26,8 @@
       "default": null,
       "description": "The PDP's decision URL (for authzen, its /access/v1/evaluation); required, https unless OIDF_DEPLOYMENT_PROFILE=development, and the console's https:// placeholder is refused (plugin com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor, shown as \"Attestation-aware RAR to PingAuthorize\")",
       "when_wrong": {"effect": "per-request", "detail": "Blank, not a URL, or http outside development: the admin console and API refuse it on save; an archive import runs no validator, so the instance fails to configure and refuses every request that reaches it"},
-      "profile": "any",
+      "profile": "forbidden-in-production",
+      "governed": {"schemes": ["http"]},
       "security": true,
       "sources": [],
       "aliases": [],
@@ -142,7 +143,7 @@
       "type": "bool",
       "default": false,
       "description": "Whether a request goes ahead without the PDP's narrowing when the PDP is unreachable (connection refused or reset, name unresolved, connect or total deadline, all 32 call places taken until the deadline, the circuit breaker open, HTTP 429, 502, 503 or 504); any other answer, a malformed or oversized one and a TLS failure still deny, and the model's checks come first either way (plugin com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor, shown as \"Attestation-aware RAR to PingAuthorize\")",
-      "when_wrong": {"effect": "not-checked", "detail": "A checkbox: PingFederate stores true or false; missing reads as off"},
+      "when_wrong": {"effect": "per-request", "detail": "On in production without pdp-fail-open in OIDF_ACCEPTED_RISKS: refused on save, and at configure after an archive import, when the instance refuses every request. PingFederate stores true or false; missing reads as off"},
       "profile": "accepted-risk:pdp-fail-open",
       "security": true,
       "sources": [],
@@ -154,8 +155,8 @@
       "kind": "plugin-field",
       "type": "bool",
       "default": false,
-      "description": "Whether login_hint or _principal_sub becomes the decision's subject when no principal is known, so the caller chooses who the decision is about; honoured only with OIDF_DEPLOYMENT_PROFILE=development, inert (with a WARNING at configure) elsewhere, and gone at 1.0 (plugin com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor, shown as \"Attestation-aware RAR to PingAuthorize\")",
-      "when_wrong": {"effect": "not-checked", "detail": "A checkbox: PingFederate stores true or false; missing reads as off"},
+      "description": "Whether login_hint or _principal_sub becomes the decision's subject when no principal is known, so the caller chooses who the decision is about; honoured only with OIDF_DEPLOYMENT_PROFILE=development and refused elsewhere, and gone at 1.0 (plugin com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor, shown as \"Attestation-aware RAR to PingAuthorize\")",
+      "when_wrong": {"effect": "per-request", "detail": "On in production: refused on save, and at configure after an archive import, when the instance refuses every request. PingFederate stores true or false; missing reads as off"},
       "profile": "forbidden-in-production",
       "security": true,
       "sources": [],
@@ -180,8 +181,8 @@
       "kind": "plugin-field",
       "type": "bool",
       "default": false,
-      "description": "Whether any PDP certificate is trusted; honoured only with OIDF_DEPLOYMENT_PROFILE=development, inert (with a WARNING at configure) elsewhere, and the certificate must still name the PDP URL's host either way: platform's client always checks it (plugin com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor, shown as \"Attestation-aware RAR to PingAuthorize\")",
-      "when_wrong": {"effect": "not-checked", "detail": "A checkbox: PingFederate stores true or false; missing reads as off"},
+      "description": "Whether any PDP certificate is trusted; honoured only with OIDF_DEPLOYMENT_PROFILE=development and refused elsewhere, and the certificate must still name the PDP URL's host either way: platform's client always checks it (plugin com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor, shown as \"Attestation-aware RAR to PingAuthorize\")",
+      "when_wrong": {"effect": "per-request", "detail": "On in production: refused on save, and at configure after an archive import, when the instance refuses every request. PingFederate stores true or false; missing reads as off"},
       "profile": "forbidden-in-production",
       "security": true,
       "sources": [],
@@ -253,7 +254,8 @@
       "default": null,
       "description": "authzen dialect only: the PDP's Access Evaluations URL (/access/v1/evaluations, OpenID AuthZEN Authorization API 1.0 section 7); when set, the first detail of a token request sends every detail the request carries in one evaluations call, and the rest are answered from it. Blank: one call per detail; https unless OIDF_DEPLOYMENT_PROFILE=development (plugin com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor, shown as \"Attestation-aware RAR to PingAuthorize\")",
       "when_wrong": {"effect": "per-request", "detail": "Set with the governance-engine dialect, not a URL, or http outside development: refused on save, and at configure after an archive import. A PDP that answers fewer or more evaluations than it was asked: every detail of that request is denied"},
-      "profile": "any",
+      "profile": "forbidden-in-production",
+      "governed": {"schemes": ["http"]},
       "security": true,
       "sources": [],
       "aliases": [],
@@ -329,7 +331,22 @@
       "sources": [],
       "aliases": [],
       "file": false
+    },
+    {
+      "name": "AuthZEN context members merged into details",
+      "kind": "plugin-field",
+      "type": "string",
+      "default": "sales_agent: @model; account_information: @model",
+      "description": "authzen dialect only: per detail type, the members of a decision's context (and of context.statements, by the first part of each name) that may be merged into the granted detail, as type: member, member entries separated by ; or new lines; @model is every member the type's model declares, - none. A type not named merges nothing, so payment_initiation merges nothing by default; a member not named is dropped, counted in oidf_rar_context_dropped_total and logged by name, never merged; a named member that would widen the detail is still refused (plugin com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor, shown as \"Attestation-aware RAR to PingAuthorize\")",
+      "when_wrong": {"effect": "per-request", "detail": "Not type: member entries, a type named twice, a member with a dot, or type, _principal_sub or _agent_id listed: refused on save, and at configure after an archive import. A member the PDP enriches through and the field leaves out: dropped, and the detail is granted without it"},
+      "profile": "any",
+      "security": true,
+      "sources": [],
+      "aliases": [],
+      "file": false
     }
   ],
-  "removed": []
+  "removed": [
+    {"name": "Deny unless PERMIT", "from": "plugin-field", "replacement": null, "release": "0.4.0"}
+  ]
 }

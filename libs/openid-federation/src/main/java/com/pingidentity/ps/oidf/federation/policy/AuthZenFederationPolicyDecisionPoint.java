@@ -7,6 +7,8 @@ import com.pingidentity.ps.oidf.jose.HttpGetClient;
 import com.pingidentity.ps.oidf.jose.HttpPostClient;
 import java.net.URI;
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -72,25 +74,46 @@ public final class AuthZenFederationPolicyDecisionPoint implements FederationPol
         return () -> endpoint;
     }
 
+    /** How long a discovered evaluation endpoint is used before the PDP's metadata is read again (plan item H-FED-9). */
+    public static final Duration DISCOVERY_TTL = Duration.ofMinutes(10);
+
     /**
      * The evaluation endpoint the PDP identified by {@code pdp} publishes in its metadata (§9.2), read on first use and
-     * kept once read; a metadata document naming another PDP is not used (§9.2.3).
+     * again once {@link #DISCOVERY_TTL} has passed, so a PDP that moves its endpoint is followed within ten minutes; a
+     * metadata document naming another PDP is not used (§9.2.3).
      */
     public static Endpoint discovered(HttpGetClient http, String pdp) {
+        return discovered(http, pdp, DISCOVERY_TTL, Clock.systemUTC());
+    }
+
+    /**
+     * As {@link #discovered(HttpGetClient, String)}, the metadata read again once {@code ttl} - at most
+     * {@link #DISCOVERY_TTL} - has passed on {@code clock}. A read that fails is no decision, and the next one tries again:
+     * an endpoint past its time is never used on the strength of an older read.
+     */
+    public static Endpoint discovered(HttpGetClient http, String pdp, Duration ttl, Clock clock) {
         Objects.requireNonNull(http, "http");
+        Objects.requireNonNull(clock, "clock");
+        if (ttl == null || ttl.isNegative() || ttl.isZero() || ttl.compareTo(DISCOVERY_TTL) > 0) {
+            throw new IllegalArgumentException("the discovery TTL must be positive and at most " + DISCOVERY_TTL);
+        }
         return new Endpoint() {
-            private volatile URI found;
+            private volatile Discovered found;
 
             @Override
             public URI resolve() throws PolicyDecisionException {
-                URI local = this.found;
-                if (local == null) {
-                    local = discover(http, pdp);
+                Discovered local = this.found;
+                Instant now = clock.instant();
+                if (local == null || !now.isBefore(local.until())) {
+                    local = new Discovered(discover(http, pdp), now.plus(ttl));
                     this.found = local;
                 }
-                return local;
+                return local.endpoint();
             }
         };
+    }
+
+    private record Discovered(URI endpoint, Instant until) {
     }
 
     static URI discover(HttpGetClient http, String pdp) throws PolicyDecisionException {

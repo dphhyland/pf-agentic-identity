@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
+import org.jose4j.jws.JsonWebSignature;
+import org.jose4j.jwt.JwtClaims;
 
 /**
  * Builds a {@link HostedEntity}'s Entity Configuration — {@code iss == sub == entityId}, signed by the
@@ -29,6 +31,8 @@ public final class HostedEntityConfigurationBuilder {
     private final HostedEntitySigner signer;
     private final String authorityEntityId;
     private final Function<String, List<Map<String, Object>>> trustMarks;
+    /** Where signed configurations are kept until due for renewal; null signs every time. */
+    private final HostedEntityConfigurationCache cache;
 
     public HostedEntityConfigurationBuilder(HostedEntitySigner signer, String authorityEntityId) {
         this(signer, authorityEntityId, entityId -> List.of());
@@ -37,9 +41,20 @@ public final class HostedEntityConfigurationBuilder {
     /** @param trustMarks entity id -> the {@code trust_marks} (§3.1.2) this authority issues it, empty for none */
     public HostedEntityConfigurationBuilder(HostedEntitySigner signer, String authorityEntityId,
                                             Function<String, List<Map<String, Object>>> trustMarks) {
+        this(signer, authorityEntityId, trustMarks, null);
+    }
+
+    /**
+     * @param cache where an authority-signed configuration is kept until it is due for renewal (plan item H-FED-9); null
+     *              signs it on every call
+     */
+    public HostedEntityConfigurationBuilder(HostedEntitySigner signer, String authorityEntityId,
+                                            Function<String, List<Map<String, Object>>> trustMarks,
+                                            HostedEntityConfigurationCache cache) {
         this.signer = Objects.requireNonNull(signer, "signer");
         this.authorityEntityId = Claims.requireNonBlank(authorityEntityId, "authorityEntityId");
         this.trustMarks = Objects.requireNonNull(trustMarks, "trustMarks");
+        this.cache = cache;
     }
 
     /** A SELF_SIGNED entity that has not published (or whose publication expired): nothing to serve. */
@@ -53,7 +68,9 @@ public final class HostedEntityConfigurationBuilder {
 
     /**
      * Builds and signs {@code entity}'s Entity Configuration JWT - or, for a SELF_SIGNED entity, returns the
-     * configuration the entity signed itself, verbatim.
+     * configuration the entity signed itself, verbatim. With a cache, an authority-signed one signed earlier from this
+     * same record is returned while it has more than {@link HostedEntityConfigurationCache#KEEP_WHILE_REMAINING} of its
+     * lifetime left - counted to the earlier of its own {@code exp} and that of the first Trust Mark it carries to expire.
      */
     public String buildEntityConfiguration(HostedEntity entity) {
         if (entity.hostingMode() == HostingMode.SELF_SIGNED) {
@@ -65,6 +82,10 @@ public final class HostedEntityConfigurationBuilder {
                 throw new NotPublishedException("entity " + entity.entityId() + "'s published configuration has expired");
             }
             return stored;
+        }
+        String kept = this.cache == null ? null : this.cache.get(entity);
+        if (kept != null) {
+            return kept;
         }
         JwsSigner jwsSigner = this.signer.signerFor(entity);
 
@@ -89,6 +110,32 @@ public final class HostedEntityConfigurationBuilder {
             claims.put("trust_marks", marks);
         }
 
-        return CompactJws.sign(header, claims, jwsSigner);
+        String jwt = CompactJws.sign(header, claims, jwsSigner);
+        if (this.cache != null) {
+            long freshUntil = earliestExpiry(marks, now + CONFIGURATION_LIFETIME_SECONDS, now);
+            this.cache.put(entity, jwt, Instant.ofEpochSecond(now), Instant.ofEpochSecond(freshUntil));
+        }
+        return jwt;
+    }
+
+    /**
+     * The earlier of {@code configurationExp} and the {@code exp} of every Trust Mark embedded in the configuration, so
+     * a kept configuration is renewed before a mark it carries expires. A mark whose {@code exp} cannot be read gives
+     * {@code now}: the configuration is then not kept at all.
+     */
+    static long earliestExpiry(List<Map<String, Object>> marks, long configurationExp, long now) {
+        long earliest = configurationExp;
+        for (Map<String, Object> mark : marks) {
+            long exp;
+            try {
+                JsonWebSignature jws = new JsonWebSignature();
+                jws.setCompactSerialization((String) mark.get("trust_mark"));
+                exp = JwtClaims.parse(jws.getUnverifiedPayload()).getExpirationTime().getValue();
+            } catch (Exception e) {
+                exp = now;
+            }
+            earliest = Math.min(earliest, exp);
+        }
+        return earliest;
     }
 }

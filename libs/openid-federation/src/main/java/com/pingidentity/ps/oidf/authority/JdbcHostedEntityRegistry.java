@@ -27,7 +27,11 @@ import org.jose4j.json.JsonUtil;
  * gates whether an entity resolves.
  *
  * <p>Every change and its audit line are written in one transaction: the audit log is the record a dispute
- * is settled from, so it must never say something happened that did not, or miss something that did.
+ * is settled from, so it must never say something happened that did not, or miss something that did. A status change
+ * is conditional on the status it read ({@code WHERE status = ?} and the row count checked): of two operators changing
+ * one entity at once, the second to commit finds it changed and gets {@link AuthorityRegistryException#STALE_UPDATE},
+ * with nothing written (plan item H-FED-3). After every change, the entity's cached configuration is dropped
+ * ({@link HostedEntityConfigurationCache#changed}).
  *
  * <p>{@code metadata} and {@code metadataPolicy} are stored as serialized JSON text rather than a
  * database-specific JSON type, so the same schema and queries work unchanged against Postgres (the
@@ -141,12 +145,25 @@ public final class JdbcHostedEntityRegistry implements HostedEntityRegistry {
 
     @Override
     public void setStatus(String entityId, EntityStatus status, String reason, String actor) throws AuthorityRegistryException {
-        this.inTransaction("set hosted entity status", c -> setStatusIn(c, entityId, status, reason, actor));
+        this.inTransaction("set hosted entity status", c -> setStatusIn(c, entityId, null, status, reason, actor));
+        HostedEntityConfigurationCache.changed(entityId);
     }
 
-    private static Void setStatusIn(Connection c, String entityId, EntityStatus status, String reason, String actor)
-            throws SQLException, AuthorityRegistryException {
+    @Override
+    public void setStatus(String entityId, EntityStatus expected, EntityStatus status, String reason, String actor)
+            throws AuthorityRegistryException {
+        Objects.requireNonNull(expected, "expected");
+        this.inTransaction("set hosted entity status", c -> setStatusIn(c, entityId, expected, status, reason, actor));
+        HostedEntityConfigurationCache.changed(entityId);
+    }
+
+    /** {@code expected} null: from whatever status is read; otherwise only from {@code expected}. */
+    private static Void setStatusIn(Connection c, String entityId, EntityStatus expected, EntityStatus status, String reason,
+                                    String actor) throws SQLException, AuthorityRegistryException {
         HostedEntity current = find(c, entityId).orElseThrow(() -> notFound(entityId));
+        if (expected != null && current.status() != expected) {
+            throw stale(entityId);
+        }
         if (current.status() == status) {
             // Idempotent — covers a retried REVOKED -> REVOKED just as much as ACTIVE -> ACTIVE,
             // which is why this must run before the "already revoked" guard below, not after it.
@@ -156,7 +173,12 @@ public final class JdbcHostedEntityRegistry implements HostedEntityRegistry {
             throw new AuthorityRegistryException(AuthorityRegistryException.STALE_UPDATE,
                     "entity " + entityId + " is revoked; revocation is permanent");
         }
-        update(c, "UPDATE hosted_entity SET status = ? WHERE entity_id = ?", status.name(), entityId);
+        // Conditional on the status just read (plan item H-FED-3): an operator's change that raced another one, which
+        // committed first, finds no row in the status it read and changes nothing - no status, no audit line.
+        if (update(c, "UPDATE hosted_entity SET status = ? WHERE entity_id = ? AND status = ?", status.name(), entityId,
+                current.status().name()) != 1) {
+            throw stale(entityId);
+        }
         String code = status == EntityStatus.REVOKED ? AuthorityAuditEntry.ENTITY_REVOKED : AuthorityAuditEntry.ENTITY_STATUS_CHANGED;
         appendAudit(c, entityId, code, status + ": " + reason, actor);
         return null;
@@ -171,6 +193,7 @@ public final class JdbcHostedEntityRegistry implements HostedEntityRegistry {
             appendAudit(c, entityId, AuthorityAuditEntry.ENTITY_METADATA_UPDATED, "types=" + value.keySet(), actor);
             return null;
         });
+        HostedEntityConfigurationCache.changed(entityId);
     }
 
     @Override
@@ -182,6 +205,7 @@ public final class JdbcHostedEntityRegistry implements HostedEntityRegistry {
             appendAudit(c, entityId, AuthorityAuditEntry.ENTITY_METADATA_POLICY_UPDATED, "types=" + value.keySet(), actor);
             return null;
         });
+        HostedEntityConfigurationCache.changed(entityId);
     }
 
     @Override
@@ -192,6 +216,7 @@ public final class JdbcHostedEntityRegistry implements HostedEntityRegistry {
             appendAudit(c, entityId, AuthorityAuditEntry.ENTITY_KEY_ROTATED, "hostingKeyRef rotated", actor);
             return null;
         });
+        HostedEntityConfigurationCache.changed(entityId);
     }
 
     @Override
@@ -258,12 +283,13 @@ public final class JdbcHostedEntityRegistry implements HostedEntityRegistry {
         }
     }
 
-    private static void update(Connection c, String sql, String... parameters) throws SQLException {
+    /** Runs {@code sql} and returns how many rows it changed. */
+    private static int update(Connection c, String sql, String... parameters) throws SQLException {
         try (PreparedStatement ps = c.prepareStatement(sql)) {
             for (int i = 0; i < parameters.length; i++) {
                 ps.setString(i + 1, parameters[i]);
             }
-            ps.executeUpdate();
+            return ps.executeUpdate();
         }
     }
 
@@ -277,6 +303,11 @@ public final class JdbcHostedEntityRegistry implements HostedEntityRegistry {
             ps.setString(5, actor);
             ps.executeUpdate();
         }
+    }
+
+    private static AuthorityRegistryException stale(String entityId) {
+        return new AuthorityRegistryException(AuthorityRegistryException.STALE_UPDATE,
+                "entity " + entityId + " changed status while this change was being made; read it again");
     }
 
     private static AuthorityRegistryException notFound(String entityId) {
