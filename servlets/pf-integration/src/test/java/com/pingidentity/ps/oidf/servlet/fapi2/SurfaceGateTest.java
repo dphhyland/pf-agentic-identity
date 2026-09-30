@@ -114,6 +114,19 @@ class SurfaceGateTest {
         } finally {
             System.clearProperty(Fapi2ProfileFilter.CLIENTS_PROPERTY);
         }
+        // A blank system property is unset: the environment's list decides.
+        System.setProperty(Fapi2ProfileFilter.CLIENTS_PROPERTY, " ");
+        try {
+            assertTrue(refused("fapi-client", from("fapi-client")));
+        } finally {
+            System.clearProperty(Fapi2ProfileFilter.CLIENTS_PROPERTY);
+        }
+        // No assertion sent (an empty list of them) and a blank client_id: the access token names the client, here none.
+        HttpServletRequest empty = mock(HttpServletRequest.class);
+        org.mockito.Mockito.when(empty.getParameterValues("client_assertion")).thenReturn(new String[0]);
+        org.mockito.Mockito.when(empty.getParameter("client_id")).thenReturn("fapi-client");
+        assertTrue(refused("fapi-client", empty));
+        assertTrue(!refused("fapi-client", from(" ")), "a blank client_id names nobody");
     }
 
     private static String b64(String json) {

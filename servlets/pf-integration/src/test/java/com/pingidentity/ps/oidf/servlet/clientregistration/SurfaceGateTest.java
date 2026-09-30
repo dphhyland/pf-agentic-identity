@@ -108,6 +108,24 @@ class SurfaceGateTest {
     }
 
     @Test
+    void explicitRegistrationWithNoTrustAnchorKeysIsDegradedAndAnswers503() throws Exception {
+        // F-0192: a PingFederate that is its own trust anchor serves its Entity Configuration before its keys can be
+        // pinned, so explicit registration without them is DEGRADED (ready stays up) and refuses each registration 503.
+        OpenIdRegistrationServlet servlet = new OpenIdRegistrationServlet();
+        assertDoesNotThrow(() -> servlet.init(mock(ServletConfig.class)));
+        assertEquals(ComponentState.DEGRADED, GateTesting.part("OpenIdRegistrationServlet").state());
+        assertTrue(GateTesting.part("OpenIdRegistrationServlet").reason().contains(FederationRuntimeConfig.HOST_ENV),
+                GateTesting.part("OpenIdRegistrationServlet").reason());
+
+        java.io.StringWriter answer = new java.io.StringWriter();
+        when(this.response.getWriter()).thenReturn(new java.io.PrintWriter(answer));
+        servlet.service(this.request, this.response);
+        verify(this.response).setStatus(503);
+        assertTrue(answer.toString().contains("\"error\":\"temporarily_unavailable\""), answer.toString());
+        verify(this.request, never()).getMethod();
+    }
+
+    @Test
     void aFilterWithNothingToRegisterWithPassesEverythingOn() throws Exception {
         // Never initialised (no part, so no gate) and no registration service: PingFederate's own endpoint as it was.
         new TokenEndpointAutoRegistrationFilter().doFilter(this.request, this.response, this.chain);
