@@ -346,6 +346,26 @@
                                         <include>com.pingidentity.ps.oidf.federation.policy.CompositePolicyDecisionPoint.decide(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.policy.LocalFederationPolicyDecisionPoint.decide(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.FederationService.discovered(*</include>
+                                        <!-- HFEDL (H-FED-3, H-FED-8, H-FED-9): conditional transitions, the configuration cache,
+                                             one-query marks, authority_hints, the route-only commit, the resolve guard, discovery's TTL -->
+                                        <include>com.pingidentity.ps.oidf.authority.JdbcHostedEntityRegistry.setStatus(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.HostedEntityConfigurationCache.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.HostedEntityConfigurationCache.put(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.HostedEntityConfigurationCache.invalidate(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.JdbcTrustMarkRegistry.grant(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.JdbcTrustMarkRegistry.revoke(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.JdbcTrustMarkRegistry.standingIn(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.InMemoryTrustMarkRegistry.standing(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.authorityHints(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.resolved(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.resolveGuard(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.ResolveGuard.admit(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.ResolveGuard.kept(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.ResolveGuard.keep(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.ResolveGuard.fromSettings(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.onRoute(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.SubordinateStatementCache.PendingWrites.commitOnly(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.AuthZenFederationPolicyDecisionPoint.discovered(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

@@ -103,7 +103,7 @@ public final class FederationService {
     });
     private final Clock clock;
     /** The resolve endpoint's cap and cache; built from the settings on the first resolve request. */
-    private volatile ResolveGuard resolveGuard;
+    private final java.util.concurrent.atomic.AtomicReference<ResolveGuard> resolveGuard = new java.util.concurrent.atomic.AtomicReference<>();
     private final ConcurrentHashMap<String, CachedSubordinateConfig> subordinateConfigCache = new ConcurrentHashMap<String, CachedSubordinateConfig>();
 
     public FederationService(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider) {
@@ -751,7 +751,8 @@ public final class FederationService {
      */
     public String resolve(ResolveRequest request, String oidcIssuer, String client, String callerAddress) throws JoseException {
         if (request.subject() == null || request.subject().isBlank()) {
-            return this.resolve(request, oidcIssuer, client);
+            // Refused before it is counted: a request without a subject costs nothing.
+            throw new FederationException(FederationError.INVALID_REQUEST, "sub is required");
         }
         ResolveGuard guard = this.resolveGuard();
         guard.admit(callerAddress, request.subject());
@@ -767,21 +768,18 @@ public final class FederationService {
 
     /** The resolve endpoint's cap and cache, read from the settings on first use. */
     ResolveGuard resolveGuard() {
-        ResolveGuard local = this.resolveGuard;
+        ResolveGuard local = this.resolveGuard.get();
         if (local == null) {
-            synchronized (this) {
-                if (this.resolveGuard == null) {
-                    this.resolveGuard = ResolveGuard.fromProcess(this.clock);
-                }
-                local = this.resolveGuard;
-            }
+            // Two first requests may both read the settings; one guard wins, and both use it.
+            this.resolveGuard.compareAndSet(null, ResolveGuard.fromProcess(this.clock));
+            local = this.resolveGuard.get();
         }
         return local;
     }
 
     /** Test seam: a guard of the test's own. */
     void resolveGuard(ResolveGuard guard) {
-        this.resolveGuard = guard;
+        this.resolveGuard.set(guard);
     }
 
     /** A resolve response's claims, and the {@code exp} among them. */

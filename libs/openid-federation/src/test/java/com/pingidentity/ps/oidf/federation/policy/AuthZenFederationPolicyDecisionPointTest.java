@@ -206,6 +206,8 @@ class AuthZenFederationPolicyDecisionPointTest {
         assertThrows(IllegalArgumentException.class, () -> AuthZenFederationPolicyDecisionPoint.discovered(metadata, "https://pdp.example.com",
                 java.time.Duration.ZERO, clock));
         assertThrows(IllegalArgumentException.class, () -> AuthZenFederationPolicyDecisionPoint.discovered(metadata, "https://pdp.example.com",
+                java.time.Duration.ofSeconds(-1), clock));
+        assertThrows(IllegalArgumentException.class, () -> AuthZenFederationPolicyDecisionPoint.discovered(metadata, "https://pdp.example.com",
                 null, clock));
     }
 

@@ -137,6 +137,17 @@ class JdbcTrustMarkRegistryTest extends TrustMarkRegistryContract {
                 () -> racing.grant(CERTIFIED, AGENT, null, "admin:b")), 0);
     }
 
+    /** A first grant the database refuses for any reason but a duplicate is a storage failure, not a stale change. */
+    @Test
+    void aFirstGrantRefusedForAnotherReasonIsAStorageFailure() throws Exception {
+        TrustMarkRegistry registry = this.newRegistry();
+        this.execute("ALTER TABLE trust_mark_grant ADD CONSTRAINT no_agent CHECK (subject <> '" + AGENT + "')");
+
+        assertEquals(AuthorityRegistryException.STORAGE_FAILURE,
+                assertThrows(AuthorityRegistryException.class, () -> registry.grant(CERTIFIED, AGENT, null, null)).reason());
+        assertTrue(registry.auditTrail(CERTIFIED, AGENT).isEmpty());
+    }
+
     /** H-FED-9: the standing grants are one statement, however many grants the type has. */
     @Test
     void theStandingGrantsAreOneStatement() throws Exception {

@@ -132,27 +132,29 @@ public final class JdbcTrustMarkRegistry implements TrustMarkRegistry {
 
     @Override
     public List<TrustMarkGrant> standing(String type, String subject, Instant now) throws AuthorityRegistryException {
+        return this.inTransaction("read Trust Mark grants", c -> standingIn(c, type, subject, now));
+    }
+
+    private static List<TrustMarkGrant> standingIn(Connection c, String type, String subject, Instant now) throws SQLException {
         String sql = SELECT + " WHERE trust_mark_type = ? AND status = 'ACTIVE' AND (not_after IS NULL OR not_after > ?)"
                 + (subject == null ? "" : " AND subject IN (?, ?)") + " ORDER BY subject";
-        return this.inTransaction("read Trust Mark grants", c -> {
-            List<TrustMarkGrant> grants = new ArrayList<>();
-            try (PreparedStatement ps = c.prepareStatement(sql)) {
-                ps.setString(1, type);
-                ps.setTimestamp(2, Timestamp.from(now));
-                if (subject != null) {
-                    // The two spellings EntityId.same equates: with and without the trailing slash.
-                    String bare = EntityId.comparable(subject);
-                    ps.setString(3, bare);
-                    ps.setString(4, bare + "/");
-                }
-                try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                        grants.add(grant(rs));
-                    }
+        List<TrustMarkGrant> grants = new ArrayList<>();
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, type);
+            ps.setTimestamp(2, Timestamp.from(now));
+            if (subject != null) {
+                // The two spellings EntityId.same equates: with and without the trailing slash.
+                String bare = EntityId.comparable(subject);
+                ps.setString(3, bare);
+                ps.setString(4, bare + "/");
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    grants.add(grant(rs));
                 }
             }
-            return List.copyOf(grants);
-        });
+        }
+        return List.copyOf(grants);
     }
 
     @Override

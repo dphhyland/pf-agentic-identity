@@ -344,8 +344,10 @@ class FederationServiceEndpointsTest {
         assertEquals(PF, claims(service.resolve(new ResolveRequest(PF, List.of(PF), List.of()), PF, null, "192.0.2.2")).getSubject(),
                 "another caller has its own minute");
         refusal(FederationError.INVALID_REQUEST, () -> service.resolve(new ResolveRequest(null, List.of(PF), null), PF, null, "192.0.2.1"));
-        assertTrue(FederationService.builder(configuration(), Keys.signingKeys(PF_KEY)).build().resolveGuard() != null,
-                "a service reads its guard from the settings on first use");
+        refusal(FederationError.INVALID_REQUEST, () -> service.resolve(new ResolveRequest(" ", List.of(PF), null), PF, null, "192.0.2.1"));
+        FederationService fresh = FederationService.builder(configuration(), Keys.signingKeys(PF_KEY)).build();
+        ResolveGuard read = fresh.resolveGuard();
+        assertTrue(read != null && read == fresh.resolveGuard(), "a service reads its guard from the settings once, on first use");
     }
 
     @Test
