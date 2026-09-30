@@ -1,13 +1,15 @@
 /*
- * DPoP proof validation (RFC 9449) for attestation "combined mode".
+ * DPoP proof validation (RFC 9449): the one checker the token endpoint's attestation combined mode, rs-validation and
+ * platform-pf's operator authenticator share.
  */
-package com.pingidentity.ps.oidf.clientattestation;
+package com.pingidentity.ps.oidf.jose.dpop;
 
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import org.jose4j.jwa.AlgorithmConstraints;
 import org.jose4j.jwk.PublicJsonWebKey;
@@ -18,12 +20,16 @@ import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.Claims;
 
 /**
- * Validates a DPoP proof JWT per RFC 9449, as far as is meaningful for client authentication at the
- * token endpoint (attestation combined mode). The proof is self-signed with the key carried in its
- * {@code jwk} header; this validator verifies that signature, checks the {@code typ}, the signing
- * algorithm, {@code htm}/{@code htu} and {@code iat} freshness, and requires {@code jti}. It does
- * <em>not</em> perform {@code jti} replay detection (the caller owns the replay cache) nor challenge
- * binding (the caller compares {@link DpopProof#nonce()} against the issued challenge).
+ * Validates a DPoP proof JWT per RFC 9449 §4.3, the checks every receiver makes: at the token endpoint (attestation
+ * combined mode, in client-attestation), at a resource server (rs-validation) and at the operator APIs (platform-pf).
+ * The proof is self-signed with the key carried in its {@code jwk} header; this validator verifies that signature,
+ * checks the {@code typ}, the signing algorithm, {@code htm}/{@code htu} and {@code iat} freshness, and requires
+ * {@code jti}. It does <em>not</em> perform {@code jti} replay detection (the caller owns the replay cache), the
+ * {@code ath} and key-binding checks of item 12 (the caller holds the access token), nor challenge binding (the caller
+ * compares {@link DpopProof#nonce()} against the issued challenge).
+ *
+ * <p>Moved here from client-attestation (finding F-0225), so that a module can check a proof without taking
+ * client-attestation and rar-model with it.
  */
 public final class DpopProofValidator {
     private static final String DPOP_TYP = "dpop+jwt";
@@ -45,7 +51,7 @@ public final class DpopProofValidator {
      * Verifies the DPoP proof and returns its parsed form.
      *
      * @param dpop           the {@code DPoP} header value (compact JWS)
-     * @param expectedMethod expected HTTP method for the {@code htm} check, or {@code null} to skip
+     * @param expectedMethod expected HTTP method for the {@code htm} check, compared exactly, or {@code null} to skip
      * @param expectedHtu    expected HTTP target URI for the {@code htu} check, or {@code null} to skip
      * @throws Exception if the proof is structurally invalid, the signature fails, or a check fails
      */
@@ -67,10 +73,9 @@ public final class DpopProofValidator {
         JsonWebSignature jws = new JsonWebSignature();
         jws.setCompactSerialization(dpop);
         jws.setAlgorithmConstraints(new AlgorithmConstraints(AlgorithmConstraints.ConstraintType.PERMIT, this.acceptedAlgorithms.toArray(new String[0])));
-        PublicJsonWebKey proofKey = jws.getJwkHeader();
-        if (proofKey == null) {
-            throw new IllegalArgumentException("DPoP proof 'jwk' header is not a public key");
-        }
+        // Never null here: the header was checked above to be an object, and jose4j reads one that is not a key as
+        // a JoseException rather than as null.
+        PublicJsonWebKey proofKey = Objects.requireNonNull(jws.getJwkHeader(), "DPoP proof 'jwk' header");
         jws.setKey(proofKey.getPublicKey());
         if (!jws.verifySignature()) {
             throw new IllegalArgumentException("DPoP proof signature did not verify");
@@ -87,7 +92,10 @@ public final class DpopProofValidator {
         String nonce = claims.hasClaim("nonce") ? claims.getStringClaimValue("nonce") : null;
         String ath = claims.hasClaim("ath") ? claims.getStringClaimValue("ath") : null;
 
-        if (expectedMethod != null && !expectedMethod.equalsIgnoreCase(htm)) {
+        // RFC 9449 §4.3, item 8: "The htm claim matches the HTTP method of the current request." RFC 9110 §9.1: "The
+        // method token is case-sensitive because it might be used as a gateway to object-based systems with
+        // case-sensitive method names." So "get" is not GET (finding F-0226).
+        if (expectedMethod != null && !expectedMethod.equals(htm)) {
             throw new IllegalArgumentException("DPoP 'htm' mismatch: got '" + DpopProofValidator.shown(htm)
                     + "', expected '" + expectedMethod + "'");
         }

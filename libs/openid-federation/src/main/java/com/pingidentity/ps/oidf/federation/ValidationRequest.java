@@ -23,6 +23,7 @@ public final class ValidationRequest {
     private final long maxPresentedEntryAgeSeconds;
     private final boolean includeAnchorConfiguration;
     private final int maxFetches;
+    private final ResolutionBudget budget;
 
     private ValidationRequest(Builder b) {
         this.subject = b.subject;
@@ -35,6 +36,7 @@ public final class ValidationRequest {
         this.maxPresentedEntryAgeSeconds = b.maxPresentedEntryAgeSeconds;
         this.includeAnchorConfiguration = b.includeAnchorConfiguration;
         this.maxFetches = b.maxFetches;
+        this.budget = b.budget;
     }
 
     /** @param subject the Entity Identifier of the Trust Chain subject (§4.1) */
@@ -104,6 +106,16 @@ public final class ValidationRequest {
         return this.maxFetches;
     }
 
+    /**
+     * The budget this validation spends from, when the caller has one - a registration that validates a chain and
+     * then its Trust Marks, say - or null, when the validation starts a budget of its own from the validator's
+     * {@link ValidatorOptions}. Either way the validation spends from a child of it holding at most
+     * {@link #maxFetches()} requests (plan item S5b).
+     */
+    public ResolutionBudget budget() {
+        return this.budget;
+    }
+
     public static final class Builder {
         private final String subject;
         private List<String> presentedChain = List.of();
@@ -115,6 +127,7 @@ public final class ValidationRequest {
         private long maxPresentedEntryAgeSeconds = -1L;
         private boolean includeAnchorConfiguration;
         private int maxFetches = -1;
+        private ResolutionBudget budget;
 
         private Builder(String subject) {
             this.subject = Objects.requireNonNull(subject, "subject");
@@ -175,6 +188,12 @@ public final class ValidationRequest {
 
         public Builder maxFetches(int fetches) {
             this.maxFetches = fetches;
+            return this;
+        }
+
+        /** Spend from {@code budget}, shared with the caller's other work; null for a budget of the validation's own. */
+        public Builder budget(ResolutionBudget budget) {
+            this.budget = budget;
             return this;
         }
 

@@ -1,14 +1,15 @@
 /*
- * Parsed DPoP proof JWT (RFC 9449) as used for attestation "combined mode".
+ * A parsed, signature-verified DPoP proof JWT (RFC 9449).
  */
-package com.pingidentity.ps.oidf.clientattestation;
+package com.pingidentity.ps.oidf.jose.dpop;
 
 import org.jose4j.jwk.JsonWebKey;
 
 /**
- * Immutable view of a signature-verified DPoP proof. In attestation combined mode
- * (PoP method {@code dpop_combined}) the proof's {@code jwk} header MUST equal the attestation
- * {@code cnf} key, and a server-issued challenge (if any) is carried in the {@code nonce} claim.
+ * Immutable view of a signature-verified DPoP proof, as {@link DpopProofValidator} returns it. In attestation combined
+ * mode (PoP method {@code dpop_combined}) the proof's {@code jwk} header must equal the attestation {@code cnf} key,
+ * and a server-issued challenge (if any) is carried in the {@code nonce} claim; at a resource server the key's
+ * thumbprint must be the access token's {@code cnf.jkt} and {@code ath} its hash.
  */
 public final class DpopProof {
     private final JsonWebKey jwk;

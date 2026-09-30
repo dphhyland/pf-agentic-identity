@@ -27,3 +27,10 @@ method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.MiniRe
 check services/demo-rs coverage-gate
 # XA14 (X-A14): SetMinter moved to libs/shared-signals (package com.pingidentity.ps.oidf.signals), where sign is gated.
 method servlets/ssf com.pingidentity.ps.oidf.ssf.SetMinter.sign(com.pingidentity.ps.oidf.ssf.SecurityEventToken)
+# S8A (S8a, F-0225): DpopProofValidator moved to libs/oidf-jose (package com.pingidentity.ps.oidf.jose.dpop), where
+# these methods and validate are gated.
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.normalizeHtu(java.lang.String)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.normalizePercentEncoding(java.lang.String)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.removeDotSegments(java.lang.String)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.requireHtu(java.lang.String,java.lang.String)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.shown(java.lang.String)

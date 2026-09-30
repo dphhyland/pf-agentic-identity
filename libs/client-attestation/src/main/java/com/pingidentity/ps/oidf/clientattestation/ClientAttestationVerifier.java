@@ -19,6 +19,8 @@ import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.jose.Claims;
+import com.pingidentity.ps.oidf.jose.dpop.DpopProof;
+import com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
 
 /**

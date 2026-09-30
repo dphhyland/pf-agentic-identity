@@ -9,6 +9,21 @@ import com.pingidentity.ps.oidf.jose.JwtCodec;
  * its listed members, entity configurations of other entities, and subordinate statements.
  * Default methods layer optional max-age freshness bounds and cache-write batching
  * ({@link SubordinateStatementCache.PendingWrites}) over the three abstract fetch operations.
+ *
+ * <h2>The resolution budget</h2>
+ * A trust chain resolution spends from one {@link ResolutionBudget} (plan item S5b), and the overloads that take
+ * one are the ones {@link TrustChainValidator} calls. The validator spends one request before each call - the
+ * statement it asks for, whether the gateway answers it from a cache or not - and passes the budget in. A gateway
+ * that makes further requests to answer (an authority's Entity Configuration, to find its fetch endpoint; a second
+ * retrieval of an anchor's, OpenID Federation 1.0 §11.3) spends one request from the budget for each before making
+ * it, and makes every request, the one already paid for included, by the budget's deadline. So no request goes on
+ * the network that the budget has not paid for, and none outlives the resolution's wall clock.
+ *
+ * <p>The budget travels as a trailing parameter rather than in a request object: the interface already layers its
+ * optional arguments as overloads with defaults, and a default that forwards to the overload without the budget
+ * keeps every existing gateway, and every caller outside a resolution, compiling and behaving as before. Such a
+ * gateway is still held to one request of the budget per statement asked for, by the validator; the requests it
+ * makes inside a call are its own to bound.
  */
 public interface TrustControllerGateway {
     public static final long DEFAULT_MAX_AGE_LIMIT = -1L;
@@ -26,6 +41,15 @@ public interface TrustControllerGateway {
 
     default public String fetchEntityStatement(String issuer, long maxAgeFromIatSeconds, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
         return this.fetchEntityStatement(issuer, maxAgeFromIatSeconds);
+    }
+
+    /**
+     * The overload a resolution calls: {@code budget} has paid for the statement, and pays for any further request
+     * the gateway makes to answer (see the class comment). This default ignores it.
+     */
+    default public String fetchEntityStatement(String issuer, long maxAgeFromIatSeconds, SubordinateStatementCache.PendingWrites pendingWrites,
+            ResolutionBudget budget) throws Exception {
+        return this.fetchEntityStatement(issuer, maxAgeFromIatSeconds, pendingWrites);
     }
 
     /** Rejects a configuration that is not typed {@code entity-statement+jwt} (OpenID Federation 1.0 §3). */
@@ -50,6 +74,16 @@ public interface TrustControllerGateway {
 
     default public String fetchSubordinateStatement(String authorityIssuer, String subject, long maxAgeFromIatSeconds, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
         return this.fetchSubordinateStatement(authorityIssuer, subject, maxAgeFromIatSeconds);
+    }
+
+    /**
+     * The overload a resolution calls: {@code budget} has paid for the statement, and pays for any further request
+     * the gateway makes to answer, such as the authority's Entity Configuration (see the class comment). This
+     * default ignores it.
+     */
+    default public String fetchSubordinateStatement(String authorityIssuer, String subject, long maxAgeFromIatSeconds,
+            SubordinateStatementCache.PendingWrites pendingWrites, ResolutionBudget budget) throws Exception {
+        return this.fetchSubordinateStatement(authorityIssuer, subject, maxAgeFromIatSeconds, pendingWrites);
     }
 
     /**
@@ -80,6 +114,15 @@ public interface TrustControllerGateway {
     default public String anchorConfiguration(TrustAnchor anchor, java.util.Set<String> acceptedSigningAlgorithms,
             SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
         return this.fetchEntityStatement(anchor.entityId(), -1L, pendingWrites);
+    }
+
+    /**
+     * The overload a resolution calls: {@code budget} has paid for the configuration, and pays for a second
+     * retrieval (§11.3) or any other further request (see the class comment). This default ignores it.
+     */
+    default public String anchorConfiguration(TrustAnchor anchor, java.util.Set<String> acceptedSigningAlgorithms,
+            SubordinateStatementCache.PendingWrites pendingWrites, ResolutionBudget budget) throws Exception {
+        return this.anchorConfiguration(anchor, acceptedSigningAlgorithms, pendingWrites);
     }
 
     default public SubordinateStatementCache.PendingWrites newPendingWrites() {

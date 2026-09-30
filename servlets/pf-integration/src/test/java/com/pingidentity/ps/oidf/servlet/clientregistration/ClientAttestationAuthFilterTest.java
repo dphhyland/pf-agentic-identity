@@ -108,12 +108,13 @@ class ClientAttestationAuthFilterTest {
     void refusesToStartWhenNoBridgeSigningIsConfiguredAndItIsRequired() throws Exception {
         resetSingletons();
 
-        ServletException e = assertThrows(ServletException.class,
-                () -> new ClientAttestationAuthFilter().init(null));
+        assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").state());
+        String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").reason();
 
-        assertTrue(e.getMessage().contains(BridgeSigners.BACKING_ENV), e.getMessage());
-        assertTrue(e.getMessage().contains(FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV),
-                "the failure must name the opt-out, or an operator cannot act on it: " + e.getMessage());
+        assertTrue(eReason.contains(BridgeSigners.BACKING_ENV), eReason);
+        assertTrue(eReason.contains(com.pingidentity.ps.oidf.platform.component.ComponentSwitches.ATTESTATION_AUTH),
+                "the failure must name the opt-out, or an operator cannot act on it: " + eReason);
     }
 
     @Test
@@ -147,9 +148,11 @@ class ClientAttestationAuthFilterTest {
         System.setProperty(ANCHOR_JWKS_PROP, "{ not json");
         configureKeysFor(dir, "https://rp.example.com/agent-1");
 
-        ServletException e = assertThrows(ServletException.class, () -> new ClientAttestationAuthFilter().init(null));
+        assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").state());
+        String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").reason();
 
-        assertTrue(e.getMessage().contains("not a JSON object"), e.getMessage());
+        assertTrue(eReason.contains("not a JSON object"), eReason);
     }
 
     @Test
@@ -173,13 +176,14 @@ class ClientAttestationAuthFilterTest {
         System.setProperty(LEGACY_KEY_PROP, privateJwkJson("old-deployment-key"));
         resetSingletons();
 
-        ServletException e = assertThrows(ServletException.class,
-                () -> new ClientAttestationAuthFilter().init(null));
+        assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").state());
+        String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").reason();
 
-        assertTrue(e.getMessage().contains(FederationRuntimeConfig.BRIDGE_KEY_ENV),
-                "must name the variable that is now inert: " + e.getMessage());
-        assertTrue(e.getMessage().contains(BridgeSigners.KEYS_ENV),
-                "must say where the key should move to: " + e.getMessage());
+        assertTrue(eReason.contains(FederationRuntimeConfig.BRIDGE_KEY_ENV),
+                "must name the variable that is now inert: " + eReason);
+        assertTrue(eReason.contains(BridgeSigners.KEYS_ENV),
+                "must say where the key should move to: " + eReason);
     }
 
     /**
@@ -195,14 +199,15 @@ class ClientAttestationAuthFilterTest {
         System.setProperty(LEGACY_PREV_KEY_PROP, privateJwkJson("outgoing-deployment-key"));
         resetSingletons();
 
-        ServletException e = assertThrows(ServletException.class,
-                () -> new ClientAttestationAuthFilter().init(null));
+        assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").state());
+        String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").reason();
 
-        assertTrue(e.getMessage().contains(FederationRuntimeConfig.BRIDGE_PREVIOUS_PUBLIC_KEY_ENV),
-                "must name the variable that is now inert: " + e.getMessage());
-        assertTrue(e.getMessage().contains(KEYS_PROP.replace("oidf.bridge.signing.keys", BridgeSigners.KEYS_ENV))
-                        || e.getMessage().contains(BridgeSigners.KEYS_ENV),
-                "must say what rotating a client looks like now: " + e.getMessage());
+        assertTrue(eReason.contains(FederationRuntimeConfig.BRIDGE_PREVIOUS_PUBLIC_KEY_ENV),
+                "must name the variable that is now inert: " + eReason);
+        // The part's reason is cut at 256 characters; the whole message is in the log and here.
+        String message = assertThrows(IllegalStateException.class, BridgeSigners::isConfigured).getMessage();
+        assertTrue(message.contains(BridgeSigners.KEYS_ENV), "must say what rotating a client looks like now: " + message);
     }
 
     // ---- per-client resolution ---------------------------------------------------------------------
@@ -833,16 +838,17 @@ class ClientAttestationAuthFilterTest {
     }
 
     @Test
-    void membershipRequirementIsReadFromThePropertyThenTheEnvironment() throws Exception {
+    void membershipRequirementIsReadFromThePropertyThenTheEnvironment(@TempDir Path dir) throws Exception {
         assertTrue(ClientAttestationAuthFilter.requireHostedAgentSetting("true", null));
         assertTrue(ClientAttestationAuthFilter.requireHostedAgentSetting(" ", "true")); // a blank property defers
         assertTrue(ClientAttestationAuthFilter.requireHostedAgentSetting(null, "true"));
         assertEquals(false, ClientAttestationAuthFilter.requireHostedAgentSetting("false", "true"));
         assertEquals(false, ClientAttestationAuthFilter.requireHostedAgentSetting(null, null));
 
-        System.setProperty(REQUIRE_PROP, "false");
+        // Read by a filter that starts: a switched-off one (OIDF_ATTESTATION_AUTH_ENABLED=false) reads nothing.
         System.setProperty(ClientAttestationAuthFilter.REQUIRE_HOSTED_AGENT_PROP, "true");
         resetSingletons();
+        configureKeysFor(dir, DOFILTER_CLIENT_ID);
         try {
             ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter();
             filter.init(null);
@@ -938,10 +944,11 @@ class ClientAttestationAuthFilterTest {
         configureKeysFor(dir, DOFILTER_CLIENT_ID);
         rarModelsFrom(Map.of(com.pingidentity.ps.oidf.rar.model.RarModels.ENV_MODELS, "{\"types\":"));
 
-        ServletException e = assertThrows(ServletException.class,
-                () -> new ClientAttestationAuthFilter(FIXED_ISSUER).init(null));
+        assertDoesNotThrow(() -> new ClientAttestationAuthFilter(FIXED_ISSUER).init(null));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").state());
+        String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").reason();
 
-        assertTrue(e.getMessage().contains(com.pingidentity.ps.oidf.rar.model.RarModels.ENV_MODELS_FILE), e.getMessage());
+        assertTrue(eReason.contains(com.pingidentity.ps.oidf.rar.model.RarModels.ENV_MODELS_FILE), eReason);
     }
 
     /** A filter that authenticates nothing enforces nothing, so it has no models to load. */
