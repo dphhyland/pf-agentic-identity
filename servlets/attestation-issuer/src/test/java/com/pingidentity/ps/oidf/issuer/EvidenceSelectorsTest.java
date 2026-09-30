@@ -69,7 +69,7 @@ class EvidenceSelectorsTest {
 
     @Test
     void gkeProvesClusterNamespaceAndServiceAccount() throws Exception {
-        InstanceIdentity id = new GkeTokenValidator().validate(
+        InstanceIdentity id = new GkeTokenValidator(CloudPolicies.development()).validate(
                 token(claims(GKE_ISSUER, "system:serviceaccount:payments:payment-agent")), this.bundle,
                 config(AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN, "demo-project.svc.id.goog", GKE_ISSUER));
         assertEquals(map("gke-sa-token:issuer", GKE_ISSUER, "gke-sa-token:namespace", "payments",
@@ -78,7 +78,7 @@ class EvidenceSelectorsTest {
 
     @Test
     void eksProvesClusterNamespaceAndServiceAccount() throws Exception {
-        InstanceIdentity id = new EksTokenValidator().validate(
+        InstanceIdentity id = new EksTokenValidator(CloudPolicies.development()).validate(
                 token(claims(EKS_ISSUER, "system:serviceaccount:payments:payment-agent")), this.bundle,
                 config(AttestationIssuanceConfig.EVIDENCE_EKS_SA_TOKEN, "eks.banking.demo", EKS_ISSUER));
         assertEquals(map("eks-sa-token:issuer", EKS_ISSUER, "eks-sa-token:namespace", "payments",
@@ -87,7 +87,7 @@ class EvidenceSelectorsTest {
 
     @Test
     void aksProvesClusterNamespaceAndServiceAccount() throws Exception {
-        InstanceIdentity id = new AksWorkloadIdentityValidator().validate(
+        InstanceIdentity id = new AksWorkloadIdentityValidator(CloudPolicies.development()).validate(
                 token(claims(AKS_ISSUER, "system:serviceaccount:payments:gateway-agent")), this.bundle,
                 config(AttestationIssuanceConfig.EVIDENCE_AKS_SA_TOKEN, "aks.banking.demo", AKS_ISSUER));
         assertEquals(map("aks-sa-token:issuer", AKS_ISSUER, "aks-sa-token:namespace", "payments",
@@ -98,7 +98,7 @@ class EvidenceSelectorsTest {
     void gcpProvesIssuerAndEmail() throws Exception {
         JwtClaims claims = claims(GOOGLE_ISSUER, "104857600000000000001");
         claims.setClaim("email", "payments-agent@demo-project.iam.gserviceaccount.com");
-        InstanceIdentity id = new GcpSaTokenValidator().validate(token(claims), this.bundle,
+        InstanceIdentity id = new GcpSaTokenValidator(CloudPolicies.development()).validate(token(claims), this.bundle,
                 config(AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN, "demo-project.gcp.example", GOOGLE_ISSUER));
         assertEquals(map("gcp-id-token:email", "payments-agent@demo-project.iam.gserviceaccount.com",
                 "gcp-id-token:issuer", GOOGLE_ISSUER), id.selectors());
@@ -109,7 +109,7 @@ class EvidenceSelectorsTest {
         // Agent Engine's service agent: the domain names a service, in the shape a project would take.
         JwtClaims claims = claims(GOOGLE_ISSUER, "104857600000000000002");
         claims.setClaim("email", "service-123456789012@gcp-sa-aiplatform-re.iam.gserviceaccount.com");
-        InstanceIdentity id = new GcpSaTokenValidator().validate(token(claims), this.bundle,
+        InstanceIdentity id = new GcpSaTokenValidator(CloudPolicies.development()).validate(token(claims), this.bundle,
                 config(AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN, "demo-project.gcp.example", null));
         assertEquals(map("gcp-id-token:email", "service-123456789012@gcp-sa-aiplatform-re.iam.gserviceaccount.com",
                 "gcp-id-token:issuer", GOOGLE_ISSUER), id.selectors());
@@ -117,7 +117,7 @@ class EvidenceSelectorsTest {
 
     @Test
     void awsProvesIssuerAccountAndRole() throws Exception {
-        InstanceIdentity id = new AwsStsWebIdentityValidator().validate(
+        InstanceIdentity id = new AwsStsWebIdentityValidator(CloudPolicies.development()).validate(
                 token(claims(AWS_ISSUER, "arn:aws:sts::123456789012:assumed-role/payments-agent/session-7")),
                 this.bundle,
                 config(AttestationIssuanceConfig.EVIDENCE_AWS_STS_WEB_IDENTITY, "aws.banking.demo", AWS_ISSUER));
@@ -130,7 +130,7 @@ class EvidenceSelectorsTest {
         JwtClaims claims = claims(AZURE_ISSUER, "opaque-subject");
         claims.setClaim("tid", TENANT);
         claims.setClaim("oid", OID);
-        InstanceIdentity id = new AzureManagedIdentityValidator().validate(token(claims), this.bundle,
+        InstanceIdentity id = new AzureManagedIdentityValidator(CloudPolicies.development()).validate(token(claims), this.bundle,
                 config(AttestationIssuanceConfig.EVIDENCE_AZURE_MI_TOKEN, "azure.banking.demo", AZURE_ISSUER));
         assertEquals(map("azure-mi-token:issuer", AZURE_ISSUER, "azure-mi-token:object_id", OID,
                 "azure-mi-token:tenant_id", TENANT), id.selectors());
@@ -161,7 +161,7 @@ class EvidenceSelectorsTest {
             audiences.add("https://rp-" + i + ".example.com");
         }
         claims.setAudience(audiences);
-        InstanceIdentity id = new GkeTokenValidator().validate(token(claims), this.bundle,
+        InstanceIdentity id = new GkeTokenValidator(CloudPolicies.development()).validate(token(claims), this.bundle,
                 config(AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN, "demo-project.svc.id.goog", GKE_ISSUER));
         assertEquals(map("gke-sa-token:issuer", GKE_ISSUER, "gke-sa-token:namespace", "payments",
                 "gke-sa-token:service_account", "payment-agent"), id.selectors());
@@ -207,26 +207,29 @@ class EvidenceSelectorsTest {
     }
 
     @Test
-    void nonStringClaimsGiveNoSelector() throws Exception {
+    void aRequiredClaimThatIsNotAStringIsRefusedAndGivesNoSelector() throws Exception {
+        // From 0.6.0 (plan item H-ATT-1) tid and email are compared, so a tid or an email that is not a JSON string is
+        // refused rather than read as its text; either way no selector is built from it.
         JwtClaims claims = claims(AZURE_ISSUER, "opaque-subject");
         claims.setClaim("tid", 12345);
         claims.setClaim("oid", OID);
-        InstanceIdentity id = new AzureManagedIdentityValidator().validate(token(claims), this.bundle,
-                config(AttestationIssuanceConfig.EVIDENCE_AZURE_MI_TOKEN, "azure.banking.demo", null));
-        assertEquals(map("azure-mi-token:issuer", AZURE_ISSUER, "azure-mi-token:object_id", OID), id.selectors());
+        IssuanceException azure = assertThrows(IssuanceException.class, () -> new AzureManagedIdentityValidator(
+                CloudPolicies.development()).validate(token(claims), this.bundle,
+                config(AttestationIssuanceConfig.EVIDENCE_AZURE_MI_TOKEN, "azure.banking.demo", null)));
+        assertEquals("invalid_svid", azure.error());
 
-        // An email that is an array still makes a subject (jose4j reads it as its text) but never a selector.
         JwtClaims gcp = claims(null, "104857600000000000003");
         gcp.setClaim("email", List.of("a@demo-project.iam.gserviceaccount.com"));
-        InstanceIdentity g = new GcpSaTokenValidator().validate(token(gcp), this.bundle,
-                config(AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN, "demo-project.gcp.example", null));
-        assertTrue(g.selectors().isEmpty(), g.selectors().toString());
+        IssuanceException google = assertThrows(IssuanceException.class, () -> new GcpSaTokenValidator(
+                CloudPolicies.development()).validate(token(gcp), this.bundle,
+                config(AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN, "demo-project.gcp.example", null)));
+        assertEquals("invalid_svid", google.error());
     }
 
     @Test
     void anOversizedValueRefusesTheEvidenceRatherThanTruncating() throws Exception {
         String longName = "a".repeat(EvidenceSelectors.MAX_VALUE_BYTES + 1);
-        IssuanceException gke = assertThrows(IssuanceException.class, () -> new GkeTokenValidator().validate(
+        IssuanceException gke = assertThrows(IssuanceException.class, () -> new GkeTokenValidator(CloudPolicies.development()).validate(
                 token(claims(GKE_ISSUER, "system:serviceaccount:payments:" + longName)), this.bundle,
                 config(AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN, "demo-project.svc.id.goog", GKE_ISSUER)));
         assertEquals("invalid_svid", gke.error());
@@ -257,14 +260,14 @@ class EvidenceSelectorsTest {
         PublicJsonWebKey stranger = TestJwts.ec("bundle-1");
         String forged = TestJwts.sign(stranger, "ES256", null,
                 claims(GKE_ISSUER, "system:serviceaccount:payments:" + "a".repeat(5000)));
-        IssuanceException e = assertThrows(IssuanceException.class, () -> new GkeTokenValidator().validate(forged,
+        IssuanceException e = assertThrows(IssuanceException.class, () -> new GkeTokenValidator(CloudPolicies.development()).validate(forged,
                 this.bundle, config(AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN, "demo-project.svc.id.goog", null)));
         assertTrue(e.getMessage().contains("signature"), e.getMessage());
 
         // Expired, with a value over the bound: refused as expired.
         JwtClaims expired = claims(GKE_ISSUER, "system:serviceaccount:payments:" + "a".repeat(5000));
         expired.setExpirationTime(NumericDate.fromSeconds(NumericDate.now().getValue() - 3600));
-        IssuanceException x = assertThrows(IssuanceException.class, () -> new GkeTokenValidator().validate(
+        IssuanceException x = assertThrows(IssuanceException.class, () -> new GkeTokenValidator(CloudPolicies.development()).validate(
                 token(expired), this.bundle,
                 config(AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN, "demo-project.svc.id.goog", null)));
         assertTrue(x.getMessage().contains("expired"), x.getMessage());
@@ -294,8 +297,8 @@ class EvidenceSelectorsTest {
             {AttestationIssuanceConfig.EVIDENCE_EKS_SA_TOKEN, EKS_ISSUER, "eks.banking.demo"},
             {AttestationIssuanceConfig.EVIDENCE_AKS_SA_TOKEN, AKS_ISSUER, "aks.banking.demo"},
         };
-        List<InstanceAttestationValidator> clusterValidators = List.of(new GkeTokenValidator(),
-                new EksTokenValidator(), new AksWorkloadIdentityValidator());
+        List<InstanceAttestationValidator> clusterValidators = List.of(new GkeTokenValidator(CloudPolicies.development()),
+                new EksTokenValidator(CloudPolicies.development()), new AksWorkloadIdentityValidator(CloudPolicies.development()));
         for (int i = 0; i < clusters.length; i++) {
             String type = clusters[i][0];
             String issuer = clusters[i][1];
@@ -304,7 +307,7 @@ class EvidenceSelectorsTest {
                     v -> map(type + ":issuer", issuer, type + ":namespace", "payments",
                             type + ":service_account", v), "invalid_svid"));
         }
-        out.add(new Case("gcp-id-token", new GcpSaTokenValidator(),
+        out.add(new Case("gcp-id-token", new GcpSaTokenValidator(CloudPolicies.development()),
                 config(AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN, "demo-project.gcp.example", GOOGLE_ISSUER), null,
                 v -> {
                     JwtClaims c = claims(GOOGLE_ISSUER, "104857600000000000001");
@@ -313,12 +316,12 @@ class EvidenceSelectorsTest {
                 },
                 v -> map("gcp-id-token:email", v + "@demo-project.iam.gserviceaccount.com",
                         "gcp-id-token:issuer", GOOGLE_ISSUER), "invalid_svid"));
-        out.add(new Case("aws-sts-web-identity", new AwsStsWebIdentityValidator(),
+        out.add(new Case("aws-sts-web-identity", new AwsStsWebIdentityValidator(CloudPolicies.development()),
                 config(AttestationIssuanceConfig.EVIDENCE_AWS_STS_WEB_IDENTITY, "aws.banking.demo", AWS_ISSUER), null,
                 v -> claims(AWS_ISSUER, "arn:aws:iam::123456789012:role/" + v),
                 v -> map("aws-sts-web-identity:account", "123456789012", "aws-sts-web-identity:issuer", AWS_ISSUER,
                         "aws-sts-web-identity:role", v), "invalid_svid"));
-        out.add(new Case("azure-mi-token", new AzureManagedIdentityValidator(),
+        out.add(new Case("azure-mi-token", new AzureManagedIdentityValidator(CloudPolicies.development()),
                 config(AttestationIssuanceConfig.EVIDENCE_AZURE_MI_TOKEN, "azure.banking.demo", AZURE_ISSUER), null,
                 v -> {
                     JwtClaims c = claims(AZURE_ISSUER, "opaque-subject");
@@ -466,7 +469,7 @@ class EvidenceSelectorsTest {
 
     @Test
     void selectorsCannotBeChangedOnceBuilt() throws Exception {
-        InstanceIdentity id = new GkeTokenValidator().validate(
+        InstanceIdentity id = new GkeTokenValidator(CloudPolicies.development()).validate(
                 token(claims(GKE_ISSUER, "system:serviceaccount:payments:payment-agent")), this.bundle,
                 config(AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN, "demo-project.svc.id.goog", null));
         SortedMap<String, SortedSet<String>> selectors = id.selectors();
@@ -497,7 +500,7 @@ class EvidenceSelectorsTest {
         SortedMap<String, SortedSet<String>> expected = map("gke-sa-token:issuer", GKE_ISSUER,
                 "gke-sa-token:namespace", "payments", "gke-sa-token:service_account", "payment-agent");
         String subject = "spiffe://demo-project.svc.id.goog/ns/payments/sa/payment-agent";
-        GkeTokenValidator validator = new GkeTokenValidator();
+        GkeTokenValidator validator = new GkeTokenValidator(CloudPolicies.development());
         PublicJsonWebKey attesterKey = TestJwts.ec("attester-1");
         Map<String, Object> instanceJwk = TestJwts.publicParams(TestJwts.ec("instance-1"));
 
@@ -557,7 +560,7 @@ class EvidenceSelectorsTest {
         String token = token(claims(GKE_ISSUER, "system:serviceaccount:payments:payment-agent"));
         AttestationIssuanceConfig config =
                 config(AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN, "demo-project.svc.id.goog", GKE_ISSUER);
-        GkeTokenValidator validator = new GkeTokenValidator();
+        GkeTokenValidator validator = new GkeTokenValidator(CloudPolicies.development());
         InstanceIdentity with = validator.validate(token, this.bundle, config);
         InstanceIdentity without = InstanceIdentity.ofSpiffe(validator.validateSvid(token, this.bundle, config),
                 validator.id());
@@ -587,9 +590,9 @@ class EvidenceSelectorsTest {
     }
 
     private List<InstanceAttestationValidator> validators() {
-        return List.of(new SpiffeInstanceAttestationValidator(), new GkeTokenValidator(), new GcpSaTokenValidator(),
-                new EksTokenValidator(), new AwsStsWebIdentityValidator(), new AksWorkloadIdentityValidator(),
-                new AzureManagedIdentityValidator(), wallet());
+        return List.of(new SpiffeInstanceAttestationValidator(), new GkeTokenValidator(CloudPolicies.development()), new GcpSaTokenValidator(CloudPolicies.development()),
+                new EksTokenValidator(CloudPolicies.development()), new AwsStsWebIdentityValidator(CloudPolicies.development()), new AksWorkloadIdentityValidator(CloudPolicies.development()),
+                new AzureManagedIdentityValidator(CloudPolicies.development()), wallet());
     }
 
     private static SortedMap<String, SortedSet<String>> map(String... keyValues) {

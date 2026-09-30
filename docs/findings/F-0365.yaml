@@ -1,0 +1,21 @@
+id: F-0365
+title: Cloud evidence refusals repeated the token's iss, sub, kid and alg in error_description
+severity: low
+area: attestation-issuer
+source: pr-review
+status: closed
+plan_items: [H-ATT-1]
+prs: [83]
+verification: >
+  2026-09-30, branch prod/p3-cloud-evidence (PR 83): every refusal in CloudTokenValidator and its six subclasses
+  names the check and the setting, never a value from the token; CloudTokenValidatorTest's refused() asserts, for the
+  iss, subject, project, tenant and account refusals, that the message does not contain the value the token carried.
+target_release: 0.6.0
+notes: >
+  Found while building H-ATT-1, reading main at cf5b8bce. GkeTokenValidator and its five siblings built messages
+  such as "token issuer '<iss>' does not match expected '<pin>'", "token 'sub' is not a Kubernetes service account:
+  <sub>", "no trust-bundle key matches SVID kid: <kid>" and "token uses an unsupported signing algorithm: <alg>".
+  AttestationIssuanceServlet writes the message as error_description, so a caller could have the attester reflect
+  text of its choosing, and an operator's pinned issuer was disclosed to anyone presenting a token for the wrong one.
+  H-FED-4's rule for the federation side is that a refusal never echoes token contents; the base class applies it
+  to the attester's cloud evidence.

@@ -37,7 +37,7 @@ written by hand is this page, outside its generated list.
 | [hosted-entities](hosted-entities.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.trustanchor` | 8 |
 | [registration](registration.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.clientregistration` | 9 |
 | [attestation-issuer](attestation-issuer.md) | `servlets/attestation-issuer` | `com.pingidentity.ps.oidf.servlet.attestation` | 16 |
-| [evidence-policy](evidence-policy.md) | `servlets/attestation-issuer` | `com.pingidentity.ps.oidf.issuer` | 2 |
+| [evidence-policy](evidence-policy.md) | `servlets/attestation-issuer` | `com.pingidentity.ps.oidf.issuer` | 13 |
 | [issuance-client-properties](issuance-client-properties.md) | `servlets/attestation-issuer` | `com.pingidentity.ps.oidf.servlet.attestation` | 12 |
 | [ssf-logout-signal](ssf-logout-signal.md) | `servlets/ssf` | `com.pingidentity.ps.oidf.servlet.ssf` | 1 |
 | [ssf-transmitter](ssf-transmitter.md) | `servlets/ssf` | `com.pingidentity.ps.oidf.ssf` | 54 |

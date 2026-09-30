@@ -25,7 +25,7 @@ class AzureManagedIdentityValidatorTest {
     private static final String TRUST_DOMAIN = "demo-tenant.azure.demo";
     private static final String OID = "11111111-1111-1111-1111-111111111111";
 
-    private final AzureManagedIdentityValidator validator = new AzureManagedIdentityValidator();
+    private final AzureManagedIdentityValidator validator = new AzureManagedIdentityValidator(CloudPolicies.development());
     private PublicJsonWebKey entraKey;
     private List<JsonWebKey> bundle;
     private AttestationIssuanceConfig config;
@@ -50,6 +50,7 @@ class AzureManagedIdentityValidatorTest {
             claims.setIssuer(issuer);
         }
         claims.setSubject("some-opaque-sub"); // Azure MI tokens carry an opaque sub; oid is the stable id
+        claims.setClaim("tid", TENANT_ID);
         if (oid != null) {
             claims.setClaim("oid", oid);
         }

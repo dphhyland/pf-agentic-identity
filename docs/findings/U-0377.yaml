@@ -1,0 +1,16 @@
+id: U-0377
+title: Which issuer an IMDS managed-identity token carries for a custom resource (v1 sts.windows.net or v2)
+area: attestation-issuer
+source: design
+status: open
+plan_items: [H-ATT-1]
+prs: [83]
+recorded_in: docs/releases/unreleased/HATT1.md, Before you deploy, Pin each cloud evidence issuer
+verify_by: >
+  On an Azure VM with a managed identity, request a token from IMDS with resource set to an app ID URI whose
+  registration leaves accessTokenAcceptedVersion unset, and one with it set to 2; decode iss and ver.
+verification: ''
+notes: >
+  The release notes tell operators to pin https://sts.windows.net/<tenant>/ or
+  https://login.microsoftonline.com/<tenant>/v2.0; the reference says a v2.0 token's issuer "ends in /v2.0". Which
+  one a managed identity's token for this attester carries was not observed; development accepts either.

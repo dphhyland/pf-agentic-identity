@@ -81,6 +81,9 @@ public final class EvidencePolicy {
         } catch (SettingRefused e) {
             throw new IllegalArgumentException(e.getMessage(), e);
         }
+        // The cloud evidence settings in the same catalogue (plan item H-ATT-1), read here too so a value their entries
+        // refuse is FAILED_CONFIG at deploy, naming it, rather than each cloud issuance's server_error.
+        CloudTokenValidator.Policy.fromEnvironment(props, env);
         if (lifetime > PRODUCTION_MAX_EVIDENCE_LIFETIME_SECONDS && isProduction(env)) {
             throw new IllegalArgumentException(MAX_LIFETIME_ENV + "=" + lifetime + " is above the production cap of "
                     + PRODUCTION_MAX_EVIDENCE_LIFETIME_SECONDS + " s; production may only shorten it. Set "

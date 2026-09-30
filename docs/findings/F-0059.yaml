@@ -3,10 +3,21 @@ title: 'Cloud evidence validators: no per-type iss pin, GCP wildcards, Azure tid
 severity: medium
 area: attestation-issuer
 source: reviewer-report
-status: open
+status: closed
 plan_items: [H-ATT-1]
-prs: []
-verification: ''
+prs: [83]
+verification: >
+  2026-09-30, branch prod/p3-cloud-evidence (PR 83): CloudTokenValidator is the one base of the six validators, each
+  subclass shorter than it (CloudTokenValidatorTest.theSixSubclassesAreEachShorterThanTheBase). Its table test runs
+  every type through a good token, a wrong, absent and widened iss, no pin under production (invalid_client naming
+  OIDF_ATTESTER_<TYPE>_ISSUERS), development's published issuer, wrong and multiple aud, exp, nbf in the future, iat
+  missing and in the future, exp - iat over OIDF_ATTESTER_MAX_CLOUD_TOKEN_LIFETIME_SECONDS, a use=enc key, and keys
+  that do not fit the algorithm; and GCP bindings with '*' across '@' and the project, service agents and unlisted
+  projects, GKE bindings and projects, Azure's wrong and missing tid and missing or unlisted oid, AKS tid and AWS
+  accounts. RemoteJwksCacheTest holds the use filter (applied by the cloud validators only: the cache keeps a SPIRE
+  bundle's jwt-svid keys, which a spiffe-jwt SVID still verifies against) and the bounds; the azure-mi-token default
+  lifetime of 5700 s is held by anAzureManagedIdentityTokenMayLiveNinetyFiveMinutesWhenTheLifetimeIsNotSet. Run with attestation-issuer's coverage gate on
+  JDK 17, and on the PingFederate 13.1.3 image's JDK 21.0.12.1.
 target_release: 0.6.0
 notes: >
   From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the

@@ -38,22 +38,114 @@ is registered with an *unconfigured* key resolver so the id is always discoverab
 loudly until wallet-provider trust is configured. `SpireSelectorIntrospector` (optional) merges SPIRE
 registration selectors into `workload.attributes`; they are not evidence selectors ([below](#evidence-selectors)).
 
-What each validator checks, and what it copies into the identity, as the code does it on 2026-09-28. The key
+What each validator checks, and what it copies into the identity, as the code does it on 2026-09-30. The key
 source for every type but the wallet's is the client's trust bundle: `attestation_spiffe_bundle` inline, or
-`attestation_bundle_url` fetched and cached (`RemoteJwksCache`). The key is the one the header's `kid` names, or
-the bundle's only key when there is no `kid`. The algorithm must be RS, PS or ES 256/384/512 or EdDSA, so `none`
-and HMAC are refused. `aud` must contain the client's `attestation_issuer`. `exp` is required and refused once more
-than 60 s past; `iat` is read when present. A failure of the evidence is `invalid_svid`, or
-`invalid_instance_attestation` for the wallet; a cloud type's client with no `attestation_trust_domain` is a
-configuration error, `invalid_client`.
+`attestation_bundle_url` fetched and cached (`RemoteJwksCache`, at most 256 URLs and 64 keys a set). The cache keeps
+every key whatever its `use`, since a SPIRE bundle's keys are `jwt-svid` or `x509-svid` - the SPIFFE bundle format:
+"The use parameter MUST be set" (SPIFFE Trust Domain and Bundle §4.2.2) - and the cloud types filter to signing keys
+themselves (below). The key is the
+one the header's `kid` names, or the bundle's only key when there is no `kid`. The algorithm must be RS, PS or ES
+256/384/512 or EdDSA, so `none` and HMAC are refused. `aud` must contain the client's `attestation_issuer`. A failure
+of the evidence is `invalid_svid`, or `invalid_instance_attestation` for the wallet; a cloud type's client with no
+`attestation_trust_domain` is a configuration error, `invalid_client`.
+
+### The cloud types (`CloudTokenValidator`)
+
+From 0.6.0 (plan item H-ATT-1, finding F-0059) the six cloud types share one base, `CloudTokenValidator`, and each
+subclass adds only its own claims. The base checks, in this order:
+
+1. **The client's configuration.** A trust bundle with a signing key, `attestation_trust_domain`, and the issuers the
+   type may come from: the type's pins, `OIDF_ATTESTER_<TYPE>_ISSUERS` (below). A client's
+   `attestation_evidence_issuer` may only narrow them - it must be one of the pins, and then it is the only issuer
+   accepted - the tighten-only rule of plan item S-4c applied to the attester. Under the production profile a type
+   with no pin is refused, `invalid_client` naming the setting, with one WARN per type; under development the
+   provider's published issuer (below) is accepted, with one WARN, and a client's own `attestation_evidence_issuer`
+   is its pin.
+2. **The key.** Only keys whose `use` is absent or `sig` are considered - RFC 7517 §4.2: "The "use" parameter is
+   employed to indicate whether a public key is used for encrypting data or verifying the signature on data" - and
+   the key must fit the algorithm: RSA for RS and PS, the matching curve for ES256/384/512, OKP for EdDSA, and its own
+   `alg`, when it has one, equal to the header's.
+3. **The claims.** `iss` one of the accepted issuers. `aud` containing `attestation_issuer`, and nothing else when
+   `OIDF_ATTESTER_REQUIRE_SINGLE_AUDIENCE_EVIDENCE` is `true`. `exp` required and not more than 60 s past; `nbf`, when
+   present, not more than 60 s ahead - RFC 7519 §4.1.5: "the current date/time MUST be after or equal to the
+   not-before date/time listed in the "nbf" claim. Implementers MAY provide for some small leeway"; `iat` required and
+   not more than 60 s ahead. `exp - iat` no longer than `OIDF_ATTESTER_MAX_CLOUD_TOKEN_LIFETIME_SECONDS`. Set, it
+   holds all six types; unset, it is 3600 s, except for `azure-mi-token`, which takes 5700 s (below).
+   `OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS` still caps every piece of evidence afterwards.
+
+A refusal keeps the code it had (`invalid_svid` for the token, `invalid_client` for the client's configuration),
+never repeats what the token says - not its `iss`, `sub`, `kid` or `alg` (before 0.6.0 several messages did) - and is
+counted in `oidf_attester_cloud_evidence_refusals_total{type, check}`, where `check` is one of `config`, `iss_pin`,
+`binding_pattern`, `malformed`, `alg`, `key`, `signature`, `iss`, `aud`, `exp`, `nbf`, `iat`, `lifetime`, `subject`,
+`project`, `tenant`, `managed_identity`, `account` or `selectors` (a selector value over its bound).
+
+What each type adds, from the providers' own documents (read 2026-09-30):
+
+- **`gcp-id-token`.** Google's [Token types](https://cloud.google.com/docs/authentication/token-types): the issuer is
+  "always set to https://accounts.google.com", and the audience "can be freely chosen by the token requester" - so any
+  service account anywhere can mint a token for this attester, and the project is what ties it to the deployment. The
+  `email` must be a user-managed account, `<account>@<project>.iam.gserviceaccount.com` ([Create service
+  accounts](https://cloud.google.com/iam/docs/service-accounts-create): "between 6 and 30 characters", "lowercase
+  alphanumeric characters and dashes"), whose project `OIDF_ATTESTER_GCP_PROJECTS` lists; a service agent
+  (`...@gcp-sa-<service>.iam.gserviceaccount.com`) and the default Compute Engine account are refused. Production
+  refuses the type without the list. **The binding grammar**: each binding is exactly
+  `spiffe://<attestation_trust_domain>/sa/<account>@<project>.iam.gserviceaccount.com`, with no `*` and a listed
+  project. A binding's `*` matches any suffix, and the project comes after the `@`, so any wildcard in an email
+  binding would cross the `@` into every project; none is accepted, and a client with one is refused
+  (`invalid_client`).
+- **`gke-sa-token`.** Google's identifier for "all Pods in a specific cluster" is
+  `https://container.googleapis.com/v1/projects/PROJECT_ID/locations/LOCATION/clusters/CLUSTER_NAME`, and the workload
+  identity pool is `PROJECT_ID.svc.id.goog` ([About Workload Identity Federation for
+  GKE](https://cloud.google.com/kubernetes-engine/docs/concepts/workload-identity)). With `OIDF_ATTESTER_GCP_PROJECTS`
+  set, the project in the token's cluster issuer, and in a trust domain of the pool's form, must be listed. **The
+  binding grammar**: each binding starts `spiffe://<attestation_trust_domain>/ns/` and has at most one `*`, last, after
+  that prefix, so a wildcard can span namespaces and service accounts but never the trust domain, which holds the
+  project.
+- **`eks-sa-token`.** The cluster is its issuer, `https://oidc.eks.<region>.amazonaws.com/id/<id>`, pinned; a
+  Kubernetes token names no account, so the pin is the cluster and account check, as before. The EKS pod identity
+  webhook's `eks.amazonaws.com/token-expiration` annotation "Defaults to 86400 for expirationSeconds if not set"
+  ([aws/amazon-eks-pod-identity-webhook](https://github.com/aws/amazon-eks-pod-identity-webhook), read 2026-09-30),
+  which the 3600 s default refuses: set the annotation to 3600 or less on the service account or pod, or raise the
+  setting.
+- **`aws-sts-web-identity`.** AWS's [Understanding token
+  claims](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_outbound_token_claims.html): `iss` is
+  "Your account-specific issuer URL", `sub` "The ARN of the IAM principal that requested the token". The ARN's account
+  must be one `OIDF_ATTESTER_AWS_ACCOUNTS` lists, when it is set, and must equal the token's
+  `https://sts.amazonaws.com/` `aws_account` when that is present. `GetWebIdentityToken`'s `DurationSeconds` is "60
+  seconds (1 minute) to 3600 seconds (1 hour)", so the default lifetime cap fits it.
+- **`azure-mi-token`.** Microsoft's [access token claims
+  reference](https://learn.microsoft.com/en-us/entra/identity-platform/access-token-claims-reference): `tid`
+  "Represents the tenant that the user is signing in to", a GUID; `oid` "The immutable identifier for the requestor,
+  which is the verified identity of the user or service principal" - a managed identity is a service principal, so
+  `oid` is the managed-identity claim; and of `iss`, "The application can use the GUID portion of the claim to
+  restrict the set of tenants". `tid` is required and must be one of `OIDF_ATTESTER_AZURE_TENANTS`, when it is set,
+  else the tenant in the pinned `iss` (`https://sts.windows.net/<tenant>/` or
+  `https://login.microsoftonline.com/<tenant>/v2.0`). `oid` is required and must be one of
+  `OIDF_ATTESTER_AZURE_MANAGED_IDENTITIES`, when it is set. `xms_mirid` is not in that reference, so it is not read
+  (U-0375). The caller cannot choose the token's lifetime: Microsoft
+  [assigns](https://learn.microsoft.com/en-us/entra/identity-platform/access-tokens) "a random value ranging between
+  60-90 minutes", and the [IMDS sample
+  response](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/how-to-use-vm-token)
+  has `not_before` 3900 s before `expires_on` with `expires_in` 3599 (both read 2026-09-30). So when
+  `OIDF_ATTESTER_MAX_CLOUD_TOKEN_LIFETIME_SECONDS` is unset, `azure-mi-token` is held to 5700 s, 90 minutes and five,
+  rather than 3600; set, the setting applies (U-0379).
+- **`aks-sa-token`.** A Kubernetes token carries no `tid`; the pinned cluster issuer
+  (`https://<region>.oic.prod-aks.azure.com/...`, [Microsoft](https://learn.microsoft.com/en-us/azure/aks/use-oidc-issuer):
+  "By default, the issuer uses the base URL https://{region}.oic.prod-aks.azure.com") is what holds it to a tenant. A
+  token that does carry `tid` must be one of `OIDF_ATTESTER_AZURE_TENANTS`, when it is set.
+
+Under development, a type with no pin accepts the provider's published issuer: `https://accounts.google.com`; a GKE
+cluster issuer of the shape above; `https://oidc.eks.<region>.amazonaws.com/id/<id>`;
+`https://<id>.tokens.sts.global.api.aws`; `https://<region>.oic.prod-aks.azure.com/<guid>/<guid>/`; either Entra
+issuer shape.
 
 | Evidence type (validator) | Key | `iss` | Other claims required | `subject` | `trustDomain` | `workloadClaims` |
 |---|---|---|---|---|---|---|
 | `spiffe-jwt` (`SpiffeInstanceAttestationValidator`, via `SpiffeSvidValidator`) | trust bundle | not read | `sub` a `spiffe://` ID with a trust domain, equal to `attestation_trust_domain` when set | `sub` | the authority of `sub` | `spiffe_id` = `sub` |
-| `gke-sa-token` (`GkeTokenValidator`), `eks-sa-token` (`EksTokenValidator`), `aks-sa-token` (`AksWorkloadIdentityValidator`) | trust bundle (the cluster's JWKS) | equal to `attestation_evidence_issuer` when set | `sub` = `system:serviceaccount:<ns>:<sa>` | `spiffe://<attestation_trust_domain>/ns/<ns>/sa/<sa>` | `attestation_trust_domain` (required) | `spiffe_id` = subject |
-| `gcp-id-token` (`GcpSaTokenValidator`) | trust bundle (Google's JWKS) | equal to `attestation_evidence_issuer` when set | `email` | `spiffe://<attestation_trust_domain>/sa/<email>` | `attestation_trust_domain` (required) | `spiffe_id` = subject |
-| `aws-sts-web-identity` (`AwsStsWebIdentityValidator`) | trust bundle (the account issuer's JWKS) | equal to `attestation_evidence_issuer` when set | `sub` = `arn:aws...:iam::<account>:role/<role>` or `arn:aws...:sts::<account>:assumed-role/<role>/<session>` | `spiffe://<attestation_trust_domain>/aws/<account>/role/<role>` | `attestation_trust_domain` (required) | `spiffe_id` = subject |
-| `azure-mi-token` (`AzureManagedIdentityValidator`) | trust bundle (the tenant's JWKS) | equal to `attestation_evidence_issuer` when set | `oid` | `spiffe://<attestation_trust_domain>/azure/mi/<oid>` | `attestation_trust_domain` (required) | `spiffe_id` = subject |
+| `gke-sa-token` (`GkeTokenValidator`), `eks-sa-token` (`EksTokenValidator`), `aks-sa-token` (`AksWorkloadIdentityValidator`) | trust bundle (the cluster's JWKS), signing keys only | one of the type's pins (above) | `sub` = `system:serviceaccount:<ns>:<sa>`; `iat`; GKE's project, AKS's `tid` when present, as above | `spiffe://<attestation_trust_domain>/ns/<ns>/sa/<sa>` | `attestation_trust_domain` (required) | `spiffe_id` = subject |
+| `gcp-id-token` (`GcpSaTokenValidator`) | trust bundle (Google's JWKS), signing keys only | one of the type's pins | `email`, a user-managed account of a listed project; `iat` | `spiffe://<attestation_trust_domain>/sa/<email>` | `attestation_trust_domain` (required) | `spiffe_id` = subject |
+| `aws-sts-web-identity` (`AwsStsWebIdentityValidator`) | trust bundle (the account issuer's JWKS), signing keys only | one of the type's pins | `sub` = `arn:aws...:iam::<account>:role/<role>` or `arn:aws...:sts::<account>:assumed-role/<role>/<session>`, its account listed when the list is set; `iat` | `spiffe://<attestation_trust_domain>/aws/<account>/role/<role>` | `attestation_trust_domain` (required) | `spiffe_id` = subject |
+| `azure-mi-token` (`AzureManagedIdentityValidator`) | trust bundle (the tenant's JWKS), signing keys only | one of the type's pins | `tid` (the tenant), `oid` (the managed identity); `iat` | `spiffe://<attestation_trust_domain>/azure/mi/<oid>` | `attestation_trust_domain` (required) | `spiffe_id` = subject |
 | `wallet-instance-attestation` (`WalletInstanceAttestationValidator`) | the keys the wallet-provider resolver returns for `iss` (a federation trust chain, or the static `OIDF_WALLET_PROVIDER_JWKS` map); header `typ` one of the four WIA types or absent | required; equal to `attestation_trust_domain` when set | `sub`; `cnf.jwk`, a public key, returned as `boundKey` | `sub` | `iss` | `wallet_provider` = `iss`, `wallet_instance` = `sub` |
 
 ## Evidence selectors
@@ -68,15 +160,15 @@ what, if anything, an attestation discloses.
 |---|---|---|---|
 | `spiffe-jwt` | `spiffe-jwt:spiffe_id` | `sub` | no |
 | | `spiffe-jwt:trust_domain` | the authority of `sub` | `attestation_trust_domain`, when set |
-| `gke-sa-token`, `eks-sa-token`, `aks-sa-token` | `<type>:issuer` | `iss` | `attestation_evidence_issuer`, when set |
+| `gke-sa-token`, `eks-sa-token`, `aks-sa-token` | `<type>:issuer` | `iss` | the type's pins, narrowed by `attestation_evidence_issuer` |
 | | `<type>:namespace`, `<type>:service_account` | `sub`, `system:serviceaccount:<namespace>:<service_account>` | no |
-| `gcp-id-token` | `gcp-id-token:issuer` | `iss` | `attestation_evidence_issuer`, when set |
-| | `gcp-id-token:email` | `email` | no |
-| `aws-sts-web-identity` | `aws-sts-web-identity:issuer` | `iss` | `attestation_evidence_issuer`, when set |
-| | `aws-sts-web-identity:account`, `aws-sts-web-identity:role` | `sub`, the IAM principal ARN; the role is the one the SPIFFE path carries, the session name dropped | no |
-| `azure-mi-token` | `azure-mi-token:issuer` | `iss` | `attestation_evidence_issuer`, when set |
-| | `azure-mi-token:tenant_id` | `tid` | no: pin `attestation_evidence_issuer` to the tenant's issuer to tie it to one tenant |
-| | `azure-mi-token:object_id` | `oid` | no |
+| `gcp-id-token` | `gcp-id-token:issuer` | `iss` | the type's pins, narrowed by `attestation_evidence_issuer` |
+| | `gcp-id-token:email` | `email` | its project, with `OIDF_ATTESTER_GCP_PROJECTS` |
+| `aws-sts-web-identity` | `aws-sts-web-identity:issuer` | `iss` | the type's pins, narrowed by `attestation_evidence_issuer` |
+| | `aws-sts-web-identity:account`, `aws-sts-web-identity:role` | `sub`, the IAM principal ARN; the role is the one the SPIFFE path carries, the session name dropped | the account, with `OIDF_ATTESTER_AWS_ACCOUNTS` |
+| `azure-mi-token` | `azure-mi-token:issuer` | `iss` | the type's pins, narrowed by `attestation_evidence_issuer` |
+| | `azure-mi-token:tenant_id` | `tid` | `OIDF_ATTESTER_AZURE_TENANTS`, else the tenant of the pinned `iss` |
+| | `azure-mi-token:object_id` | `oid` | `OIDF_ATTESTER_AZURE_MANAGED_IDENTITIES`, when set |
 | `wallet-instance-attestation` | `wallet-instance-attestation:provider` | `iss`, whose keys verified the WIA | `attestation_trust_domain`, when set |
 | | `wallet-instance-attestation:instance` | `sub` | no |
 
@@ -86,11 +178,11 @@ The rules:
   passed, from claims of the evidence whose signature it verified. A claim that is not a JSON string gives no
   selector, and neither does an absent or empty one. What the client's configuration supplies rather than the
   evidence - the cloud types' `attestation_trust_domain`, and so the SPIFFE ID they synthesise - is not a selector;
-  it stays in `subject()` and `trustDomain()`. Nor is anything parsed out of a claim that does not say what it is:
-  the GCP validator reads no project claim, and the email's domain is not one - a user-managed account is
-  `<name>@<project-id>.iam.gserviceaccount.com` ([Google, service account types](https://cloud.google.com/iam/docs/service-account-types),
-  read 2026-09-28), but Google's service agents are `...@gcp-sa-<service>.iam.gserviceaccount.com` in the same
-  shape.
+  it stays in `subject()` and `trustDomain()`. Nor is anything parsed out of a claim into a selector: there is no
+  project selector. A user-managed account is `<name>@<project-id>.iam.gserviceaccount.com` ([Google, service account
+  types](https://cloud.google.com/iam/docs/service-account-types), read 2026-09-28), but Google's service agents are
+  `...@gcp-sa-<service>.iam.gserviceaccount.com` in the same shape; from 0.6.0 the project check reads the project out
+  of a user-managed account's email and refuses every other shape, and the email stays the selector.
 - **Only listed names.** The names are constants in each validator. A token's extra claims, however named (a
   `selectors` claim, a claim called `gke-sa-token:namespace`, a `kubernetes.io` object), add nothing.
 - **Values as the evidence states them.** They are compared by exact string equality, the way
@@ -277,6 +369,9 @@ in `libs/rar-model`'s test-jar runs through the mint, the configuration and the 
 | `OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS` (`oidf.attester.max.evidence.lifetime.seconds`) | 86400 | The longest lifetime the attester accepts of a piece of evidence: of the whole (`exp - iat`) when it has an `iat`, and of what is left (`exp - now`, with 60 s allowed for a clock behind the issuer's) always. Longer-lived evidence is refused (`invalid_svid` / `invalid_instance_attestation`, naming the variable). A binding lives as long as its evidence, so this bounds how long a stolen token stays presentable | Not a whole number of seconds from 1, or above 86400 under the production profile: the issuance servlet's part is `FAILED_CONFIG` at deploy, naming the variable (before 0.6.0, each issuance's 500 `server_error`) |
 | `OIDF_ATTESTER_MAX_ISSUED_TTL` (`oidf.attester.max.issued.ttl`) | 3600 | The longest lifetime, in seconds, the attester gives an attestation (plan item S4c). A client whose `attestation_issued_ttl` is above it is refused in production (`invalid_client`, naming the property, not its value) and clamped to it with a WARN in development. Above 64800 s (18 hours) is refused in both profiles: the AI Agent Profile §5, item 1, "An issued Client Attestation's `exp` SHALL NOT exceed `iat` + 18 hours" | Not a whole number, or outside 60 to 64800: first request, 500 `server_error` naming the variable, in either profile |
 | `OIDF_ATTESTER_REQUIRE_SINGLE_AUDIENCE_EVIDENCE` (`oidf.attester.require.single.audience.evidence`) | `false` | `true` refuses evidence whose `aud` names more than one party: such evidence is presentable to each of them, so the attester cannot know it was the intended one | Neither `true` nor `false` in any case: the issuance servlet's part is `FAILED_CONFIG` at deploy, naming the variable (before 0.6.0, each issuance's 500). Under development `yes`, `no`, `1`, `0`, `on` and `off` are read as `false` with a warning |
+| `OIDF_ATTESTER_GKE_SA_TOKEN_ISSUERS`, `OIDF_ATTESTER_GCP_ID_TOKEN_ISSUERS`, `OIDF_ATTESTER_EKS_SA_TOKEN_ISSUERS`, `OIDF_ATTESTER_AWS_STS_WEB_IDENTITY_ISSUERS`, `OIDF_ATTESTER_AKS_SA_TOKEN_ISSUERS`, `OIDF_ATTESTER_AZURE_MI_TOKEN_ISSUERS` (sysprop `oidf.attester.<type>.issuers`) | unset | The issuers each cloud evidence type may come from, space- or comma-separated https URLs ([above](#the-cloud-types-cloudtokenvalidator)); a client's `attestation_evidence_issuer` may only name one of them | Not an https URL with a host and no query or fragment: the issuance servlet's part is `FAILED_CONFIG` at deploy, naming the variable. Unset under production: every client of the type is refused (`invalid_client`, naming the variable, one WARN); under development the provider's published issuer, with one WARN |
+| `OIDF_ATTESTER_MAX_CLOUD_TOKEN_LIFETIME_SECONDS` | 3600 | The longest a cloud token may be issued to live (`exp - iat`), 60 to 86400 s | Outside that range, or not a whole number: `FAILED_CONFIG` at deploy, naming the variable |
+| `OIDF_ATTESTER_GCP_PROJECTS`, `OIDF_ATTESTER_AWS_ACCOUNTS`, `OIDF_ATTESTER_AZURE_TENANTS`, `OIDF_ATTESTER_AZURE_MANAGED_IDENTITIES` | unset | The Google Cloud project IDs (literal, never a pattern), AWS account IDs, Entra tenant IDs and managed identities' object IDs the cloud evidence may belong to. Production refuses `gcp-id-token` without the project list | A value outside its grammar (a project ID with a `*`, an account that is not twelve digits, a tenant or object ID that is not a GUID): `FAILED_CONFIG` at deploy, naming the variable |
 | `OIDF_REDIS_URL` and its companions | unset | The shared store the challenges, proof jtis and evidence bindings live in; see [client-attestation](../../libs/client-attestation/README.md#configuration) for the URL, the CA file and the namespaces | As documented there; an unreachable store is 503 `temporarily_unavailable` here. Unset under the production profile, without the `in-memory-state` risk accepted (`OIDF_ACCEPTED_RISKS`): from 0.6.0 `ATTESTATION_ISSUER` is `REFUSED` at deploy - every node would keep its own challenges, spent proofs and evidence bindings - and its paths answer 503; set `OIDF_REDIS_URL`, accept the risk on a standalone node, or switch the attester off with `OIDF_ATTESTATION_ISSUER_ENABLED=false` |
 | `OIDF_FEDERATION_TRUST_CONTROLLER_HOST` + `OIDF_ATTESTER_OP_ISSUER` + `OIDF_FEDERATION_TRUST_ANCHOR_JWKS` (`OIDF_FEDERATION_IGNORE_SSL_ERRORS`; the superseded `OIDF_TRUST_CONTROLLER_HOST`, `OIDF_TRUST_ANCHOR_JWKS` and `OIDF_TRUST_CONTROLLER_IGNORE_SSL` still read, with a warning) or `OIDF_WALLET_PROVIDER_JWKS` (sysprop/env) | unset | Wallet-provider trust: federation-backed preferred, static map otherwise. `OIDF_FEDERATION_TRUST_ANCHOR_JWKS` is the anchor's public JWK Set (the `jwks` claim of its entity configuration), captured once out of band; the keys are never fetched, and there is no fall-back to the static map (OpenID Federation 1.0 §4) | A host named without the anchor keys: first request, wallet trust is refused naming the variable. `OIDF_WALLET_PROVIDER_JWKS` not a JSON object: the issuance and CAS metadata servlets' parts are `FAILED_CONFIG` at deploy, naming it (before 0.6.0 it was ignored without a word) |
 | `OIDF_ATTESTER_SPIRE_ENTRIES_URL`, `OIDF_ENTRA_AGENT_DIRECTORY` (sysprop/env) | unset | SPIRE selector introspection; the Entra Agent ID asserted-context resolver (`OIDF_CIMD_TRUST_BUNDLES` only adds `cimd` to the CAS document's `client_metadata_sources_supported`, and only under `OIDF_DEPLOYMENT_PROFILE=development`) | The SPIRE URL not http or https, or the directory not a JSON object: the issuance servlet's part is `FAILED_CONFIG` at deploy, naming the setting (before 0.6.0 an unparseable directory registered no resolver, without a word). An unreachable SPIRE endpoint yields no selectors |

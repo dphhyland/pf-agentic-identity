@@ -1,0 +1,17 @@
+id: U-0376
+title: That an AKS cluster's issuer URL carries the tenant as its first path segment
+area: attestation-issuer
+source: design
+status: open
+plan_items: [H-ATT-1]
+prs: [83]
+recorded_in: servlets/attestation-issuer/README.md, The cloud types (aks-sa-token)
+verify_by: >
+  Read a primary Microsoft document that defines the path of oidcIssuerProfile.issuerUrl, or create clusters in two
+  tenants and compare their issuer URLs with the tenant IDs.
+verification: ''
+notes: >
+  Microsoft's AKS OIDC issuer page (read 2026-09-30) shows https://eastus.oic.prod-aks.azure.com/<guid>/<guid>/ as an
+  example and says only that the base URL is https://{region}.oic.prod-aks.azure.com. The attester does not read a
+  tenant from the path: an AKS token carries no tid, and the pinned cluster issuer is what holds it to a tenant. If
+  the first segment is the tenant, OIDF_ATTESTER_AZURE_TENANTS could also be applied to it.
