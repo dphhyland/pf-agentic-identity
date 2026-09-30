@@ -1,0 +1,17 @@
+id: F-0341
+title: OIDF_AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS's catalogue text says allow registers an RP, which production no longer does
+severity: low
+area: pf-integration
+source: design
+status: open
+plan_items: [ST-5]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  federation-runtime.json (ST5F's, wave 5; HFEDR may not edit it) describes allow as "an encrypted request object
+  registers the relying party from its header, and PingFederate checks the rest after decrypting", and
+  docs/configuration/federation-runtime.md is generated from it. From HFEDR (2026-09-30) allow means that a registered
+  RP's encrypted request objects go on to PingFederate; one registers or renews an RP only under the development
+  profile. servlets/pf-integration/README.md and docs/federation/limits.md say so. ST5F rewrites the description and
+  regenerates the page.

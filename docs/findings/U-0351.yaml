@@ -1,0 +1,17 @@
+id: U-0351
+title: That PingFederate 13.1.3 saves and honours a client with id_token_signed_response_alg RS256 set explicitly
+area: pf-integration
+source: design
+status: open
+plan_items: [H-FED-5]
+prs: [78]
+recorded_in: docs/releases/unreleased/HFEDR.md, Before you deploy
+verify_by: >
+  On the rig, explicitly register an openid_relying_party whose metadata omits id_token_signed_response_alg, read the
+  client back from the admin API (idTokenSigningAlgorithm RS256), and run an authorization-code flow for it: the ID
+  token's header alg is RS256. Repeat on a PingFederate whose OIDC policy signs with an EC key only.
+verification: ''
+notes: >
+  HFEDR (2026-09-30) sets RS256, OpenID Connect Registration 1.0 §2's default, where the RP's metadata omits the
+  parameter; before, the client had no algorithm and PingFederate's default applied. On a PingFederate with an active
+  RSA signing key this should change nothing. Unit-tested only; not run on the rig.

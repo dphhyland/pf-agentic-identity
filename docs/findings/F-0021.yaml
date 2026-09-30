@@ -3,10 +3,18 @@ title: Registration expiry is not enforced when an attestation request names no 
 severity: medium
 area: pf-integration
 source: review-2026-09-26
-status: open
+status: closed
 plan_items: [H-FED-2]
-prs: []
-verification: ''
+prs: [78]
+verification: >
+  Closed 2026-09-30 by HFEDR (PR #78). TokenEndpointAutoRegistrationFilter.clientIdOf names the client from the
+  client_assertion's sub, then client_id, then the OAuth-Client-Attestation header's sub (unverified; two
+  attestation headers name nothing). The name only chooses which registration RegistrationService.admit looks up,
+  as client_id always could, and ClientAttestationAuth, mapped after this filter (build/pingfederate/filters.xml),
+  refuses the request unless the verified sub is the one it read first. Tests:
+  TokenEndpointAutoRegistrationFilterTest.clientIdOfReadsTheAssertionThenClientIdThenTheAttestation and
+  anAttestedRequestForAnExpiredRegistrationIsRefused (a real RegistrationService: an expired explicit registration
+  named only by the attestation is 401 invalid_client, a current one goes on); JDK 17 and 20, 2026-09-30.
 target_release: 0.6.0
 notes: >
   TokenEndpointAutoRegistrationFilter.java:152-156 (f95b522) looks the client up by `client_id`, which an

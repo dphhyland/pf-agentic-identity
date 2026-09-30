@@ -3,10 +3,22 @@ title: Encrypted request objects are accepted for a first registration
 severity: medium
 area: pf-integration
 source: review-2026-09-26
-status: open
+status: closed
 plan_items: [H-FED-1]
-prs: []
-verification: ''
+prs: [78]
+verification: >
+  Closed 2026-09-30 by HFEDR (PR #78). RequestObject.algorithm() is null for an encrypted object, whose header alg
+  is the JWE key-management algorithm (RFC 7516 §4.1.1), so it never reaches FederationClientBuilder; and
+  FederationClientBuilder.requestObjectSigningAlgorithm keeps a declared or proof alg only when it is an asymmetric
+  JWS algorithm (RS/PS/ES 256-512, EdDSA), else leaves request_object_signing_alg unset.
+  FederationClientBuilder.relyingParty refuses to register a client from an encrypted proof (either kind) under the
+  production profile - 400 invalid_request_object, a REQUEST failure never remembered against the RP - and registers
+  it with a warning under development (RequestObject.registeringFromEncrypted). A registered RP whose registration
+  is current still sends encrypted request objects on to PingFederate. Tests: FederationClientBuilderTest
+  (anEncryptedProofRegistersOnlyInDevelopment, requestObjectSigningAlgIsNeverAJweAlgorithm - each of the 19 JWE
+  algs of the IANA registry), RequestObjectTest, RegistrationServiceFrontChannelTest
+  (anEncryptedRequestObjectRegistersNothingInProduction, aKnownRpsEncryptedRequestObjectGoesToPingFederate,
+  aRenewalIsNotMadeFromAnEncryptedRequestObjectInProduction); JDK 17 and 20, 2026-09-30.
 target_release: 0.6.0
 notes: >
   RequestObject.java:122-124,178-180 and FederationClientBuilder.java:171-179 (f95b522): a JWE `alg` can be
