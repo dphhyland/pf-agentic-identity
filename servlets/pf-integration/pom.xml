@@ -202,7 +202,6 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.hintKey(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.remember(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.budgetSpent(*</include>
-                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.PresentedMarks.budgetSpent(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.OpenIdRegistrationServlet.readRequestBody(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.OpenIdRegistrationServlet.maxBodyBytes(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.OpenIdRegistrationServlet.tooLarge(*</include>
