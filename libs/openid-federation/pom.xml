@@ -223,7 +223,6 @@
                                         <include>com.pingidentity.ps.oidf.federation.LocalFirstTrustControllerGateway.fetchEntityStatement(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.LocalFirstTrustControllerGateway.fetchSubordinateStatement(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.LocalFirstTrustControllerGateway.anchorConfiguration(*</include>
-                                        <include>com.pingidentity.ps.oidf.federation.FederationConfiguration.parseResolveDiscovery(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.FederationConfiguration.isSubordinate(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.ListRequest.nonBlank(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.SubordinateStatementCache.PendingWrites.find(*</include>
@@ -346,6 +345,17 @@
                                         <include>com.pingidentity.ps.oidf.federation.policy.CompositePolicyDecisionPoint.decide(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.policy.LocalFederationPolicyDecisionPoint.decide(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.FederationService.discovered(*</include>
+                                        <!-- ST5F (plan item ST-5): the federation readers on platform.settings - the one
+                                             Setting per variable, the strict parse, where each value came from - and PR-2's
+                                             refusals of the federation stores. -->
+                                        <include>com.pingidentity.ps.oidf.federation.FederationConfiguration.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationConfiguration.trustAnchors(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationConfiguration.registrationTypes(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationConfiguration.isTrustAnchor(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationConfiguration.hostInLowerCase(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationConfiguration.ignoreSslErrors(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.AttestationMetadataConfig.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.RegistryHostedEntitySigner.from(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

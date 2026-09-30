@@ -278,6 +278,16 @@ class HostedEntityServletEnrolTest {
         assertTrue(AuthoritySupport.registryIfConfigured().isEmpty());
     }
 
+    /** The servlet's two OpenBao init-params, used together, name the vault; either alone leaves it to the environment. */
+    @Test
+    void theServletsOwnVaultIsUsedWhenBothInitParamsAreSet() {
+        assertTrue(HostedEntityServlet.configureAuthorityFrom(developmentSources(Map.of("authorityEntityId", AUTHORITY, "jdbcUrl",
+                "jdbc:nowhere:authority", "openBaoUrl", "http://127.0.0.1:1", "openBaoToken", "token"))));
+
+        assertTrue(AuthoritySupport.isHostingConfigured());
+        assertTrue(AuthoritySupport.hostedEntitySigner() instanceof com.pingidentity.ps.oidf.authority.RegistryHostedEntitySigner);
+    }
+
     @Test
     void enrolmentNeedsAnOperatorAndTheCollectionRoot() throws Exception {
         host(SIGNER);

@@ -106,6 +106,18 @@ class AuthorityStoresTest {
         assertDoesNotThrow(() -> AuthorityDataSource.keyHistoryStore(Startup.FEDERATION));
     }
 
+    /** A direct PostgreSQL URL is judged by its scheme, in any case, without a connection. */
+    @Test
+    void aDirectPostgreSqlUrlIsTakenWithoutAConnection() {
+        profile(DeploymentProfile.PRODUCTION);
+        System.setProperty(URL_PROPERTY, "JDBC:PostgreSQL://db.internal/idm");
+
+        AuthorityDataSource.trustMarkRegistry(Startup.FEDERATION);
+
+        assertTrue(TrustMarkSupport.isConfigured());
+        assertEquals(List.of(), ProfileRefusals.codeRefusals());
+    }
+
     @Test
     void aDirectUrlThatIsNotPostgreSqlIsRefusedInProductionNamingOnlyItsScheme() {
         profile(DeploymentProfile.PRODUCTION);

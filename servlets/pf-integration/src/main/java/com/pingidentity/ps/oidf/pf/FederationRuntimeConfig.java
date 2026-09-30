@@ -585,11 +585,7 @@ public final class FederationRuntimeConfig {
         /** {@code name}'s value, typed as its entry says; its warnings and, when it was set, its provenance kept. */
         Object resolve(String name) {
             Resolved resolved = this.settings.resolve(name);
-            for (String warning : resolved.warnings()) {
-                if (!this.warnings.contains(warning)) {
-                    this.warnings.add(warning);
-                }
-            }
+            this.warnings.addAll(resolved.warnings());
             if (!resolved.provenance().isDefault()) {
                 this.provenance.add(name + " from " + resolved.provenance());
             }

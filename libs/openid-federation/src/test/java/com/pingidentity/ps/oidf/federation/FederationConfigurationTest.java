@@ -152,6 +152,7 @@ class FederationConfigurationTest {
         assertFalse(c.isTrustAnchor("urn:x"));
         assertEquals("https://ta.example:8443/Path", FederationConfiguration.hostInLowerCase(" HTTPS://TA.Example:8443/Path "));
         assertEquals("%zz", FederationConfiguration.hostInLowerCase("%zz"));
+        assertEquals("//TA.example/x", FederationConfiguration.hostInLowerCase("//TA.example/x"), "no scheme: as it is");
     }
 
     /** A trust anchor that is not an Entity Identifier stops the servlet starting, naming the setting and the entry. */

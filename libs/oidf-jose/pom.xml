@@ -109,8 +109,6 @@
                                         <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.parse(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.refusal(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.addressRuleApplies(*</include>
-                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.csv(*</include>
-                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.parseLong(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.get(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.post(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.send(*</include>
@@ -127,6 +125,11 @@
                                         <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.normalizePercentEncoding(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.removeDotSegments(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.shown(*</include>
+                                        <!-- ST5F (plan item ST-5): the federation readers on platform.settings - the one
+                                             Setting per variable, the strict parse, where each value came from - and PR-2's
+                                             refusals of the federation stores. -->
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.settings(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.fromEnvironment(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

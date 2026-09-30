@@ -224,12 +224,9 @@
                                         <include>com.pingidentity.ps.oidf.servlet.oauth.FederationErrorPage.write(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.oauth.FederationErrorPage.escape(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.autoRegistrationSettings(*</include>
-                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.bool(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.OpenIdRegistrationServlet.doPost(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.OIDFederationUtils.registrationExpired(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.registrationSettings(*</include>
-                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.strictBoolean(*</include>
-                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.requiredTrustMarks(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.strictly(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.AuthorityDataSource.from(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.doGet(*</include>
@@ -259,8 +256,6 @@
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.rotateKey(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.isObjectOfObjects(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.configureAuthority(*</include>
-                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.setting(*</include>
-                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.blankToNull(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.doPost(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.doGet(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.operator(*</include>
@@ -274,7 +269,6 @@
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.doDelete(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegisteredClientsServlet.configure(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.write(*</include>
-                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.jsonObject(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.metadataPolicyByType(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.constraints(*</include>
                                         <!-- The explicit-registration body itself: typed as an Entity Statement
@@ -323,7 +317,6 @@
                                              refused, and while automatic registration is off or failed only a
                                              stored federation client's is. -->
                                         <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.fromAListedClient(*</include>
-                                        <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.listed(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientLookup.registeredByFederation(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.doFilter(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.interactionIdFor(*</include>
@@ -365,15 +358,12 @@
                                         <include>com.pingidentity.ps.oidf.pf.FederationPolicySupport.policies(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationPolicySupport.Policies.forPoint(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.pdpSettings(*</include>
-                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.choice(*</include>
-                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.words(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.decisionPoints(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings.asksExternally(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.trustAnchors(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.selfAnchor(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.selfTrustAnchor(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.hasTrustAnchors(*</include>
-                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.hasHost(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.PfProviderMetadata.refresh(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.PfProviderMetadata.of(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.PfProviderMetadata.capture(*</include>
@@ -471,6 +461,29 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion.singleHeader(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion.hasHeader(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion.Engine.of(*</include>
+                                        <!-- ST5F (plan item ST-5): the federation readers on platform.settings - the one
+                                             Setting per variable, the strict parse, where each value came from - and PR-2's
+                                             refusals of the federation stores. -->
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.json(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.object(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.seconds(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.millis(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.pdpUrl(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.Read.resolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.Read.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.AuthorityDataSource.trustMarkRegistry(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.AuthorityDataSource.keyHistoryStore(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.AuthorityDataSource.requirePostgreSql(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.PfDataSources.urlOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.PfDataSources.scheme(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.clients(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationConfiguration.acceptedSigningAlgorithms(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationConfiguration.cacheMaxEntries(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationConfiguration.requireAgreement(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.configureAuthorityFrom(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.OIDFederationUtils.trustChainRequestMaxAge(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.requireHostedAgentSetting(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

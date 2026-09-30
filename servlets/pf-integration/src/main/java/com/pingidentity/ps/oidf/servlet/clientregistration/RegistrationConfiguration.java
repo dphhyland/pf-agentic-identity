@@ -86,7 +86,7 @@ public final class RegistrationConfiguration {
      * process-wide one is a configuration error, because two components would then be validating
      * chains against two different anchors. Fail at init rather than at some later request.
      */
-    private static void requireAgreement(Settings settings, String initParam, String actual) {
+    static void requireAgreement(Settings settings, String initParam, String actual) {
         String declared = settings.string(initParam);
         if (declared != null && !declared.equals(actual)) {
             throw new IllegalArgumentException("init-param " + initParam + "=\"" + declared
@@ -131,13 +131,13 @@ public final class RegistrationConfiguration {
                 DEFAULT_SIGNING_ALGORITHM, acceptedSigningAlgorithms(settings));
     }
 
-    private static Set<String> acceptedSigningAlgorithms(Settings settings) {
+    static Set<String> acceptedSigningAlgorithms(Settings settings) {
         Set<String> words = settings.words(ACCEPTED_SIGNING_ALGORITHMS_PARAM);
         return words == null ? Set.of() : Set.copyOf(words);
     }
 
     /** {@value #SUBORDINATE_CACHE_MAX_ENTRIES_PARAM}: at least 1, or -1 for no bound; its entry's range admits 0, which is refused here. */
-    private static int cacheMaxEntries(Settings settings) {
+    static int cacheMaxEntries(Settings settings) {
         int parsed = settings.integer(SUBORDINATE_CACHE_MAX_ENTRIES_PARAM);
         if (parsed == 0) {
             throw new SettingRefused(SUBORDINATE_CACHE_MAX_ENTRIES_PARAM, SUBORDINATE_CACHE_MAX_ENTRIES_PARAM
