@@ -8,22 +8,27 @@
 //   java GrantManagementClient.java \
 //     --pf https://localhost:9131 \
 //     --client acme-budgeting --secret "$(cat .../tpp_secret)" \
-//     --grant <agid> --account 222
+//     --grant <agid> --account 222 \
+//     --cacert pf-ca.pem          # only when PF's certificate is not from a CA the JDK trusts
 //
 // The question it answers is not "is this token valid" but "does this consent still
 // permit this, right now". A grant can be valid, unexpired, and name an account the
 // user closed last week.
 
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
+import javax.net.ssl.TrustManagerFactory;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.security.cert.X509Certificate;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.KeyStore;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateFactory;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
@@ -180,10 +185,10 @@ public class GrantManagementClient {
             System.exit(2);
         }
 
-        // Secure by default. This is example code people copy, and it used to disable certificate
-        // verification unless you opted IN to security - the wrong way round for something whose next
-        // line sends a client secret.
-        HttpClient http = a.containsKey("insecure") ? trustAll() : HttpClient.newHttpClient();
+        // Verified, always. This is example code people copy, and its next line sends a client secret. A PF
+        // with a self-signed or private-CA certificate is trusted by naming that certificate (--cacert, as
+        // curl has it), never by turning verification off - the --insecure this used to offer is gone.
+        HttpClient http = a.containsKey("cacert") ? trusting(Path.of(a.get("cacert"))) : HttpClient.newHttpClient();
 
         // A client_credentials token has no subject, and needs none: the subject comes
         // off the grant. This is the Open Banking shape -- no user present.
@@ -245,21 +250,27 @@ public class GrantManagementClient {
         return token;
     }
 
-    /** Opt-in only (--insecure), for a demo PF with a self-signed cert. Never against a real deployment. */
-    private static HttpClient trustAll() throws Exception {
-        TrustManager[] trustAll = {new X509TrustManager() {
-            public X509Certificate[] getAcceptedIssuers() {
-                return new X509Certificate[0];
+    /**
+     * A client that trusts the certificates in {@code pem} and nothing else - a demo PF's self-signed
+     * certificate, or the CA a private deployment's certificate chains to. The chain and the host name
+     * are both checked, as for any other server.
+     */
+    private static HttpClient trusting(Path pem) throws Exception {
+        KeyStore trusted = KeyStore.getInstance(KeyStore.getDefaultType());
+        trusted.load(null, null);
+        try (InputStream in = Files.newInputStream(pem)) {
+            int n = 0;
+            for (Certificate certificate : CertificateFactory.getInstance("X.509").generateCertificates(in)) {
+                trusted.setCertificateEntry("cacert-" + n++, certificate);
             }
-
-            public void checkClientTrusted(X509Certificate[] c, String a) {
+            if (n == 0) {
+                throw new IllegalArgumentException("--cacert " + pem + " holds no certificate");
             }
-
-            public void checkServerTrusted(X509Certificate[] c, String a) {
-            }
-        }};
+        }
+        TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        tmf.init(trusted);
         SSLContext ssl = SSLContext.getInstance("TLS");
-        ssl.init(null, trustAll, new java.security.SecureRandom());
+        ssl.init(null, tmf.getTrustManagers(), null);
         return HttpClient.newBuilder().sslContext(ssl).build();
     }
 

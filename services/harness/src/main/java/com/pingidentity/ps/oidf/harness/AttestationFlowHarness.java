@@ -28,6 +28,7 @@
  */
 package com.pingidentity.ps.oidf.harness;
 
+import com.pingidentity.ps.oidf.platform.settings.Parsers;
 import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -64,17 +65,15 @@ public final class AttestationFlowHarness {
     static final String SOFTWARE_ID = "pf-oidf-attestation-harness";
     /** The switch that turns the trust-all on. */
     static final String INSECURE_TLS = "OIDF_HARNESS_INSECURE_TLS";
-    /** What InsecureTls records the JVM-wide host name switch under: the harness sets it on every run. */
-    static final String HOSTNAME_CHECK_OFF = "AttestationFlowHarness.main (every run)";
     static final String SOFTWARE_VERSION = "0.0.1-SNAPSHOT";
     private static final String INSTANCE_ID = java.util.UUID.randomUUID().toString();
     private static volatile Map<String, Object> WORKLOAD;
 
     public static void main(String[] args) throws Exception {
-        // PingFederate serves a self-signed cert (CN=localhost) behind the TCP proxy; this dev/test harness turns
-        // the JDK client's host name check off for the whole run, as it always has (F-0162). The chain is checked
-        // unless OIDF_HARNESS_INSECURE_TLS=true. Through platform's InsecureTls, the one place allowed to.
-        InsecureTls.disableJdkHostnameVerification(HOSTNAME_CHECK_OFF, true);
+        // A local PingFederate behind the TCP proxy serves a self-signed certificate for localhost, whatever name is
+        // dialled. OIDF_HARNESS_INSECURE_TLS=true is that case: any chain, and the JDK client's host name check off
+        // for the run. Unset, a run against a real deployment checks both (F-0162).
+        relaxHostnameCheck(insecureTls(System::getenv));
         String mode = args.length > 0 ? args[0] : "selfverify";
         switch (mode) {
             case "live" -> live(args);
@@ -510,7 +509,24 @@ public final class AttestationFlowHarness {
      * deployment, where a silent MITM would hand an attacker the client secret and the attestation.
      */
     static HttpClient httpClient() {
-        return httpClient(Boolean.parseBoolean(System.getenv(INSECURE_TLS)));
+        return httpClient(insecureTls(System::getenv));
+    }
+
+    /**
+     * {@code OIDF_HARNESS_INSECURE_TLS}, strictly: {@code true} or {@code false} in any case, unset is false, and anything
+     * else stops the run naming it. The harness is not shipped and has no catalogue, so no profile applies.
+     */
+    static boolean insecureTls(java.util.function.Function<String, String> env) {
+        return Parsers.bool(INSECURE_TLS, env.apply(INSECURE_TLS), false);
+    }
+
+    /**
+     * Turns the JDK client's host name check off for this JVM only when {@code insecureTls} - through platform's
+     * {@link InsecureTls}, the one place allowed to, recorded under {@code OIDF_HARNESS_INSECURE_TLS}. Before 0.6.0 it
+     * was turned off on every run (F-0162).
+     */
+    static void relaxHostnameCheck(boolean insecureTls) {
+        InsecureTls.disableJdkHostnameVerification(INSECURE_TLS, insecureTls);
     }
 
     /** The same, told the switch: the trust-all is platform's {@link InsecureTls}. */

@@ -181,6 +181,8 @@ class ScanFilesTest(unittest.TestCase):
         for path, why in scan.EXEMPT.items():
             self.assertTrue(why.strip(), path)
         self.assertIn(scan.INSECURE_TLS, scan.EXEMPT)
+        # F-0163: the gm-api example takes --cacert now, so it has no trust-all to exempt.
+        self.assertNotIn("services/gm-api/examples/java/GrantManagementClient.java", scan.EXEMPT)
 
     def test_the_repository_passes(self):
         out = io.StringIO()
