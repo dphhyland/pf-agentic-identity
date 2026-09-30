@@ -68,6 +68,7 @@ import org.junit.jupiter.api.BeforeEach;
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
+@org.junit.jupiter.api.extension.ExtendWith(InMemoryStateAccepted.class)
 class AttestationIssuanceServletTest {
     private static final String ISSUER = "https://attester.example.com";
     private static final String CLIENT_ID = "https://rp.example.com";

@@ -75,8 +75,10 @@ same war byte for byte.
 </war-filters>
 ```
 
-It declares the seven filters the shell script registered, with the same paths, in the same order, and its
-three order checks as four pairs (the last check was two). It also declares one listener, plan item F-2's
+It declares the seven filters the shell script registered, in the same order, and its three order checks as four
+pairs (the last check was two). Their paths are the shell script's but one: plan item S4d (2026-09-30) mapped
+`ClientAttestationAuth` over every endpoint that authenticates a client and the authorization endpoint, and added two
+pairs - `Fapi2Profile` and `OidfFrontChannelAutoRegistration` before it. It also declares one listener, plan item F-2's
 `LifecycleListener` from platform-pf, which the assembler registers after the filters and checks is there once.
 
 ## How it reaches the image, and a consumer
@@ -114,4 +116,5 @@ with exit 1 and no output war. `WAR_ASSEMBLER_JAR` and `WAR_FILTERS_XML` point i
 
 The tests use descriptors written for them in the stock one's shape, never a copy of Ping's file; the golden
 result is recorded as its digest and the block of our own text the shell script inserted
-(`src/test/resources/golden/shell-assembler-additions.txt`).
+(`src/test/resources/golden/shell-assembler-additions.txt`); the comparisons put `ClientAttestationAuth`'s wider mapping
+in place of the shell's two patterns and take F-2's listener out, and compare the rest.

@@ -1,0 +1,2 @@
+# The event catalogues of libs/client-attestation, one component per line (platform.events.EventCatalogue).
+challenge

@@ -21,6 +21,7 @@ import org.junit.jupiter.api.AfterEach;
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
+@org.junit.jupiter.api.extension.ExtendWith(InMemoryStateAccepted.class)
 class ClientAttestationServiceMetadataServletTest {
 
     private static final String ISSUER = "https://attester.example.com";

@@ -169,6 +169,37 @@ does the client's attestation policy: from 0.6.0 the filter verifies under the s
 the client's `attestation_*` properties, the same policy the criterion applies (`AttestationPolicyResolver`,
 plan item S4c), and publishes its fingerprint, which the criterion checks when it reuses the verification.
 
+## Where the filter runs, and what it forwards
+
+From 0.6.0 (plan item S4d, F-0032) the filter is mapped over every PingFederate endpoint that authenticates a client
+- the token endpoint, PAR, CIBA's backchannel endpoint (`/as/bc-auth.ciba`), the device authorization endpoint
+(`/as/device_authz.oauth2`), introspection and revocation - and over the authorization endpoint. RFC 9126 §2.1 has PAR
+"Authenticate the client in the same way as at the token endpoint (Section 2.3 of [RFC6749])", and RFC 8628 §3.1 says
+the same of the device endpoint, so a client whose only credential is its attestation needs the bridge at each.
+PingFederate 13.1.3 accepted the bridge assertion at all six on the rig (U-0020, 2026-09-30).
+
+Authentication was the smaller half. PingFederate issues the `authorization_details` stored at PAR and CIBA, and
+ignores the token request's parameter on the code and CIBA grants in both directions (U-0019, the rig, 2026-09-30);
+the device grant is taken to do the same (F-0032; not driven on the rig, U-0330). So a check at the token endpoint alone held nothing: a client left the parameter out and received what it
+had pushed. The filter therefore holds details where they arrive:
+
+```
+agent ──attestation + PoP, authorization_details──▶ filter (token, PAR, CIBA, device)
+                                                     verify ONCE; grant = authorize(requested, ceiling, INHERIT)
+                                                     forward the GRANTED details (+ verified _agent_id),
+                                                     never the client's; none asked, none forwarded
+                                                   ──▶ PF stores / issues the granted details
+agent ──signed request object──▶ filter: contains(ceiling, object's details) strictly, or 400
+agent ──/as/authorization.oauth2 with details, attestation_required client──▶ filter: error page, no redirect
+```
+
+`INHERIT` fills a constrained field the request leaves out with the attestation's value; the model checks that what it
+grants is within the attestation's details. Only a caller that forwards the grant may ask for it: the OGNL criterion,
+which cannot rewrite what PingFederate issues, and `oidf_requested_access`, which is forwarded as sent, stay strict.
+At introspection and revocation the filter authenticates and bridges only. What PingFederate then puts in the token -
+the response belt and the issuance criterion on `context.OAuthAuthorizationDetails` - is plan item S4d's other half
+(S4D3).
+
 ## Known adjacent issues, deliberately out of scope
 
 - The attestation's `aud` is not validated (`JwtCodec.verifyAgainstKeys` sets
@@ -182,8 +213,9 @@ plan item S4c), and publishes its fingerprint, which the criterion checks when i
   proof. `ClientAttestationVerifierTest` pins both halves so the absence is not "fixed" into a check
   the draft does not define.
 - `attestation_required` is written at registration (`FederationClientBuilder`) and, from 0.6.0, enforced by the
-  filter: a request for such a client without an attestation is refused (plan item S4c; the pf-integration README's
-  "Each client's attestation policy").
+  filter: a request for such a client without an attestation is refused wherever it authenticates, and its
+  `authorization_details` at the authorization endpoint without PAR are refused with a page (plan items S4c and S4d;
+  the pf-integration README's "Each client's attestation policy").
 - Setting a bridge key today breaks any client registered with a secret: the filter drops
   `client_secret` and substitutes an assertion. Under the target shape this is unchanged and still
   needs a per-client answer.

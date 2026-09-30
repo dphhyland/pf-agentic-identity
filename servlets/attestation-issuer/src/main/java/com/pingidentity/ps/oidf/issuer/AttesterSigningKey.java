@@ -8,6 +8,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.jose.OpenBaoTransitSigner;
 import com.pingidentity.ps.oidf.jose.LocalJwkSigner;
+import com.pingidentity.ps.oidf.platform.settings.Secret;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
 
 /**
  * Resolves the per-client attester signing key into a {@link JwsSigner}, choosing the backing by
@@ -31,17 +33,23 @@ public final class AttesterSigningKey {
     }
 
     /**
-     * Resolves the OpenBao address/token from configuration layered as system property → environment
-     * variable, following the same convention as the rest of the module. The vault address is read from
-     * {@code oidf.openbao.url} / {@code OIDF_OPENBAO_URL} (then {@code OPENBAO_ADDR} / {@code BAO_ADDR} /
-     * {@code VAULT_ADDR}); the token from {@code oidf.openbao.token} / {@code OIDF_OPENBAO_TOKEN} (then
-     * {@code OPENBAO_TOKEN} / {@code BAO_TOKEN} / {@code VAULT_TOKEN}).
+     * The OpenBao address and token from {@code OIDF_OPENBAO_URL} and {@code OIDF_OPENBAO_TOKEN}, read through their
+     * entries in openid-federation's {@value #SETTINGS} settings catalogue (plan item ST-5), which the hosted entities'
+     * signing keys read too: the system property {@code oidf.openbao.url} / {@code oidf.openbao.token}, then the
+     * environment variable, then the superseded names {@code OPENBAO_ADDR} / {@code BAO_ADDR} / {@code VAULT_ADDR} and
+     * {@code OPENBAO_TOKEN} / {@code BAO_TOKEN} / {@code VAULT_TOKEN} with a warning. A superseded name that holds
+     * another value than the name that supersedes it is refused, naming both and neither value.
+     *
+     * @throws com.pingidentity.ps.oidf.platform.settings.SettingRefused for a value its entry refuses
      */
     public static AttesterSigningKey fromEnvironment() {
-        return new AttesterSigningKey(
-                resolve("oidf.openbao.url", "OIDF_OPENBAO_URL", "OPENBAO_ADDR", "BAO_ADDR", "VAULT_ADDR"),
-                resolve("oidf.openbao.token", "OIDF_OPENBAO_TOKEN", "OPENBAO_TOKEN", "BAO_TOKEN", "VAULT_TOKEN"));
+        Settings settings = Settings.of(SETTINGS);
+        Secret token = settings.secret("OIDF_OPENBAO_TOKEN");
+        return new AttesterSigningKey(settings.string("OIDF_OPENBAO_URL"), token == null ? null : token.reveal());
     }
+
+    /** The settings catalogue OpenBao's address and token are in (openid-federation's). */
+    public static final String SETTINGS = "hosted-entity-signing";
 
     /**
      * @param keyRef    the transit key name ({@code attestation_signing_key_ref}), or null
@@ -74,20 +82,6 @@ public final class AttesterSigningKey {
         } catch (RuntimeException e) {
             throw IssuanceException.invalidClient("attestation_signing_jwk is invalid: " + e.getMessage());
         }
-    }
-
-    private static String resolve(String sysProp, String... envVars) {
-        String value = System.getProperty(sysProp);
-        if (value != null && !value.isBlank()) {
-            return value.trim();
-        }
-        for (String env : envVars) {
-            value = System.getenv(env);
-            if (value != null && !value.isBlank()) {
-                return value.trim();
-            }
-        }
-        return null;
     }
 
     private static String blankToNull(String s) {

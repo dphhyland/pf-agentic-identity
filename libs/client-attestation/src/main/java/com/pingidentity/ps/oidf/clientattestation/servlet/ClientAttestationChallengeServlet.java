@@ -5,8 +5,7 @@ package com.pingidentity.ps.oidf.clientattestation.servlet;
 
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
 import com.pingidentity.ps.oidf.clientattestation.StoreNamespace;
-import jakarta.servlet.ServletConfig;
-import jakarta.servlet.ServletException;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
 import jakarta.servlet.annotation.WebServlet;
 
 /**
@@ -25,9 +24,11 @@ import jakarta.servlet.annotation.WebServlet;
  *
  * <p>Advertised as {@code challenge_endpoint} in the OP metadata of the federation Entity Configuration. Besides
  * the endpoint's own init-params, {@code replayCacheMaxEntries} sizes the authorization server's in-memory replay
- * cache.
+ * cache, read strictly as the others are.
  */
-@WebServlet(urlPatterns = {ClientAttestationChallengeServlet.PATH})
+// loadOnStartup: ATTESTATION_AUTH's part registers at deploy, not on the first request (finding F-0193), so the
+// production profile's in-memory rule refuses the component before the token endpoint serves; its init never throws.
+@WebServlet(urlPatterns = {ClientAttestationChallengeServlet.PATH}, loadOnStartup = 1)
 public class ClientAttestationChallengeServlet extends ChallengeEndpointServlet {
     private static final long serialVersionUID = 1L;
 
@@ -38,17 +39,9 @@ public class ClientAttestationChallengeServlet extends ChallengeEndpointServlet 
         super(StoreNamespace.AS, "POST");
     }
 
+    /** The authorization server's replay cache size, after the endpoint's own settings. */
     @Override
-    public void init(ServletConfig config) throws ServletException {
-        super.init(config);
-        String replayMax = config.getInitParameter("replayCacheMaxEntries");
-        if (replayMax != null && !replayMax.isBlank()) {
-            try {
-                AttestationSupport.configureReplayCache(Integer.parseInt(replayMax.trim()));
-            } catch (NumberFormatException e) {
-                org.apache.commons.logging.LogFactory.getLog(ClientAttestationChallengeServlet.class)
-                        .warn((Object) ("Ignoring non-integer servlet parameter value: " + replayMax));
-            }
-        }
+    protected void configure(Settings settings) {
+        AttestationSupport.configureReplayCache(settings.integer("replayCacheMaxEntries"));
     }
 }

@@ -28,7 +28,8 @@ import org.junit.jupiter.api.io.TempDir;
  * the same descriptor for both. Only its digest and our additions to it
  * (golden/shell-assembler-additions.txt) are recorded here. The shipped filters.xml has since declared F-2's
  * lifecycle listener, which the shell assembler never registered: the test checks the listener's block is there once,
- * after the filters, and compares what is left.
+ * after the filters, and compares what is left. It has also widened ClientAttestationAuth's mapping (plan item S4d,
+ * 2026-09-30): the test checks the wider mapping is there once and compares with the shell's two patterns in its place.
  */
 class StockWarGoldenTest {
     /** sha256 of WEB-INF/web.xml in 13.1.3's stock pf-runtime.war (2026-09-28). */
@@ -57,8 +58,12 @@ class StockWarGoldenTest {
         int at = withListener.indexOf(Fixtures.LIFECYCLE_LISTENER_BLOCK);
         assertTrue(at > withListener.lastIndexOf("</filter-mapping>") && at == withListener.lastIndexOf(Fixtures.LIFECYCLE_LISTENER_BLOCK),
                 "the listener registered once, after the filters");
+        int mapping = withListener.indexOf(Fixtures.CLIENT_ATTESTATION_MAPPING);
+        assertTrue(mapping > 0 && mapping == withListener.lastIndexOf(Fixtures.CLIENT_ATTESTATION_MAPPING),
+                "ClientAttestationAuth mapped once, over every endpoint S4d names");
         Path merged = dir.resolve("merged-web.xml");
-        Files.writeString(merged, withListener.replace(Fixtures.LIFECYCLE_LISTENER_BLOCK, ""), StandardCharsets.UTF_8);
+        Files.writeString(merged, withListener.replace(Fixtures.LIFECYCLE_LISTENER_BLOCK, "")
+                .replace(Fixtures.CLIENT_ATTESTATION_MAPPING, Fixtures.CLIENT_ATTESTATION_MAPPING_SHELL), StandardCharsets.UTF_8);
         assertEquals(SHELL_ASSEMBLED_WEB_XML, StagedManifest.sha256(merged));
 
         String golden = System.getProperty("warAssembler.goldenWebXml", "");
