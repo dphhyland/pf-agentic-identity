@@ -112,8 +112,10 @@
   `account-disabled` again (a regression the review found under `OIDF_SSF_DEFAULT_SUBJECTS=ALL`); the ldm store no
   longer writes attributes or parent-less entries the model does not declare; an over-long `userName`, `externalId`
   or id and an argument refused below the service are 400 `invalidValue`, not 500; `active` reads the same in POST,
-  PUT and PATCH. `mvn verify` of servlets/ssf on JDK 17 then passed with 557 tests, none skipped, the Postgres store
-  contracts on Postgres 16 and the coverage gate met.
+  PUT and PATCH. `mvn verify` of servlets/ssf then passed with 557 tests, none skipped, the Postgres store contracts on
+  Postgres 16 and the coverage gate met, on JDK 17.0.11 and on JDK 21.0.12 (`maven:3-eclipse-temurin-21`); the full
+  reactor passed on JDK 17 (5,613 tests, none failed), and `tools/coverage-report.py --gate` passed. The rig was not
+  run again: the SSF and CAEP plans drive the in-memory store, whose stream path these changes leave as it was.
 - `mvn verify` of servlets/ssf (547 tests, the Postgres store contracts on a local Postgres 16 through
   `OIDF_TEST_JDBC_URL`, the 100% METHOD gate with the new methods added) passed on JDK 20, and with libs/conformance
   (549 tests, none skipped) on JDK 17 and on JDK 21.0.12 (`maven:3-eclipse-temurin-21`, the Postgres suites against
