@@ -1,0 +1,21 @@
+id: F-0425
+title: oidf-preflight.jar judges a file against every catalogue of the release, not the ones the process it is for loads
+severity: low
+area: platform
+source: design
+status: open
+plan_items: [ST-7]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-10-01 by package ST7. oidf-preflight.jar holds all 28 catalogues of the reactor, so that no module's rules
+  can be left out, but no single process loads all of them: device-enrolment's and gm-api's catalogues are in their own
+  processes, and a production image stages no CIBA simulator (build/pingfederate/stage-modules.sh --profile
+  production). So the jar and PingFederate's start-up sweep can disagree about a file. Seen on 2026-10-01 with the file
+  OIDF_CIBA_SIM_ENABLED=true and OIDF_AGENT_CLIENT_ID=x: the jar exits 1, refusing CIBA_SIMULATOR, and prints no
+  warning for OIDF_AGENT_CLIENT_ID (a device-enrolment setting); PR5's Preflight on a class path of the jars a
+  production image stages exits 0 and warns about both names as under no catalogue's family. Neither disagreement
+  hides a refusal PingFederate would make - the first is stricter, the second loses a warning - but the jar cannot be
+  told which process a file is for. A fix is an option naming the process (pingfederate, device-enrolment) that
+  judges against that process's catalogues, from the list stage-modules.sh stages.
