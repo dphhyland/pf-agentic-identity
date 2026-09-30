@@ -113,7 +113,7 @@ wave.
 
 Tested on the pinned image's own java, OpenJDK 21.0.12.1 (`pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest`,
 JUnit's launcher, 2026-10-01): the TLS, deadline and cap tests of every site and the tests beside them - ssf 50,
-oidf-jose 10, device-enrolment 23, gm-api 16 - 99 of 99. `tools/pf-linkcheck.py` against PingFederate 13.1.3's
+oidf-jose 10, device-enrolment 23, gm-api 16 - 99 of 99. After the review fixes, `PdpTransportTest` (8 of 8) and `EnrolmentTransportTest` (11 of 11) again on that java. `tools/pf-linkcheck.py` against PingFederate 13.1.3's
 libraries: nothing unresolved.
 
 Two things this package kept as they were and recorded: a push endpoint whose host does not resolve is refused, not
