@@ -17,11 +17,13 @@ checked out as a sibling) - it is not tied to PingFederate, so it does not live 
 
 ## Status
 
-**Beta, at 0.5.0** ([release notes](docs/releases/0.5.0.md)). The production-readiness review of 2026-09-26 found
-seven blockers: 0.4.0 closed B1 to B3 and mitigated B4 and B5; 0.5.0 lays the foundations the rest is built on
-(every module on the shared platform libraries, the configuration reference generated from the code, PostgreSQL
-only, the image built, tested and scanned in CI) and leaves B6 (the image booted in CI) and B7 (clustering) for
-0.7.0. The [findings register](docs/findings/README.md) is the record of what is still open,
+**Beta, at 0.6.0** ([release notes](docs/releases/0.6.0.md); upgrading from 0.5.0:
+[the guide](docs/operator/upgrading/0.5.0-to-0.6.0.md)). The production-readiness review of 2026-09-26 found seven
+blockers: 0.4.0 closed B1 to B3 and mitigated B4 and B5; 0.5.0 laid the foundations the rest is built on; 0.6.0 is
+secure by default - the production profile enforced (an unset `OIDF_DEPLOYMENT_PROFILE` is production), operator
+APIs on PingFederate-issued, DPoP-bound tokens, components that fail on their own, attestation policy held on the
+filter path and on what is issued - and closes every high finding targeted at 0.6.0. B6 (the image booted in CI) and
+B7 (clustering) stay open for 0.7.0, as do the highs targeted later. The [findings register](docs/findings/README.md) is the record of what is still open,
 and the release notes' "Known gaps" say what a deployment should plan around.
 
 **One PingFederate node only, until 0.7.0.** Attestation challenges and replay state (without Redis), the

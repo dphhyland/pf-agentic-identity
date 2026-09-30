@@ -23,7 +23,9 @@ What is here now:
 - [startup-audit.md](startup-audit.md) - the banner each war logs as it starts: version, profile, accepted risks,
   insecure TLS and each component's state, line by line, and what its listener does at shutdown.
 - [upgrading/](upgrading/) - one guide per move between releases. [0.1.5-to-0.3.0.md](upgrading/0.1.5-to-0.3.0.md)
-  is the move from the last PingFederate 13.0 release to the first 13.1.3 one.
+  is the move from the last PingFederate 13.0 release to the first 13.1.3 one;
+  [0.5.0-to-0.6.0.md](upgrading/0.5.0-to-0.6.0.md) the move to the release that enforces the production profile, the
+  preflight run first.
 
 The release notes themselves live in [docs/releases](../releases/README.md); each release's "Before you deploy"
 list is the short form of its upgrade guide. Until the operator set exists, the module READMEs and
