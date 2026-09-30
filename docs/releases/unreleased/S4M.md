@@ -66,6 +66,14 @@ request-wide filters, then `AttestationMetadata`, then `noCacheFilter`, and both
 added, every PingFederate member unchanged and in its order, `Content-Length` the new length, and `HEAD` answering the
 same length with no body; the `;x`, `/./` and plain-listener requests were extended too.
 
+Discovery is what the FAPI 2.0 plan reads first, so it was run again against that image, re-authored with the issuer
+`https://host.docker.internal:34031` and attestation switched on (plan `Q7Rdbq4ROahUw`, `fapi2-security-profile-final-test-plan`,
+`client_auth_type=private_key_jwt sender_constrain=dpop fapi_profile=plain_fapi openid=openid_connect`, suite
+release-v5.3.1, 2026-10-01): 50 PASSED, 3 REVIEW, 2 WARNING, 1 SKIPPED, 0 FAILED of 56, as on main. The discovery
+module's warning about members the suite does not know names `client_attestation_pop_methods_supported` with
+PingFederate's `ping_*` and identity-chaining members; it knows `challenge_endpoint` and the two attestation algorithm
+lists. The rig and the suite are down, their keys deleted.
+
 Tests: `AttestationMetadataConfigTest` (the set, its order, the document's own members kept, a document without a
 method list, one that cannot be extended, the switch), `FederationServiceMetadataTest` (both blocks carry the same
 members, none switched off), `AttestationMetadataFilterTest` (a PingFederate-shaped document through the writer and
