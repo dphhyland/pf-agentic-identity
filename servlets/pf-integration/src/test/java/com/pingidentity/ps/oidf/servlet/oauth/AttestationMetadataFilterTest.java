@@ -358,6 +358,7 @@ class AttestationMetadataFilterTest {
             r.setContentLength(big.length);
             r.getOutputStream().write(big);
             r.setContentLength(big.length);
+            r.setHeader("Content-Length", Integer.toString(big.length));
             r.flushBuffer();
         });
         assertArrayEquals(big, out.body.toByteArray());
@@ -419,6 +420,7 @@ class AttestationMetadataFilterTest {
         assertTrue(held.getOutputStream().isReady());
         assertThrows(IllegalStateException.class, () -> held.getOutputStream().setWriteListener(mock(WriteListener.class)));
         held.setIntHeader("Content-Length", 12);
+        held.addIntHeader("Content-Length", 12);
         held.addIntHeader("X-Count", 3);
         held.setIntHeader("X-Other", 4);
         held.addHeader("X-Added", "a");

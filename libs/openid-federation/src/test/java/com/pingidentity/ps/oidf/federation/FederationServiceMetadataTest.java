@@ -37,11 +37,13 @@ class FederationServiceMetadataTest {
     @Requirement("ABCA-10 §8")
     void emptyPopMethodsListIsOmittedNotEmitted() throws Exception {
         AttestationMetadataConfig noMethods = new AttestationMetadataConfig(
-                List.of("private_key_jwt"), List.of("RS256"), List.of("ES256"), List.of("ES256"),
-                List.of("jwt"), List.of(), true);
+                List.of("private_key_jwt", "attest_jwt_client_auth"), List.of("RS256"), List.of("ES256"), List.of("ES256"),
+                List.of("jwt"), List.of(), false);
         Map<String, Object> openidProvider = openidProviderMetadata(noMethods);
         assertFalse(openidProvider.containsKey("client_attestation_pop_methods_supported"),
                 "draft-10 §8: the array MUST NOT be empty when the parameter is present");
+        assertEquals(List.of("RS256"), openidProvider.get("client_attestation_signing_alg_values_supported"), "attestation is advertised");
+        assertFalse(openidProvider.containsKey("challenge_endpoint"), "the challenge endpoint is not enabled");
     }
 
     /**

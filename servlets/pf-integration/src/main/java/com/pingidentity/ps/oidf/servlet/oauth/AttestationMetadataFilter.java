@@ -184,12 +184,14 @@ public final class AttestationMetadataFilter implements Filter {
      */
     static byte[] extended(byte[] body, AttestationMetadataConfig members, String contextPath) {
         Map<String, Object> json;
+        Object named;
         try {
             json = JsonUtil.parseJson(new String(body, StandardCharsets.UTF_8));
+            named = json.get("issuer");
         } catch (JoseException | RuntimeException e) {
             return null;
         }
-        if (json == null || !(json.get("issuer") instanceof String issuer) || issuer.isBlank()) {
+        if (!(named instanceof String issuer) || issuer.isBlank()) {
             return null;
         }
         String context = contextPath == null || "/".equals(contextPath) ? "" : contextPath;
