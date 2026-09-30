@@ -19,21 +19,33 @@ and info answer 404, as a path with nothing mapped does. Only GET and HEAD are s
 ## What ready means
 
 Each feature is a component with one of S-9's names: `FEDERATION`, `AUTO_REGISTRATION`, `ATTESTATION_AUTH`,
-`ATTESTATION_ISSUER`, `HOSTING`, `SSF`, `SSF_RECEIVER`, `OPERATOR_API`, `FAPI`. A component is enabled when today's
-configuration switches it on, and then reports `STARTING`, `READY`, `DEGRADED`, `FAILED_CONFIG`,
-`FAILED_DEPENDENCY` or `REFUSED`, with a reason. Ready is 503 when an enabled component is not `READY` or `DEGRADED`.
-A disabled component does not count. The table of which class serves which component, and when each is enabled, is
-in [libs/platform's README](../../libs/platform/README.md#health).
+`ATTESTATION_ISSUER`, `HOSTING`, `SSF`, `SSF_RECEIVER`, `OPERATOR_API`, `FAPI`. From 0.6.0 its enable switch,
+`OIDF_<NAME>_ENABLED`, decides whether it runs - `true`, `false`, or unset and inferred from today's configuration
+([components.md](components.md) has the rule, and why production refuses an unset switch beside the component's
+settings). An enabled component reports `STARTING`, `READY`, `DEGRADED`, `FAILED_CONFIG`, `FAILED_DEPENDENCY` or
+`REFUSED`, with a reason. Ready is 503 when an enabled component is not `READY` or `DEGRADED`. A disabled component
+does not count. The table of which class serves which component, and when each is enabled, is in
+[libs/platform's README](../../libs/platform/README.md#health).
 
 Things to know before routing on ready:
 
-- **Nothing about start-up changes.** A servlet or filter that refused to start before still does; ready reports it.
-  A filter that fails to start still takes the whole webapp down, live included.
-- **Some servlets start on their first request** (explicit registration, hosting, the admin API, the attester's
-  issuance endpoint, the SSF receiver), so ready does not see their configuration until someone calls them
-  ([F-0193](../findings/F-0193.yaml)). While such a servlet starts, its component reads `STARTING`, so a first
-  POST to `/federation/register` makes ready 503 for as long as that init takes, even though `FEDERATION` was
-  ready. S9a (Phase 3) starts every component at deploy.
+- **A failed component no longer takes the war down.** Before 0.6.0 a servlet or filter that refused to start stopped
+  the whole `pf-runtime.war`, live included, and every runtime endpoint answered 503 (verified on the rig,
+  [components.md](components.md#verified-on-the-rig)). Now every `init` returns: the component is `FAILED_CONFIG` or
+  `FAILED_DEPENDENCY` with its reason, its own surfaces answer 503 `temporarily_unavailable`, ready is 503, and live,
+  `/pf/heartbeat.ping` and PingFederate's own SSO and OAuth endpoints keep answering - except under a failed `FAPI`,
+  whose filter cannot tell a FAPI client from any other without the client list it failed to read, so every request to
+  the endpoints it covers answers 503 ([components.md](components.md#what-a-component-does-when-it-fails)). A load
+  balancer that routes on ready takes such a node out; one that routes on live or on PingFederate's heartbeat keeps
+  sending it traffic, and the component's own requests meet the 503. A component that failed on a dependency (an I/O,
+  SQL, timeout or linkage failure in its start - today, in practice, a file its start reads that is not there yet,
+  such as `OIDF_FEDERATION_ERROR_PAGE`; the stores are not contacted until the first request) is retried with backoff
+  from 5 s to 300 s and becomes ready by itself once the dependency is back; one that failed on configuration waits
+  for a restart.
+- **Every part starts at deploy.** Explicit registration, hosting, the admin API and the attester's issuance endpoint
+  used to start on their first request, so ready did not see them until someone called them
+  ([F-0193](../findings/F-0193.yaml), closed by S9a). They now load at start-up. The SSF receiver still starts on its
+  first request until ST-5 moves the SSF start-up.
 - **A PingFederate that names a trust controller before its anchor's keys are pinned is not ready**: automatic
   registration refuses everything until the keys are set. If it is its own trust anchor, capture the keys from the
   node directly, not through a load balancer that routes on ready ([F-0192](../findings/F-0192.yaml)).

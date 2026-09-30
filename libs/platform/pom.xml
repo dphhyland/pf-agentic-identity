@@ -158,6 +158,26 @@
                                         <include>com.pingidentity.ps.oidf.platform.component.ComponentRegistry.checkName(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.component.ComponentRegistry.clean(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.component.ComponentState.needsReason(*</include>
+                                        <!-- component (S-9, S9A): the supervisor, the enable switches and a part's start -->
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentRegistry.note(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.retry(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.schedule(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.run(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.backoff(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.ceiling(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.count(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.WebappScheduler.schedule(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.WebappScheduler.executor(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentSwitches.verdict(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentSwitches.value(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentSwitches.present(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.start(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.retry(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.attempt(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.notConfigured(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.componentState(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.componentRefused(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.verdict(*</include>
                                         <!-- json (F-1): add gate includes below this line -->
                                         <include>com.pingidentity.ps.oidf.platform.json.Json.parse(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.json.Json.readValue(*</include>

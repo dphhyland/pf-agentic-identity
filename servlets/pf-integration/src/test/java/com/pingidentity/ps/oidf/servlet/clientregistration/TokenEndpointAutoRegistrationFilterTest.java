@@ -23,6 +23,9 @@ import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.PfRequestScope;
 import com.pingidentity.ps.oidf.pf.testkit.AuditCapture;
+import com.pingidentity.ps.oidf.platform.component.ComponentState;
+import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.servlet.GateTesting;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -127,12 +130,22 @@ class TokenEndpointAutoRegistrationFilterTest {
         // Init must not fail: this web app also serves the entity's own .well-known, which a
         // self-anchored PF has to publish before its keys can be captured and pinned.
         assertDoesNotThrow(() -> filter.init(mock(FilterConfig.class)));
+        assertEquals(ComponentState.FAILED_CONFIG, GateTesting.part("TokenEndpointAutoRegistrationFilter").state());
 
+        // A federation client meets the gate's 503 (S-9's floor), never PingFederate and never the registration service...
+        java.io.ByteArrayOutputStream answer = GateTesting.body(this.response);
         when(this.request.getParameter("client_assertion")).thenReturn(clientAssertion(TRUST_CHAIN, CLIENT_ID));
         filter.doFilter(this.request, this.response, this.chain);
+        verify(this.response).setStatus(503);
+        assertTrue(GateTesting.text(answer).contains("\"temporarily_unavailable\""), GateTesting.text(answer));
+        verify(this.chain, never()).doFilter(any(), any());
 
-        verify(this.chain).doFilter(this.request, this.response);
-        verifyNoInteractions(this.request);
+        // ...and any other client's token request goes on to PingFederate's own client authentication.
+        HttpServletRequest plain = mock(HttpServletRequest.class);
+        when(plain.getParameter("client_id")).thenReturn("an-ordinary-client");
+        filter.doFilter(plain, this.response, this.chain);
+        verify(this.chain).doFilter(plain, this.response);
+        verifyNoInteractions(this.service);
     }
 
     @Test
@@ -140,17 +153,19 @@ class TokenEndpointAutoRegistrationFilterTest {
         System.setProperty(HOST_PROP, "https://anchor.example");
         System.setProperty(ANCHOR_JWKS_PROP, "{\"keys\":[]}");
 
-        ServletException e = assertThrows(ServletException.class,
-                () -> new TokenEndpointAutoRegistrationFilter().init(mock(FilterConfig.class)));
-        assertTrue(e.getMessage().contains("no keys"), e.getMessage());
+        assertDoesNotThrow(() -> new TokenEndpointAutoRegistrationFilter().init(mock(FilterConfig.class)));
+        assertEquals(ComponentState.FAILED_CONFIG, GateTesting.part("TokenEndpointAutoRegistrationFilter").state());
+        String reason = GateTesting.part("TokenEndpointAutoRegistrationFilter").reason();
+        assertTrue(reason.contains("no keys"), reason);
     }
 
     @Test
     void refusesToStartWithNoTrustControllerAtAll() {
-        ServletException e = assertThrows(ServletException.class,
-                () -> new TokenEndpointAutoRegistrationFilter().init(mock(FilterConfig.class)));
+        assertDoesNotThrow(() -> new TokenEndpointAutoRegistrationFilter().init(mock(FilterConfig.class)));
 
-        assertTrue(e.getMessage().contains(FederationRuntimeConfig.HOST_ENV), e.getMessage());
+        assertEquals(ComponentState.FAILED_CONFIG, GateTesting.part("TokenEndpointAutoRegistrationFilter").state());
+        String reason = GateTesting.part("TokenEndpointAutoRegistrationFilter").reason();
+        assertTrue(reason.contains(FederationRuntimeConfig.HOST_ENV), reason);
     }
 
     @Test
@@ -167,6 +182,7 @@ class TokenEndpointAutoRegistrationFilterTest {
     void anInjectedServiceIsKeptThroughInit() throws Exception {
         TokenEndpointAutoRegistrationFilter filter = this.filter(true);
         filter.init(mock(FilterConfig.class));
+        GateTesting.healthy(Startup.AUTO_REGISTRATION);
         when(this.request.getParameter("client_id")).thenReturn(CLIENT_ID);
 
         filter.doFilter(this.request, this.response, this.chain);
@@ -332,12 +348,15 @@ class TokenEndpointAutoRegistrationFilterTest {
         FilterConfig config = mock(FilterConfig.class);
         when(config.getInitParameter("trustChainEntryMaxAgeSeconds")).thenReturn("a minute");
 
-        ServletException e = assertThrows(ServletException.class, () -> new TokenEndpointAutoRegistrationFilter().init(config));
-        assertTrue(e.getMessage().contains("trustChainEntryMaxAgeSeconds"), e.getMessage());
+        assertDoesNotThrow(() -> new TokenEndpointAutoRegistrationFilter().init(config));
+        assertEquals(ComponentState.FAILED_CONFIG, GateTesting.part("TokenEndpointAutoRegistrationFilter").state());
+        String reason = GateTesting.part("TokenEndpointAutoRegistrationFilter").reason();
+        assertTrue(reason.contains("trustChainEntryMaxAgeSeconds"), reason);
 
         when(config.getInitParameter("trustChainEntryMaxAgeSeconds")).thenReturn("0");
-        ServletException zero = assertThrows(ServletException.class, () -> new TokenEndpointAutoRegistrationFilter().init(config));
-        assertTrue(zero.getMessage().contains("must be positive"), "it used to mean 60, quietly: " + zero.getMessage());
+        assertDoesNotThrow(() -> new TokenEndpointAutoRegistrationFilter().init(config));
+        String zero = GateTesting.part("TokenEndpointAutoRegistrationFilter").reason();
+        assertTrue(zero.contains("must be positive"), "it used to mean 60, quietly: " + zero);
     }
 
     @Test
