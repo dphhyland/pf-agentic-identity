@@ -112,21 +112,32 @@ public final class Main {
      * profile or a setting refuses it, with the reason on {@code err}.
      */
     static int run(Function<String, String> env, Function<String, String> systemProperties, PrintStream err) throws Exception {
-        Settings settings = Settings.of(catalogue(), Sources.of(env, systemProperties, null));
-        if (!audit(settings.catalogue(), env, systemProperties, err)) {
-            return REFUSED;
-        }
-        EnrolmentHttpServer server;
-        try {
-            server = wire(settings, DeploymentProfile.of(env));
-        } catch (IllegalStateException | IllegalArgumentException e) {
-            // SettingRefused and ProfileRefused are IllegalStateExceptions: a setting refused, or the profile.
-            err.println("device-enrolment did not start: " + e.getMessage());
+        EnrolmentHttpServer server = prepare(env, systemProperties, err);
+        if (server == null) {
             return REFUSED;
         }
         Runtime.getRuntime().addShutdownHook(new Thread(server::stop));
         server.start();
         return 0;
+    }
+
+    /**
+     * The decision {@link #run} acts on: the audit, then the wiring. The server, built and not started, or null when
+     * the production profile or a setting refuses it, with the reason on {@code err}.
+     */
+    static EnrolmentHttpServer prepare(Function<String, String> env, Function<String, String> systemProperties,
+            PrintStream err) throws Exception {
+        Settings settings = Settings.of(catalogue(), Sources.of(env, systemProperties, null));
+        if (!audit(settings.catalogue(), env, systemProperties, err)) {
+            return null;
+        }
+        try {
+            return wire(settings, DeploymentProfile.of(env));
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            // SettingRefused and ProfileRefused are IllegalStateExceptions: a setting refused, or the profile.
+            err.println("device-enrolment did not start: " + e.getMessage());
+            return null;
+        }
     }
 
     /** This service's catalogue, from its own loader. */
@@ -419,7 +430,9 @@ public final class Main {
             return trimmed;
         }
         if (!trimmed.startsWith("postgresql://") && !trimmed.startsWith("postgres://")) {
-            throw new IllegalArgumentException("not a Postgres URL: " + trimmed);
+            // The scheme only, never the value: a DSN carries its password in the user information.
+            throw new IllegalArgumentException("IDM_DATABASE_URL is not a PostgreSQL URL (its scheme is " + scheme(trimmed)
+                    + "): use a " + POSTGRESQL_JDBC + " URL or a postgresql:// DSN");
         }
         try {
             URI uri = new URI(trimmed);
@@ -434,10 +447,10 @@ public final class Main {
             if (userInfo != null && !userInfo.isBlank()) {
                 int colon = userInfo.indexOf(':');
                 String user = colon < 0 ? userInfo : userInfo.substring(0, colon);
-                params.add("user=" + URLEncoder.encode(decode(user), StandardCharsets.UTF_8));
+                params.add("user=" + URLEncoder.encode(decode(user, "user"), StandardCharsets.UTF_8));
                 if (colon >= 0) {
                     params.add("password="
-                            + URLEncoder.encode(decode(userInfo.substring(colon + 1)), StandardCharsets.UTF_8));
+                            + URLEncoder.encode(decode(userInfo.substring(colon + 1), "password"), StandardCharsets.UTF_8));
                 }
             }
             if (query != null && !query.isBlank()) {
@@ -448,12 +461,28 @@ public final class Main {
             }
             return jdbc.toString();
         } catch (URISyntaxException e) {
-            throw new IllegalArgumentException("malformed Postgres URL: " + trimmed, e);
+            // The reason and its index, not the input or the cause: both repeat the URL, password and all.
+            throw new IllegalArgumentException("IDM_DATABASE_URL is a malformed PostgreSQL DSN: " + e.getReason()
+                    + " at index " + e.getIndex());
         }
     }
 
-    private static String decode(String value) {
-        return URLDecoder.decode(value, StandardCharsets.UTF_8);
+    /**
+     * A URL's scheme when it names one with an authority ({@code scheme://}), never more of the value; "missing"
+     * otherwise, since the text before a colon may be a user name.
+     */
+    static String scheme(String url) {
+        int colon = url.indexOf("://");
+        return colon > 0 && url.substring(0, colon).matches("[A-Za-z][A-Za-z0-9+.-]*") ? url.substring(0, colon + 1) : "missing";
+    }
+
+    /** Percent-decodes part of a DSN's user information; a bad escape is refused without echoing the part. */
+    private static String decode(String value, String part) {
+        try {
+            return URLDecoder.decode(value, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("IDM_DATABASE_URL's " + part + " has a malformed percent escape");
+        }
     }
 
     private static Map<String, Object> parseJwk(String json) {

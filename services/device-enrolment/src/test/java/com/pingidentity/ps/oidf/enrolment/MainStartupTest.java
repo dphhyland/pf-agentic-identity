@@ -185,10 +185,48 @@ class MainStartupTest {
         assertEquals("jdbc:postgresql://host/", Main.toJdbcUrl("postgres://host"), "no database named");
         IllegalArgumentException malformed = assertThrows(IllegalArgumentException.class,
                 () -> Main.toJdbcUrl("postgresql://ho st/db"));
-        assertTrue(malformed.getMessage().startsWith("malformed Postgres URL"), malformed.getMessage());
+        assertTrue(malformed.getMessage().startsWith("IDM_DATABASE_URL is a malformed PostgreSQL DSN"), malformed.getMessage());
+        assertEquals("missing", Main.scheme("alice:s3cret@db"), "a user name is not a scheme");
+        assertEquals("missing", Main.scheme("//db"));
+        assertEquals("missing", Main.scheme("a b://db"));
         IllegalArgumentException bare = assertThrows(IllegalArgumentException.class, () -> Main.toJdbcUrl("jdbc:nothing"));
         assertTrue(bare.getMessage().contains("names a non-JDBC database"), bare.getMessage());
         assertEquals("jdbc:PostgreSQL://db/iom", Main.toJdbcUrl("jdbc:PostgreSQL://db/iom"), "the driver's name in any case");
+    }
+
+    @Test
+    void aDsnThatIsRefusedNeverShowsItsPassword() throws Exception {
+        for (String dsn : List.of("mysql://alice:s3cret@db/iom", "postgresql://alice:s3cret@ho st/db",
+                "postgresql://alice:s3cr%zzt@db/iom", "postgresql://al%zzce:s3cret@db/iom", "alice:s3cret@db/iom")) {
+            Outcome outcome = run(wirableWith(dsn));
+            assertEquals(Main.REFUSED, outcome.status(), dsn);
+            assertTrue(outcome.err().contains("IDM_DATABASE_URL"), outcome.err());
+            assertFalse(outcome.err().contains("s3cr"), outcome.err());
+            assertFalse(outcome.err().contains("alice"), outcome.err());
+        }
+        assertTrue(run(wirableWith("mysql://alice:s3cret@db/iom")).err().contains("its scheme is mysql:"));
+    }
+
+    @Test
+    void aProductionStartThatPassesTheAuditIsWiredAndNotYetStarted() throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        Map<String, String> env = wirable(production());
+        EnrolmentHttpServer server = Main.prepare(env::get, name -> null, new PrintStream(bytes, true, StandardCharsets.UTF_8));
+        try {
+            assertTrue(server != null, bytes.toString(StandardCharsets.UTF_8));
+            assertEquals("", bytes.toString(StandardCharsets.UTF_8));
+        } finally {
+            if (server != null) {
+                server.stop();
+            }
+        }
+    }
+
+    private static Map<String, String> wirableWith(String dsn) throws Exception {
+        Map<String, String> env = wirable(development());
+        env.remove("REGISTRY");
+        env.put("IDM_DATABASE_URL", dsn);
+        return env;
     }
 
     // ---- the process -------------------------------------------------------------------------------------------------
