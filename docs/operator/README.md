@@ -7,6 +7,9 @@ D-7).
 
 What is here now:
 
+- [components.md](components.md) - from 0.6.0, the nine components and their `OIDF_<NAME>_ENABLED` switches: how an
+  unset switch is inferred in each profile, what a component's surfaces answer while it is failed or off, the retry
+  with backoff, and what PingFederate does with an `init` that throws.
 - [deployment-limits.md](deployment-limits.md) - what a release does not support yet, and what goes wrong if
   you deploy it that way: from 0.4.0, one PingFederate node only until 0.7.0, and the device path until 0.9.0.
 - [health.md](health.md) - the health endpoints, `/agentic-identity/health/{live,ready}`, the detail and

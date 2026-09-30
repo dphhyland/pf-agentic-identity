@@ -19,6 +19,7 @@ written by hand is this page, outside its generated list.
 
 | Component | Module | Package | Settings |
 |---|---|---|---|
+| [components](components.md) | `libs/platform` | `com.pingidentity.ps.oidf.platform.component` | 9 |
 | [deployment-profile](deployment-profile.md) | `libs/platform` | `com.pingidentity.ps.oidf.platform.profile` | 2 |
 | [platform-redis](platform-redis.md) | `libs/platform` | `com.pingidentity.ps.oidf.platform.redis` | 9 |
 | [rar-models](rar-models.md) | `libs/rar-model` | `com.pingidentity.ps.oidf.rar.model` | 2 |
@@ -31,7 +32,7 @@ written by hand is this page, outside its generated list.
 | [attestation-token-endpoint](attestation-token-endpoint.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.clientregistration` | 3 |
 | [client-properties](client-properties.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.clientregistration` | 22 |
 | [fapi2-profile](fapi2-profile.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.fapi2` | 1 |
-| [federation-runtime](federation-runtime.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.pf` | 55 |
+| [federation-runtime](federation-runtime.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.pf` | 54 |
 | [hosted-entities](hosted-entities.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.trustanchor` | 8 |
 | [registration](registration.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.clientregistration` | 7 |
 | [attestation-issuer](attestation-issuer.md) | `servlets/attestation-issuer` | `com.pingidentity.ps.oidf.servlet.attestation` | 15 |
