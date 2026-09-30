@@ -49,14 +49,14 @@
              minor version, so it follows version.pf.jackson unless a bundled copy has a reason to differ. -->
         <version.jackson>${version.pf.jackson}</version.jackson>
         <version.jakarta-servlet-api>5.0.0</version.jakarta-servlet-api>
-        <version.postgresql>42.7.3</version.postgresql>
+        <version.postgresql>42.7.13</version.postgresql>
         <!-- H2 is no longer a test database here (0.5.0): its last user is an unused test line in
              plugins/instance-registry-datasource/pom.xml, which is being deleted in 0.5.0. This property and the
              h2 entry below go with that line. -->
-        <version.h2>2.2.224</version.h2>
-        <version.bouncycastle>1.78.1</version.bouncycastle>
+        <version.h2>2.5.250</version.h2>
+        <version.bouncycastle>1.86</version.bouncycastle>
         <version.junit.jupiter>5.10.2</version.junit.jupiter>
-        <version.mockito>5.12.0</version.mockito>
+        <version.mockito>5.23.0</version.mockito>
         <!-- The tests run on PostgreSQL only (H2 and HSQLDB were dropped in 0.5.0). libs/testkit starts one
              container per test JVM when OIDF_TEST_JDBC_URL names no server. 1.21.4, not 1.19.8: 1.19.8 did not
              find Docker Desktop 29 on the maintainer's Mac, and 1.21.4 does (U-0050, verified 2026-09-28). -->
