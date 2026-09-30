@@ -139,12 +139,11 @@
                                         <!-- One loop for every stream (B5, the S10-0 stopgap): which SETs a tick reads (isPushEnabled is the
                                              rule the stores select by and runOnce re-checks), a failing stream held whole until its oldest SET
                                              is due again (runOnce, oldestIsBackingOff), and a POST that ends at its deadline whatever the
-                                             receiver does (send, CappedBody). -->
+                                             receiver does, each answer and failure mapped to a delivery, a retry or a drop (deliver). -->
                                         <include>com.pingidentity.ps.oidf.ssf.Stream.isPushEnabled(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.runOnce(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.oldestIsBackingOff(*</include>
-                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.send(*</include>
-                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.CappedBody.onNext(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.deliver(*</include>
 
                                         <!-- Start-up never throws and publishes all or nothing (S-9, ST-5): configure() builds the whole state
                                              before its one write; the start functions turn every outcome into the part's state - a setting

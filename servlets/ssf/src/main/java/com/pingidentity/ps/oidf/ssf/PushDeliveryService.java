@@ -7,25 +7,19 @@ package com.pingidentity.ps.oidf.ssf;
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
 import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
+import com.pingidentity.ps.oidf.platform.http.Deadline;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttp;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttpException;
+import com.pingidentity.ps.oidf.platform.http.OutboundRequest;
+import com.pingidentity.ps.oidf.platform.http.OutboundResponse;
+import com.pingidentity.ps.oidf.platform.http.TlsTrust;
 import com.pingidentity.ps.oidf.signals.SetMinter;
-import java.io.ByteArrayOutputStream;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.net.http.HttpTimeoutException;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
-import java.util.concurrent.Flow;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -35,7 +29,8 @@ import org.apache.commons.logging.LogFactory;
  * the SET; a malformed-SET 400 drops just that SET; any other failure is retried with exponential backoff, and
  * once a SET reaches {@code pushRetryMaxAttempts} the stream is dead-lettered — flipped to {@code paused} with a
  * recorded reason. The HTTP call is behind {@link SetDeliveryClient} so the retry/backoff/pause logic
- * ({@link #runOnce}) is unit-tested without a network.
+ * ({@link #runOnce}) is unit-tested without a network; the real one sends through platform's
+ * {@link OutboundHttp} (plan item S5d).
  *
  * <p>One loop, one thread, and every stream behind it - so what one stream can cost the others is bounded
  * here (the Phase 1 stopgap for B5; S-10 replaces the loop with a leased engine): the store hands over only
@@ -55,8 +50,13 @@ public final class PushDeliveryService {
      */
     static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(2);
     static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
-    /** Only a 400's body is used, for the log line; a receiver cannot make the loop read more than this of it. */
-    static final int RESPONSE_BODY_CAP = 4096;
+    /**
+     * The most of a receiver's answer that is read: RFC 8935's answers are an empty 202 or a small JSON error, so
+     * a larger body is a failed attempt, retried like any other, and never read past the cap.
+     */
+    static final long RESPONSE_BODY_CAP = 64L * 1024L;
+    /** Only a 400's body is used, for the log line, and only this much of it. */
+    static final int LOGGED_BODY_CHARS = 4096;
 
     public enum Outcome { DELIVERED, RETRYABLE, PERMANENT }
 
@@ -286,7 +286,7 @@ public final class PushDeliveryService {
 
     // ─────────────────────────────── real HTTP client ───────────────────────────────
 
-    /** A JDK-HttpClient delivery client implementing the RFC 8935 POST + response classification. */
+    /** The RFC 8935 POST through platform's {@link OutboundHttp}, with the outbound policy the settings give. */
     public static SetDeliveryClient httpClient() {
         return httpClient(OutboundUrlPolicy.fromEnvironment());
     }
@@ -298,7 +298,8 @@ public final class PushDeliveryService {
      * <p>The endpoint is screened on every attempt, not only when the stream was configured. A stream
      * may predate the screening in {@code StreamManagementService}, or have been written straight into
      * the store; and a hostname that resolved publicly at configuration time can resolve to a private
-     * address later. This is the check that is actually adjacent to the request.
+     * address later. The policy resolves the host once, checks every address and the connection goes to a
+     * checked address, so a name cannot resolve publicly for the check and privately for the connection.
      */
     public static SetDeliveryClient httpClient(OutboundUrlPolicy policy) {
         return httpClient(policy, CONNECT_TIMEOUT, REQUEST_TIMEOUT, RESPONSE_BODY_CAP);
@@ -306,122 +307,71 @@ public final class PushDeliveryService {
 
     /** The deadlines and the body cap as parameters: the test seam, so a stalled receiver is a short test. */
     static SetDeliveryClient httpClient(OutboundUrlPolicy policy, Duration connectTimeout, Duration requestTimeout,
-                                        int bodyCap) {
+                                        long bodyCap) {
+        return httpClient(policy, TlsTrust.jvmDefault(), connectTimeout, requestTimeout, bodyCap);
+    }
+
+    /**
+     * The trust as well: the test seam for a receiver whose certificate a test CA signed. At run time it is the JVM's
+     * trust store; the certificate must name the host the endpoint URL names.
+     */
+    static SetDeliveryClient httpClient(OutboundUrlPolicy policy, TlsTrust trust, Duration connectTimeout,
+                                        Duration requestTimeout, long bodyCap) {
         OutboundUrlPolicy outbound = policy != null ? policy : OutboundUrlPolicy.fromEnvironment();
-        HttpClient http = HttpClient.newBuilder().connectTimeout(connectTimeout).build();
-        return (url, authHeader, jws) -> {
-            try {
-                outbound.check(url);
-            } catch (IllegalArgumentException e) {
-                // PERMANENT, deliberately. The generic catch below classifies everything as retryable,
-                // which for a refused destination would mean re-attempting an SSRF every backoff tick
-                // until the stream dead-letters. A destination the policy refuses will never become
-                // acceptable by trying again.
-                LOGGER.warn((Object) ("refusing push delivery to " + url + ": " + e.getMessage()));
-                return DeliveryResult.permanent(0, "endpoint refused by outbound policy: " + e.getMessage());
-            }
-            try {
-                HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
-                        .timeout(requestTimeout)
-                        .header("Content-Type", "application/secevent+jwt")
-                        .header("Accept", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(jws));
-                if (authHeader != null && !authHeader.isBlank()) {
-                    b.header("Authorization", authHeader);
-                }
-                HttpResponse<String> resp = send(http, b.build(), requestTimeout, bodyCap);
-                int code = resp.statusCode();
-                if (code == 200 || code == 202) {
-                    return DeliveryResult.delivered();
-                }
-                if (code == 400) {
-                    return DeliveryResult.permanent(code, resp.body()); // malformed SET — won't succeed on retry
-                }
-                return DeliveryResult.retryable(code, "HTTP " + code);
-            } catch (Exception e) {
-                return DeliveryResult.retryable(0, e.getMessage()); // network error — retry
-            }
-        };
+        OutboundHttp http = OutboundHttp.builder(outbound.addressPolicy())
+                .tls(trust)
+                .connectTimeout(connectTimeout)
+                .headerTimeout(requestTimeout)
+                .maxBodyBytes(bodyCap)
+                .build();
+        return (url, authHeader, jws) -> deliver(http, outbound, requestTimeout, url, authHeader, jws);
     }
 
     /**
-     * One exchange, bounded as a whole. {@code HttpRequest.timeout} is the wait for the response headers
-     * and nothing after them: a receiver that sends its status line and then holds the body open would hold
-     * the delivery thread past any deadline set on the request. So the future is waited on for the whole
-     * exchange and cancelled when the deadline passes, and the body is read up to {@code bodyCap} bytes and
-     * not one more. The cancel closes the connection, so a stalled receiver keeps no socket of ours either:
-     * {@code PushDeliveryHttpTest} sees it close at the deadline, and without the cancel it stays open
-     * (U-0077, checked on JDK 17, 20 and 21.0.12.1, the runtime of the PingFederate 13.1.3 image).
+     * One POST, bounded as a whole by {@code deadline}: connecting (2 s at most), the status line and headers,
+     * and the body, which is read up to the cap and no further. A receiver that answers slowly, a byte at a
+     * time, or with more than the cap costs one attempt of at most {@link #REQUEST_TIMEOUT}, and the socket is
+     * closed when it ends. An interrupt - {@link #stop} - ends the wait within platform's 250 ms read slice and
+     * leaves the interrupt set, so {@link #runOnce} posts nothing after it.
      */
-    static HttpResponse<String> send(HttpClient http, HttpRequest request, Duration deadline, int bodyCap)
-            throws Exception {
-        CompletableFuture<HttpResponse<String>> exchange =
-                http.sendAsync(request, info -> new CappedBody(bodyCap));
+    static DeliveryResult deliver(OutboundHttp http, OutboundUrlPolicy policy, Duration deadline, String url,
+                                  String authHeader, String jws) {
+        OutboundResponse response;
         try {
-            return exchange.get(deadline.toMillis(), TimeUnit.MILLISECONDS);
-        } catch (TimeoutException e) {
-            exchange.cancel(true);
-            throw new HttpTimeoutException("no complete response within " + deadline.toMillis() + " ms");
-        } catch (InterruptedException e) {
-            // The loop is being stopped. The exchange goes with it, and the interrupt stays set so that
-            // runOnce posts nothing after this one.
-            exchange.cancel(true);
-            Thread.currentThread().interrupt();
-            throw e;
-        }
-    }
-
-    /**
-     * A body subscriber that keeps the first {@code cap} bytes and cancels the rest. Completes on the cap as
-     * well as on the end of the body, so a response whose body never ends is over once the cap is reached.
-     */
-    static final class CappedBody implements HttpResponse.BodySubscriber<String> {
-
-        private final int cap;
-        private final ByteArrayOutputStream kept = new ByteArrayOutputStream();
-        private final CompletableFuture<String> body = new CompletableFuture<>();
-        private Flow.Subscription subscription;
-
-        CappedBody(int cap) {
-            this.cap = cap;
-        }
-
-        @Override
-        public void onSubscribe(Flow.Subscription subscription) {
-            this.subscription = subscription;
-            subscription.request(Long.MAX_VALUE);
-        }
-
-        @Override
-        public void onNext(List<ByteBuffer> buffers) {
-            for (ByteBuffer buffer : buffers) {
-                int room = this.cap - this.kept.size();
-                if (room <= 0) {
-                    break;
-                }
-                byte[] chunk = new byte[Math.min(room, buffer.remaining())];
-                buffer.get(chunk);
-                this.kept.write(chunk, 0, chunk.length);
+            OutboundRequest.Builder request = OutboundRequest.post(url)
+                    .header("Accept", "application/json")
+                    .body("application/secevent+jwt", jws);
+            if (authHeader != null && !authHeader.isBlank()) {
+                request.header("Authorization", authHeader);
             }
-            if (this.kept.size() >= this.cap) {
-                this.subscription.cancel();
-                this.body.complete(this.kept.toString(StandardCharsets.UTF_8));
+            response = http.send(request.build(), Deadline.after(deadline));
+        } catch (OutboundHttpException e) {
+            IllegalArgumentException refused = policy.refusal(e, URI.create(url));
+            if (refused != null) {
+                // PERMANENT, deliberately: a destination the policy refuses will never become acceptable by
+                // trying again, and retrying it would re-attempt an SSRF every backoff tick until the stream
+                // dead-letters.
+                LOGGER.warn((Object) ("refusing push delivery to " + url + ": " + refused.getMessage()));
+                return DeliveryResult.permanent(0, "endpoint refused by outbound policy: " + refused.getMessage());
             }
+            LOGGER.warn((Object) ("push delivery to " + url + " failed, to be retried: " + e.reason() + ": "
+                    + e.getMessage()));
+            return DeliveryResult.retryable(0, e.reason() + ": " + e.getMessage());
+        } catch (IllegalArgumentException e) {
+            // A URL that does not parse, or an authorization header that could split the request: neither
+            // changes by trying again.
+            LOGGER.warn((Object) ("refusing push delivery to " + url + ": " + e.getMessage()));
+            return DeliveryResult.permanent(0, "endpoint refused: " + e.getMessage());
         }
-
-        @Override
-        public void onError(Throwable throwable) {
-            this.body.completeExceptionally(throwable);
+        int code = response.status();
+        if (code == 200 || code == 202) {
+            return DeliveryResult.delivered();
         }
-
-        @Override
-        public void onComplete() {
-            this.body.complete(this.kept.toString(StandardCharsets.UTF_8));
+        if (code == 400) {
+            // Malformed SET: it won't succeed on retry. The body goes in the log, clipped.
+            String body = response.bodyText();
+            return DeliveryResult.permanent(code, body.substring(0, Math.min(body.length(), LOGGED_BODY_CHARS)));
         }
-
-        @Override
-        public CompletionStage<String> getBody() {
-            return this.body;
-        }
+        return DeliveryResult.retryable(code, "HTTP " + code);
     }
 }
