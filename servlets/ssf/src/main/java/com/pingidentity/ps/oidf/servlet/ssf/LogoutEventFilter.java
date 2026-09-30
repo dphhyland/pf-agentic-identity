@@ -91,7 +91,8 @@ public final class LogoutEventFilter implements Filter {
         if (request instanceof HttpServletRequest) {
             try {
                 subject = this.extractor.extract((HttpServletRequest) request);
-            } catch (RuntimeException e) {
+            } catch (RuntimeException | LinkageError e) {
+                // Whatever the extraction meets - PingFederate's key lookup not linking included - the logout goes on (S9b).
                 LOGGER.warn((Object) ("SSF logout signal: could not extract subject: " + e.getMessage()));
             }
         }
