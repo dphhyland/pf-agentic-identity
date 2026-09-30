@@ -76,4 +76,16 @@ class ReceiverActionHandlerTest {
                 "user", SubjectId.email("dan@example.com"), "session", SubjectId.opaque("s-1")))));
         assertEquals(List.of("carol", "dan@example.com"), revoked, "this PingFederate's issuer is honoured; complex by user");
     }
+
+    @Test
+    void aCredentialChangeRequiredRevokesAndAnUnmappedSubjectRevokesNothing() {
+        List<String> revoked = new ArrayList<>();
+        ReceiverActionHandler h = new ReceiverActionHandler(userKey -> {
+            revoked.add(userKey);
+            return 1;
+        });
+        h.onSet(set(SsfEventTypes.RISC_ACCOUNT_CREDENTIAL_CHANGE_REQUIRED, SubjectId.did("did:example:bob")));
+        h.onSet(set(SsfEventTypes.RISC_ACCOUNT_DISABLED, SubjectId.complex(Map.of("device", SubjectId.opaque("d")))));
+        assertEquals(List.of("did:example:bob"), revoked);
+    }
 }

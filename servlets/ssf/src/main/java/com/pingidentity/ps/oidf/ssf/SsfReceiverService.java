@@ -121,18 +121,8 @@ public final class SsfReceiverService {
             Events.event(EVENTS, SET_DISCARDED).failure("critical_subject_member").emit();
             return Outcome.DISCARDED;
         }
-        synchronized (this) {
-            if (this.seenJtis.contains(set.jti())) {
-                return Outcome.DUPLICATE;
-            }
-            this.seenJtis.add(set.jti());
-            while (this.seenJtis.size() > DEDUP_MAX) {
-                this.seenJtis.remove(this.seenJtis.iterator().next());
-            }
-            this.recent.addFirst(set);
-            while (this.recent.size() > RECENT_MAX) {
-                this.recent.removeLast();
-            }
+        if (!record(set)) {
+            return Outcome.DUPLICATE;
         }
         for (ReceivedSetHandler handler : this.handlers) {
             try {
@@ -142,6 +132,22 @@ public final class SsfReceiverService {
             }
         }
         return Outcome.ACCEPTED;
+    }
+
+    /** Records a SET not seen before in the bounded dedup window and recent buffer; false for a {@code jti} seen already. */
+    private synchronized boolean record(ReceivedSet set) {
+        if (this.seenJtis.contains(set.jti())) {
+            return false;
+        }
+        this.seenJtis.add(set.jti());
+        while (this.seenJtis.size() > DEDUP_MAX) {
+            this.seenJtis.remove(this.seenJtis.iterator().next());
+        }
+        this.recent.addFirst(set);
+        while (this.recent.size() > RECENT_MAX) {
+            this.recent.removeLast();
+        }
+        return true;
     }
 
     /**

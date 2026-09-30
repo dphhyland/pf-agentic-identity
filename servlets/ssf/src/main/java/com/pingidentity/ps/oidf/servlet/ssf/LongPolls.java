@@ -94,10 +94,6 @@ final class LongPolls {
         long now = clock.millis();
         for (Iterator<Held> it = HELD.iterator(); it.hasNext(); ) {
             Held held = it.next();
-            if (held.done().get()) {
-                it.remove();
-                continue;
-            }
             try {
                 if (held.ready().getAsBoolean()) {
                     Map<String, Object> body = held.poll().get();

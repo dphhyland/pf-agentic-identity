@@ -136,4 +136,14 @@ class PollReceiverClientTest {
         client.runOnce();               // retried here
         assertTrue(pollBodies.get(2).contains("jti-2"), "ack retried after transport failure");
     }
+
+    @Test
+    void anAnswerThatIsNotJsonOrHasNoSetsProcessesNothing() {
+        List<String> answers = List.of("not json", "{\"sets\":[]}", "{}");
+        int[] n = {0};
+        PollReceiverClient client = new PollReceiverClient(receiver, body -> answers.get(n[0]++), 0);
+        for (int i = 0; i < answers.size(); i++) {
+            assertEquals(0, client.runOnce(), answers.get(i));
+        }
+    }
 }

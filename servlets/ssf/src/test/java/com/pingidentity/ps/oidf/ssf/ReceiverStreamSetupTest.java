@@ -247,4 +247,31 @@ class ReceiverStreamSetupTest {
             server.stop(0);
         }
     }
+
+    /** configure() builds the managed stream when its URL is set, and polls only a poll stream or a named poll URL. */
+    @Test
+    void theTransmitterBuildsTheManagedStreamAndPollsOnlyWhatIsPolled() {
+        SsfConfiguration.Builder base = new SsfConfiguration.Builder().issuer("https://op.example.com").receiverExpectedIssuer(ISS)
+                .receiverAudience(AUD).receiverEndpointAuthToken("s3cret");
+        try {
+            SsfSupport.resetForTests();
+            SsfSupport.configure(base.receiverTransmitterConfigurationUrl(META).receiverPollToken("pt")
+                    .receiverPushEndpointUrl("https://me.example.com/ssf/receiver/events").build());
+            assertTrue(SsfSupport.receiverStream() != null, "managed");
+            SsfSupport.startReceiverPolling(); // a push stream: nothing to poll, nothing started
+            SsfSupport.resetForTests();
+            SsfSupport.configure(new SsfConfiguration.Builder().issuer("https://op.example.com").receiverExpectedIssuer(ISS)
+                    .receiverAudience(AUD).receiverEndpointAuthToken("s3cret").receiverPollUrl(ISS + "/poll").build());
+            assertNull(SsfSupport.receiverStream(), "a named poll URL is not a managed stream");
+            SsfSupport.resetForTests();
+            SsfSupport.configure(new SsfConfiguration.Builder().issuer("https://op.example.com").receiverExpectedIssuer(ISS)
+                    .receiverAudience(AUD).receiverEndpointAuthToken("s3cret").receiverTokenEndpoint("https://as.example.com/t")
+                    .receiverClientId("rx").receiverClientSecret("s").build());
+            assertNull(SsfSupport.receiverStream());
+            assertTrue(SsfSupport.receiverBearer(SsfSupport.configuration()) instanceof ClientCredentialsToken);
+        } finally {
+            SsfSupport.resetForTests();
+        }
+        assertNull(SsfSupport.receiverStream(), "nothing published");
+    }
 }

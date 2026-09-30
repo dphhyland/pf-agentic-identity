@@ -169,13 +169,42 @@
                                         <include>com.pingidentity.ps.oidf.servlet.ssf.LogoutEventFilter.allowSubParameter(*</include>
 
                                         <!-- Inbound signals: which subject a received SET acts on. receiverVerifier() keeps an inbound
-                                             sub_id to SsfSubjects' five formats, and parse() and fromCanonicalKey() refuse the rest
-                                             from every other door, until H-SSF-1. -->
+                                             sub_id to SsfSubjects' receiver formats, and parse() and fromCanonicalKey() keep every
+                                             other door to the transmitter's five. userKey() and deviceId() are H-SSF-1's mapping (an
+                                             iss_sub honoured only for its issuer, aliases by preference, complex by member), and the
+                                             handlers act on nothing a subject does not map to. -->
                                         <include>com.pingidentity.ps.oidf.ssf.SsfSupport.receiverVerifier(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.SsfSubjects.parse(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.SsfSubjects.fromCanonicalKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSubjects.userKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSubjects.deviceId(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSubjects.firstOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSubjects.simpleUserKey(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.onSet(*</include>
-                                        <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.deviceIdOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.sessionRevoked(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ReceiverActionHandler.onSet(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ReceiverActionHandler.issuers(*</include>
+
+                                        <!-- H-SSF-1: which SETs the receiver refuses (exp, sub - F-0246) or discards (a critical subject
+                                             member), the token it presents and when it is replaced, and the stream it will accept at the
+                                             transmitter (issuer, aud, and a stream it created deleted again). -->
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfReceiverService.receive(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfReceiverService.refuseForbiddenClaims(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfReceiverService.unprocessedCriticalMembers(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ClientCredentialsToken.token(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ClientCredentialsToken.rejected(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ClientCredentialsToken.privateKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ReceiverStreamClient.ensure(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ReceiverStreamClient.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PollReceiverClient.runOnce(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfComponents.receiverStream(*</include>
+
+                                        <!-- H-SSF-2: what a poll returns and what it releases - the cap, setErrs, a stream that is not
+                                             enabled, and a long poll answered once. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.poll(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.recordSetErrors(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfPollServlet.parseSetErrs(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.LongPolls.tick(*</include>
 
                                         <!-- Outbound signals: which PF audit events become SETs (their signing is
                                              libs/shared-signals' SetMinter.sign, gated there). -->

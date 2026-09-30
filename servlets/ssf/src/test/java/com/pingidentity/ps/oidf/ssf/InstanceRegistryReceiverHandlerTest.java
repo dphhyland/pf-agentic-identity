@@ -223,4 +223,20 @@ class InstanceRegistryReceiverHandlerTest {
             throw new RegistryException(RegistryException.STORAGE_FAILURE, "down");
         }
     }
+
+    /** H-SSF-1: a complex subject's device member names the device; a subject naming no one here acts on nothing. */
+    @Test
+    @Requirement("SSF §3.3")
+    void aComplexDeviceMemberNamesTheDeviceAndAnUnmappedSubjectActsOnNothing() throws Exception {
+        handler.onSet(set(SsfEventTypes.CAEP_SESSION_REVOKED, SubjectId.issSub("https://elsewhere.example", ownerSubject),
+                Map.of()));
+        handler.onSet(set(SsfEventTypes.CAEP_DEVICE_COMPLIANCE_CHANGE, SubjectId.email("a@b.com"),
+                Map.of("current_status", "not-compliant")));
+        handler.onSet(set(SsfEventTypes.CAEP_CREDENTIAL_CHANGE, SubjectId.email("a@b.com"),
+                Map.of("change_type", "revoke", "credential_type", "fido2-roaming")));
+        assertEquals(InstanceStatus.ACTIVE, statusOf(instanceA), "nobody here was named");
+        handler.onSet(set(SsfEventTypes.CAEP_SESSION_REVOKED, SubjectId.complex(Map.of("device", SubjectId.opaque(deviceId),
+                "user", SubjectId.email("a@b.com"))), Map.of()));
+        assertEquals(InstanceStatus.REVOKED, statusOf(instanceA));
+    }
 }
