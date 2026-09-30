@@ -4,7 +4,7 @@ area: pf-integration
 source: design
 status: open
 plan_items: [S4d]
-prs: []
+prs: [81]
 recorded_in: servlets/pf-integration/README.md, The attestation's authorization_details; docs/attestation-client-auth-design.md, Where the filter runs
 verify_by: >
   On the rig: an attested POST to /as/device_authz.oauth2 with authorization_details, the user code approved on

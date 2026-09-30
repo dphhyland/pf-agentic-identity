@@ -4,7 +4,7 @@ area: rar-paz-plugin
 source: pr-review
 status: open
 plan_items: [S2b]
-prs: []
+prs: [81]
 recorded_in: 'plugins/rar-paz-plugin/README.md, Who the decision is about, the CIBA row'
 verify_by: >
   On the rig, send the backchannel authentication request to /as/bc-auth.ciba;x, /as/bc-auth%2Eciba and

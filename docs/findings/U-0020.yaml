@@ -4,7 +4,7 @@ area: pf-integration
 source: design
 status: closed
 plan_items: [S4d]
-prs: []
+prs: [81]
 recorded_in: the plan, To verify before relying on it, booted PingFederate item 5
 verify_by: >
   On the rig: a PAR request and a CIBA bc-auth request authenticated with the bridge's client assertion.
