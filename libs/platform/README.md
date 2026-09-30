@@ -69,7 +69,22 @@ health (O4) to read.
   cut at 256 characters without splitting a surrogate pair. A state that needs a reason and gets none says
   "no reason given".
 
-There is no supervisor and no retry here: S-9's backoff is S9a (Phase 3).
+**The enable switches.** `ComponentSwitches` reads S-9's nine switches, `OIDF_<NAME>_ENABLED`, from platform's
+`components` catalogue (`Settings.of("components")`), and gives each component a `Verdict`: `ENABLED` (`true`),
+`DISABLED` (`false`), `INFERRED` (unset, and allowed to be) or `FAILED_CONFIG`. Unset is inferred in the development
+profile; in production only while none of the component's presence settings (`ComponentSwitches.PRESENCE`) is set
+in the environment and not blank, and `FAILED_CONFIG` otherwise, with a reason naming the switch. A value that does
+not parse, and `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY` (the catalogued alias of `OIDF_ATTESTATION_AUTH_ENABLED`)
+disagreeing with it, are `FAILED_CONFIG` too. The operator's view is
+[docs/operator/components.md](../../docs/operator/components.md).
+
+**The supervisor.** `Supervisor` starts a part that failed on a dependency again: the first wait is drawn uniformly
+from zero to 5 s, and each later ceiling doubles to 300 s (full jitter, `Supervisor.backoff(failures, random)`).
+Each attempt counts in `oidf_component_retries_total{component}`, then moves the part to `STARTING` and runs its
+start function; the retries stop when the part leaves `FAILED_DEPENDENCY` or registers again. `FAILED_CONFIG` and
+`REFUSED` are never retried. `Supervisor.shared()` schedules on one managed executor (`exec`) created on the first
+retry, and only in the copy `Lifecycle.current().isWebapp()` marks as the webapp's: in any other copy `retry` answers
+`false`, schedules nothing and starts no thread ([classloaders](../../docs/development/classloaders.md), rule 2).
 
 ## json
 
@@ -521,52 +536,58 @@ part in that state as `part: reason`, joined with `; `. `Startup` holds S-9's ni
 loader's `ComponentParts`; statics are per loader, and nothing in the engine's copy runs an `init`, so the engine's
 registry stays empty ([classloaders](../../docs/development/classloaders.md), rule 1).
 
-A part starts `STARTING`. Its `init` wraps what it did before in `try`, and says what it found:
+A part starts `STARTING`. Its `init` hands the part its start function and returns, whatever happened:
 
 ```java
-var part = Startup.begin(Startup.AUTO_REGISTRATION, "TokenEndpointAutoRegistrationFilter");
-try {
-    ... init as it was, with part.disabled() or part.failedConfig(reason) where it switches off or refuses ...
-} catch (ServletException | RuntimeException | Error e) {
-    part.failed(e);
-    throw e;
-} finally {
-    part.finish();
-}
+this.part = Startup.begin(Startup.AUTO_REGISTRATION, "TokenEndpointAutoRegistrationFilter");
+this.part.start(() -> {
+    ... what init did, with part.notConfigured(what) where its settings are absent,
+    part.failedConfig(reason) where it refuses, and a throw for anything else ...
+});
 ```
 
-`failed` records `FAILED_DEPENDENCY` when the exception or one of its causes (16 at most, never round a cycle) is an
-`IOException`, `UncheckedIOException`, `SQLException`, `TimeoutException` or `LinkageError` (a jar missing where it
-runs), and `FAILED_CONFIG` for anything else; the reason is the message, with the deepest cause's when it says
-something the message does not. `init` rethrows unchanged, so whether it throws is what it was: S9a (Phase 3) makes
-`init` never throw. `finish` makes a part still starting ready. A disabled part stays disabled, and registering a
-part again (a second `init`) starts it afresh and retires the earlier handle. A reason is cut to one line of 256
+`start` reads the component's switch first: `false` makes the part `DISABLED` and its start never runs, a switch
+verdict of `FAILED_CONFIG` records that and never runs it either. Otherwise it runs the start function and records
+the outcome, and never throws. What the function throws is `FAILED_DEPENDENCY` when the exception or one of its
+causes (16 at most, never round a cycle) is an `IOException`, `UncheckedIOException`, `SQLException`,
+`TimeoutException` or `LinkageError` (a jar missing where it runs), and `FAILED_CONFIG` for anything else
+(`ComponentParts.stateFor`); the reason is the message, with the deepest cause's when it says something the message
+does not, and the stack goes to the log. A function that returns leaves a part still starting `READY`.
+`notConfigured(what)` is the part's "my settings are absent": `DISABLED` when the switch is unset (as before the
+switches), `FAILED_CONFIG` naming the switch when it is `true`. A part that ends in `FAILED_DEPENDENCY` goes to the
+supervisor (above), which runs the same function again. A disabled part stays disabled, and registering a part
+again (a second `init`) starts it afresh and retires the earlier handle. A reason is cut to one line of 256
 characters, as the registry cuts it.
 
-There is no supervisor (S9a). The one retry is a probe: a part that failed on a dependency something else keeps
-retrying - the SSF transmitter's boot retry - passes a check with `failedDependency(reason, probe)`, and
-`ComponentParts.refresh()`, which health calls before it reads, makes the part ready once the check returns.
+The pull probe stays for a part that prefers it: one whose dependency something else keeps retrying - the SSF
+transmitter's boot retry - passes a check with `failedDependency(reason, probe)`, the supervisor leaves it alone,
+and `ComponentParts.refresh()`, which health calls before it reads, makes the part ready once the check returns.
 
-**Which class serves which component**, and when today's configuration enables it (inferred, as S9a infers it in
-development):
+Each request method of a part's servlet or filter starts with platform-pf's `ComponentGate`
+([libs/platform-pf, component](../platform-pf/README.md#component)), which answers for the surface while its part is
+starting or failed, or its component has a part refused.
+
+**Which class serves which component**, and what an unset switch infers from the configuration (in development
+always, in production while none of the component's settings is set):
 
 | Component | Part (class) | Enabled | Starts |
 |---|---|---|---|
 | `FEDERATION` | `OpenIdFederationServlet` | always | at deploy |
-| `FEDERATION` | `OpenIdRegistrationServlet` (explicit registration, a federation endpoint) | always | first request |
+| `FEDERATION` | `OpenIdRegistrationServlet` (explicit registration, a federation endpoint) | always | at deploy |
 | `AUTO_REGISTRATION` | `TokenEndpointAutoRegistrationFilter` | always; `FAILED_CONFIG` while the anchor's keys are not pinned | at deploy |
 | `AUTO_REGISTRATION` | `FrontChannelAutoRegistrationFilter` | unless `OIDF_AUTO_REGISTRATION_FRONT_CHANNEL=false`; `FAILED_CONFIG` while the keys are not pinned | at deploy |
 | `ATTESTATION_AUTH` | `ClientAttestationAuthFilter` | unless no bridge signing is configured and `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`; `DEGRADED` while the keys are not pinned | at deploy |
-| `ATTESTATION_ISSUER` | `AttestationIssuanceServlet` | always | first request |
-| `HOSTING` | `HostedEntityServlet` | when an authority entity id is set | first request |
+| `ATTESTATION_ISSUER` | `AttestationIssuanceServlet` | always | at deploy |
+| `HOSTING` | `HostedEntityServlet` | when an authority entity id is set | at deploy |
 | `SSF` | `SsfConfigurationServlet` | when the transmitter's settings parse (an issuer is set) | at deploy |
 | `SSF_RECEIVER` | `SsfReceiverServlet` | when SSF is and a receiver issuer is set | first request |
-| `OPERATOR_API` | `FederationAdminServlet` | when `OIDF_AUTHORITY_ADMIN_TOKEN` is set | first request |
+| `OPERATOR_API` | `FederationAdminServlet` | when `OIDF_AUTHORITY_ADMIN_TOKEN` is set | at deploy |
 | `FAPI` | `Fapi2ProfileFilter` | when `OIDF_FAPI2_CLIENTS` names a client | at deploy |
 
-The SSF states are read after `SsfHttp.bootstrap`, which never throws, by servlets/ssf's `SsfComponents`. A part
-that starts on its path's first request is absent until then, and readiness ignores it (finding
-[F-0193](../../docs/findings/F-0193.yaml)); a transmitter setting that does not parse reads as SSF not configured,
+The SSF states are read after `SsfHttp.bootstrap`, which never throws, by servlets/ssf's `SsfComponents`, and the
+SSF switches change nothing until ST-5 moves that start-up onto the parts. Every other part starts at deploy
+(finding [F-0193](../../docs/findings/F-0193.yaml), closed by S9a); `SsfReceiverServlet` still starts on its path's
+first request and is absent from readiness until then. A transmitter setting that does not parse reads as SSF not configured,
 as the bootstrap reads it (F-0191).
 
 **Readiness.** `Health.readiness` is `DOWN` when an enabled component is neither `READY` nor `DEGRADED` - starting,

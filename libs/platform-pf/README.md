@@ -117,6 +117,29 @@ service's health beside the service. Its readiness is UP until gm-api registers 
 gm-api's `init` (a component name of its own, such as `GM_API`, since S-9 names none) so that a gm-api that failed
 to start reads DOWN. The detail and info take the same bearer: the token is JVM-wide.
 
+<!-- component (S9a): this package's section -->
+## component
+
+`ComponentGate` is the fail-closed floor of plan item S-9 (S9a, Phase 3): the first statement of every request
+method of a component's servlets and filters, so a surface whose `init` no longer throws does not serve
+half-configured. It reads the surface's own part ([libs/platform, health](../platform/README.md#health)), and the
+component only when a part of it is `REFUSED` (the programme's decision 4).
+
+| The part | `ComponentGate.servlet(part, response)` | `ComponentGate.filter(part, request, response, chain, traffic)` |
+|---|---|---|
+| `READY`, `DEGRADED`, no part of the component `REFUSED` | `false`: the servlet serves | `false`: the filter runs |
+| `STARTING`, `FAILED_CONFIG`, `FAILED_DEPENDENCY`, `REFUSED`, or a part of the component `REFUSED` | 503 `{"error":"temporarily_unavailable","error_description":"<COMPONENT> is not available"}`, `true` | the same 503 when `traffic` says the request is the component's; otherwise the request goes on down `chain`; `true` either way |
+| `DISABLED` | 404 `{"error":"not_found",...}`, `true` | the request goes on down `chain`, `true` |
+| none (`init` never ran) | `false` | `false` |
+
+A filter's `traffic` is its own trigger read from the request alone: `federationClientTraffic` (a `client_id`, or a
+`client_assertion` whose `sub` is, an https URL with a host, or an assertion with a `trust_chain` header),
+`attestationTraffic` (`OAuth-Client-Attestation` or its PoP) or `everyRequest` (FAPI, which cannot tell its clients
+from the rest without the list it failed to read). The body is OpenID Federation 1.0 §8.9's and RFC 6749 §5.2's
+error shape, with `Cache-Control: no-store`. What operators see is in
+[docs/operator/components.md](../../docs/operator/components.md). S9b (Phase 3, wave 4) replaces the floor with each
+surface's own rule.
+
 <!-- lifecycle (F-2): add this package's section below this line -->
 ## lifecycle
 
