@@ -16,8 +16,11 @@ verification: >
   has one reader. FederationSettingsTest.theServletAndTheRuntimeReadTheSwitchTheSameWay runs both readers over one
   table of twelve environments (property, environment, superseded name agreeing and disagreeing, strict and legacy
   spellings in both profiles) and asserts the same answer from each. The same holds for the other variables two
-  readers read: OIDF_OPENBAO_URL and OIDF_OPENBAO_TOKEN (HostedEntityServlet no longer reads them past their
-  superseded names) and OIDF_AUTHORITY_* (AuthorityDataSource and HostedEntityServlet read one entry each).
+  readers read: OIDF_OPENBAO_URL and OIDF_OPENBAO_TOKEN, which HostedEntityServlet read as init-param, system
+  property and environment variable before falling back to RegistryHostedEntitySigner's reading with the superseded
+  OPENBAO_*, BAO_* and VAULT_* names, and which now have one hosted-entity-signing entry each, superseded names
+  checked whenever they are read; and OIDF_AUTHORITY_* (AuthorityDataSource and HostedEntityServlet read one entry
+  each).
 target_release: 0.6.0
 notes: >
   Found by ST3A (2026-09-28) while cataloguing: a name is catalogued once, so each variable's sources had to be

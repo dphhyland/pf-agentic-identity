@@ -120,8 +120,9 @@ public final class AuthorityDataSource {
 
     /**
      * Holds {@code store} to PostgreSQL, for {@code component}: the authority's tables are written and tested for
-     * PostgreSQL only (Phase 3 plan, decision 10). A direct URL is judged by its scheme; a data store by the product
-     * name its database reports on one connection, since no URL shows what a data store id points at. H2 and HSQLDB,
+     * PostgreSQL only (Phase 3 plan, decision 10). A direct URL is judged by its scheme, spelt as the driver accepts it;
+     * a data store by the product name its database reports on one connection, since no URL shows what a data store id
+     * points at. H2 and HSQLDB,
      * dropped in 0.5.0, are refused in every profile ({@link PfDataSources}); any other database that is not PostgreSQL
      * is refused under production ({@link ProfileRefusals#refuse}) and warned of under development.
      *
@@ -133,7 +134,9 @@ public final class AuthorityDataSource {
     public static void requirePostgreSql(String component, DataSource store, String what) {
         String url = PfDataSources.urlOf(store);
         if (url != null) {
-            if (!url.regionMatches(true, 0, POSTGRESQL_URL, 0, POSTGRESQL_URL.length())) {
+            // Case-sensitive, as PfDataSources loads the driver and as PostgreSQL's driver accepts a URL: a scheme spelt in
+            // another case would pass here and fail at first use.
+            if (!url.startsWith(POSTGRESQL_URL)) {
                 ProfileRefusals.refuse(component, JDBC_URL_ENV + " names a " + PfDataSources.scheme(url) + " database for " + what
                         + ": the authority's stores are written and tested for PostgreSQL only; use a " + POSTGRESQL_URL
                         + " URL or a PingFederate data store on PostgreSQL");

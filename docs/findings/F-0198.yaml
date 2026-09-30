@@ -12,11 +12,17 @@ verification: >
   2147483648, 4294967297 and 9223372036854775808 are refused naming the setting
   (FederationSettingsTest.theAutoRegistrationLimitsAreIntsInTheirRange). The per-client trust_chain_request_max_age
   defaults to 60 for every reader - the OGNL chain criterion, the attestation criterion's attester chain and the
-  token-endpoint filter's attester resolver - through OIDFederationUtils.trustChainRequestMaxAge and its constant,
-  which TrustChainRequestMaxAgeTest holds to the catalogue's default. 60 because the validator only drops a presented
-  statement older than the limit and fetches it again (TrustChainValidator's presented index), so the limit never
-  refuses a chain: what the attester paths lose is the use of a presented chain older than a minute, which now costs a
-  fetch per stale statement.
+  token-endpoint filter's attester resolver - through OIDFederationUtils.trustChainRequestMaxAge and its constant.
+  TrustChainRequestMaxAgeTest holds each reader to it: the constant to the catalogue's default and the OGNL reader to
+  the constant (theDefaultIsTheCataloguesAndEveryReaderUsesIt), the attestation criterion's
+  ClientAttestationUtils.trustChainEntryMaxAge with no property to 60
+  (theAttestationCriterionHoldsAnAttesterChainToTheSameDefault), and the resolver
+  ClientAttestationUtils.attesterResolver gives the filter, which is seen asking the validator for 60
+  (theTokenEndpointFilterHoldsAnAttesterChainToTheSameDefault). 60 because the validator drops a presented statement
+  older than the limit and fetches it again (TrustChainValidator's presented index) rather than refusing the chain.
+  What the attester paths lose: a stale presented statement costs a fetch, and one that cannot be fetched - the host
+  unreachable, or refused by OutboundUrlPolicy as private (only the trust controller is exempt) - now fails the chain
+  where the presented copy passed before. A client with trust_chain_request_max_age -1 keeps the old behaviour.
 target_release: 0.6.0
 notes: >
   Found by ST3A (2026-09-28) while transcribing defaults from the code. FederationRuntimeConfig reads

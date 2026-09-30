@@ -106,16 +106,32 @@ class AuthorityStoresTest {
         assertDoesNotThrow(() -> AuthorityDataSource.keyHistoryStore(Startup.FEDERATION));
     }
 
-    /** A direct PostgreSQL URL is judged by its scheme, in any case, without a connection. */
+    /** A direct PostgreSQL URL is judged by its scheme without a connection. */
     @Test
     void aDirectPostgreSqlUrlIsTakenWithoutAConnection() {
         profile(DeploymentProfile.PRODUCTION);
-        System.setProperty(URL_PROPERTY, "JDBC:PostgreSQL://db.internal/idm");
+        System.setProperty(URL_PROPERTY, "jdbc:postgresql://db.internal/idm");
 
         AuthorityDataSource.trustMarkRegistry(Startup.FEDERATION);
 
         assertTrue(TrustMarkSupport.isConfigured());
         assertEquals(List.of(), ProfileRefusals.codeRefusals());
+    }
+
+    /**
+     * The scheme spelt in another case is not PostgreSQL's: PostgreSQL's driver accepts only {@code jdbc:postgresql:}, so
+     * such a URL would pass a check that ignored case and then fail at first use.
+     */
+    @Test
+    void aPostgreSqlSchemeInAnotherCaseIsRefusedInProduction() {
+        profile(DeploymentProfile.PRODUCTION);
+        System.setProperty(URL_PROPERTY, "JDBC:PostgreSQL://db.internal/idm");
+
+        ProfileRefused refused = assertThrows(ProfileRefused.class, () -> AuthorityDataSource.trustMarkRegistry(Startup.FEDERATION));
+
+        assertTrue(refused.getMessage().contains("names a JDBC:PostgreSQL: database"), refused.getMessage());
+        assertTrue(refused.getMessage().contains("use a jdbc:postgresql: URL"), refused.getMessage());
+        assertFalse(TrustMarkSupport.isConfigured());
     }
 
     @Test

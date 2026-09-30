@@ -60,7 +60,8 @@ class HostedEntityServletEnrolTest {
         AuthoritySupport.resetForTests();
         TrustMarkSupport.resetForTests();
         // These tests configure an authority without a durable store, which the production profile refuses without the
-        // in-memory-state risk (PR-2): they run as a development deployment does. AuthorityStoresTest covers production.
+        // in-memory-state risk (PR-2): they run as a development deployment does.
+        // underProductionAnAuthorityInMemoryRefusesHosting covers production.
         ProfileRefusals.resetForTests();
         ProfileRefusals.publish(new ProfileAudit.Result(DeploymentProfile.DEVELOPMENT, java.util.List.of(), java.util.List.of()));
     }
@@ -276,6 +277,29 @@ class HostedEntityServletEnrolTest {
         assertTrue(unreachable.getCause() instanceof java.sql.SQLException, String.valueOf(unreachable.getCause()));
         assertFalse(AuthoritySupport.isHostingConfigured());
         assertTrue(AuthoritySupport.registryIfConfigured().isEmpty());
+    }
+
+    /**
+     * PR-2 (Phase 3 plan, decisions 9 and 15): under production an authority with no store - its hosted entities and Trust
+     * Mark grants in memory - refuses HOSTING unless the in-memory-state risk is accepted, and nothing is published. The
+     * accepted risk's pass is ProfileRefusals.requireRisk's, tested in platform.
+     */
+    @Test
+    void underProductionAnAuthorityInMemoryRefusesHosting() {
+        ProfileRefusals.resetForTests();
+        ProfileRefusals.publish(new ProfileAudit.Result(DeploymentProfile.PRODUCTION, java.util.List.of(), java.util.List.of()));
+        Sources production = Sources.of(Map.of("OIDF_DEPLOYMENT_PROFILE", "production")::get, name -> null,
+                Map.of("authorityEntityId", AUTHORITY)::get);
+
+        com.pingidentity.ps.oidf.platform.settings.ProfileRefused refused = assertThrows(
+                com.pingidentity.ps.oidf.platform.settings.ProfileRefused.class, () -> HostedEntityServlet.configureAuthorityFrom(production));
+
+        assertTrue(refused.getMessage().contains("the hosted-entity registry and its Trust Mark grants are in memory"), refused.getMessage());
+        assertTrue(refused.getMessage().contains("in-memory-state"), refused.getMessage());
+        assertEquals(java.util.List.of(com.pingidentity.ps.oidf.platform.health.Startup.HOSTING), refused.violation().components());
+        assertFalse(AuthoritySupport.isHostingConfigured());
+        assertTrue(AuthoritySupport.registryIfConfigured().isEmpty());
+        assertFalse(TrustMarkSupport.isConfigured());
     }
 
     /** The servlet's two OpenBao init-params, used together, name the vault; either alone leaves it to the environment. */

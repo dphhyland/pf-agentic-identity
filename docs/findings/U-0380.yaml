@@ -15,7 +15,9 @@ verify_by: >
   reports the product name PostgreSQL) and at one on another database (expect REFUSED naming its product name).
 verification: ''
 notes: >
-  ST5F (2026-09-30) tested each refusal in both profiles in unit tests (AuthorityStoresTest,
-  HostedEntityServletEnrolTest) and booted the rig in the development profile, conformance and federation profiles,
+  ST5F (2026-09-30, 2026-10-01) tested each refusal in unit tests: the Trust Mark registry, the key history and the
+  PostgreSQL checks in both profiles (AuthorityStoresTest), hosting's in-memory refusal under production and the
+  in-memory registry under development (HostedEntityServletEnrolTest), the accepted risk's pass in platform
+  (ProfileRefusals.requireRisk); and booted the rig in the development profile, conformance and federation profiles,
   where no refusal applies. The rig cannot boot in production for the reason U-0340 gives (a plaintext archive is
   refused there), and it configures no authority store.

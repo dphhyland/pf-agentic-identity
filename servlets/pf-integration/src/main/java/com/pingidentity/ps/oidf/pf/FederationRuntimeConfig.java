@@ -395,6 +395,8 @@ public final class FederationRuntimeConfig {
     }
 
     private static volatile FederationRuntimeConfig instance;
+    /** The loaded catalogue, read afresh from each call's sources ({@link #settings(Sources)}). */
+    private static volatile Settings catalogueSettings;
 
     private final String trustControllerHost;
     private final String trustControllerBaseUrl;
@@ -505,9 +507,18 @@ public final class FederationRuntimeConfig {
         return from(Sources.of(env, props, null));
     }
 
-    /** The federation runtime's settings read from {@code sources}, through its catalogue ({@value #CATALOGUE}). */
+    /**
+     * The federation runtime's settings read from {@code sources}, through its catalogue ({@value #CATALOGUE}). The
+     * catalogue is loaded once: BridgeSigners reads through here on every attestation token request, and a load is a
+     * class-loader scan and a parse. Only the catalogue is kept; each call reads its sources afresh.
+     */
     public static Settings settings(Sources sources) {
-        return Settings.load(FederationRuntimeConfig.class.getClassLoader(), CATALOGUE).with(sources);
+        Settings local = catalogueSettings;
+        if (local == null) {
+            local = Settings.load(FederationRuntimeConfig.class.getClassLoader(), CATALOGUE);
+            catalogueSettings = local;
+        }
+        return local.with(sources);
     }
 
     /**

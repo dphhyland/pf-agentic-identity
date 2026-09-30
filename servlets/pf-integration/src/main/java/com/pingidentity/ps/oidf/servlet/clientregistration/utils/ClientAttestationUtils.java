@@ -748,16 +748,26 @@ public final class ClientAttestationUtils {
         return settings.words(REQUIRED_CLAIMS);
     }
 
-    /** The global attestation-endpoint settings, read from {@code sources}. */
+    /**
+     * The global attestation-endpoint settings, read from {@code sources}. The catalogue is loaded once, since
+     * {@link #globalPolicy} runs on every client policy resolution; each call reads its sources afresh.
+     */
     static Settings endpointSettings(Sources sources) {
-        return Settings.load(ClientAttestationUtils.class.getClassLoader(), ENDPOINT_SETTINGS).with(sources);
+        Settings local = endpointCatalogue;
+        if (local == null) {
+            local = Settings.load(ClientAttestationUtils.class.getClassLoader(), ENDPOINT_SETTINGS);
+            endpointCatalogue = local;
+        }
+        return local.with(sources);
     }
+
+    private static volatile Settings endpointCatalogue;
 
     /**
      * The per-client {@code trust_chain_request_max_age} for an attester's chain: the same property, and the same default,
      * as the OGNL chain criterion's ({@link OIDFederationUtils#trustChainRequestMaxAge}), F-0198.
      */
-    private static long trustChainEntryMaxAge(Map inParameters) {
+    static long trustChainEntryMaxAge(Map inParameters) {
         return OIDFederationUtils.trustChainRequestMaxAge(inParameters);
     }
 

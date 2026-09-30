@@ -15,8 +15,12 @@
   then the system property `oidf.federation.ignore.ssl.errors`, then the environment variable, then the superseded
   `OIDF_TRUST_CONTROLLER_IGNORE_SSL` with a warning. Until 0.6.0 the servlet read the init-param and then the
   environment variable only, and `FederationRuntimeConfig` the system property, the environment variable and the
-  superseded name. `HostedEntityServlet` now reads `OIDF_OPENBAO_URL` and `OIDF_OPENBAO_TOKEN` through the entries the
-  attester's signing key reads, superseded names included, where it read the environment variable alone.
+  superseded name. `HostedEntityServlet` reads its init-params `openBaoUrl` and `openBaoToken`, and without the pair
+  leaves OpenBao to `RegistryHostedEntitySigner`, which reads `OIDF_OPENBAO_URL` and `OIDF_OPENBAO_TOKEN` through
+  their `hosted-entity-signing` entries. Until 0.6.0 the servlet read each as init-param, then system property
+  (`oidf.openbao.url`, `oidf.openbao.token`), then environment variable, and only when the pair was incomplete fell
+  back to the signer's reading, which took the superseded `OPENBAO_*`, `BAO_*` and `VAULT_*` names. What is new: the
+  superseded names are checked against the new ones even when the new ones are set, and a disagreement is refused.
 - `FederationRuntimeConfig` logs its banner the first time it is read: each federation setting that is set and where
   its value came from, such as `OIDF_FEDERATION_IGNORE_SSL_ERRORS from system-property oidf.federation.ignore.ssl.errors`
   - the source and the name, never the value.
@@ -25,8 +29,10 @@
   `1` and accepted, and is now refused. The per-client extended property `trust_chain_request_max_age` defaults to 60
   seconds for every reader: the OGNL chain criterion's default, now the attestation criterion's and the token-endpoint
   filter's for an attester's chain too, which used no limit (finding F-0198, closed). The validator drops a presented
-  statement older than that and fetches it again, so the limit costs a stale attester chain a fetch and never refuses
-  one.
+  statement older than that and fetches it again, so a stale attester chain costs a fetch per statement, and one whose
+  statements cannot be fetched - the host is unreachable, or `OutboundUrlPolicy` refuses it as private (only the trust
+  controller is exempt) - now fails where the presented copy passed before. A client whose extended property
+  `trust_chain_request_max_age` is `-1` keeps the old behaviour.
 - Secrets can be read from a file: `OIDF_PDP_AUTH_TOKEN_FILE`, `OIDF_BRIDGE_VAULT_TOKEN_FILE`,
   `OIDF_AUTHORITY_JDBC_PASSWORD_FILE` and `OIDF_OPENBAO_TOKEN_FILE` (or the system property with `.file`) name a file
   whose content, one trailing newline trimmed, is the value; a name and its file variant set together are refused.
@@ -90,8 +96,9 @@
    by the superseded name now skips the federation servlet's certificate checks as well (in development; production
    refuses the switch however it is set), and one that set only the init-param skips them in the servlet alone, as
    before. The init-param `trustControllerHost` was never used and is now a removed name: set, the federation servlet
-   does not start. `HostedEntityServlet` reads OpenBao's address and token past their superseded names now, so a
-   `VAULT_ADDR` that disagrees with `OIDF_OPENBAO_URL` stops hosting starting. How to tell: the banner
+   does not start. OpenBao's address and token are now checked against their superseded names even when
+   `OIDF_OPENBAO_URL` and `OIDF_OPENBAO_TOKEN` are set, so a `VAULT_ADDR` that disagrees with `OIDF_OPENBAO_URL` stops
+   hosting starting. How to tell: the banner
    `FederationRuntimeConfig` logs names the source of each federation setting that is set ("Federation settings
    (federation-runtime, federation-entity): OIDF_FEDERATION_IGNORE_SSL_ERRORS from system-property
    oidf.federation.ignore.ssl.errors"), and a superseded name in use logs a WARN naming its replacement. What to change:

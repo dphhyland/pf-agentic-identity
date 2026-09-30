@@ -74,6 +74,9 @@
         <dependency><groupId>org.mockito</groupId><artifactId>mockito-junit-jupiter</artifactId><scope>test</scope></dependency>
         <!-- PF's Client domain class uses commons-lang3 internally (13.1+); provided by PF at runtime, needed here to test client building -->
         <dependency><groupId>org.apache.commons</groupId><artifactId>commons-lang3</artifactId><scope>test</scope></dependency>
+        <!-- ST5F: a direct jdbc:postgresql: URL loads PostgreSQL's driver when its data source is built, as it does inside
+             PingFederate, so AuthorityStoresTest can hold the store check to the driver's exact scheme. -->
+        <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>test</scope></dependency>
     </dependencies>
 
     <build>
