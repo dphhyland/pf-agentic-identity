@@ -78,10 +78,13 @@ public final class AuthorityDataSource {
      * @throws com.pingidentity.ps.oidf.platform.settings.ProfileRefused under production, for either refusal
      */
     public static void trustMarkRegistry(String component) {
-        if (TrustMarkSupport.isConfigured()) {
-            return;
+        if (!TrustMarkSupport.isConfigured()) {
+            trustMarkRegistry(component, fromEnvironment());
         }
-        Optional<DataSource> store = fromEnvironment();
+    }
+
+    /** {@link #trustMarkRegistry(String)} with {@code store} as the authority's store. */
+    static void trustMarkRegistry(String component, Optional<DataSource> store) {
         if (store.isEmpty()) {
             ProfileRefusals.requireRisk(component, AcceptedRisk.IN_MEMORY_STATE, "the Trust Mark registry is in memory (neither "
                     + DATA_STORE_ID_ENV + " nor " + JDBC_URL_ENV + " is set)");
@@ -99,10 +102,13 @@ public final class AuthorityDataSource {
      * @throws com.pingidentity.ps.oidf.platform.settings.ProfileRefused under production, for either refusal
      */
     public static void keyHistoryStore(String component) {
-        if (KeyHistorySupport.isConfigured()) {
-            return;
+        if (!KeyHistorySupport.isConfigured()) {
+            keyHistoryStore(component, fromEnvironment());
         }
-        Optional<DataSource> store = fromEnvironment();
+    }
+
+    /** {@link #keyHistoryStore(String)} with {@code store} as the authority's store. */
+    static void keyHistoryStore(String component, Optional<DataSource> store) {
         if (store.isEmpty()) {
             ProfileRefusals.requireRisk(component, AcceptedRisk.IN_MEMORY_STATE, "the key history is in memory (neither "
                     + DATA_STORE_ID_ENV + " nor " + JDBC_URL_ENV + " is set)");

@@ -91,10 +91,14 @@ class SurfaceGateTest {
         try {
             System.setProperty(POLICY_PROP, "{\"openid_relying_party\":5}");
             FederationRuntimeConfig.resetForTests();
+            // Development: under production the direct URL would be refused before the policy is read (PR-2).
+            com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.publish(new com.pingidentity.ps.oidf.platform.settings.ProfileAudit.Result(
+                    com.pingidentity.ps.oidf.platform.profile.DeploymentProfile.DEVELOPMENT, java.util.List.of(), java.util.List.of()));
             Map<String, String> params = Map.of("authorityEntityId", "https://authority.example",
-                    "jdbcUrl", "jdbc:postgresql://a-store-no-one-connects-to/idm");
-            assertThrows(RuntimeException.class, () -> HostedEntityServlet.configureAuthorityFrom(com.pingidentity.ps.oidf.platform.settings.Sources
+                    "jdbcUrl", "jdbc:example:a-store-no-one-connects-to");
+            IllegalStateException notAPolicy = assertThrows(IllegalStateException.class, () -> HostedEntityServlet.configureAuthorityFrom(com.pingidentity.ps.oidf.platform.settings.Sources
                     .of(Map.of("OIDF_DEPLOYMENT_PROFILE", "development")::get, System::getProperty, params::get)));
+            assertTrue(notAPolicy.getMessage().contains("OIDF_AUTHORITY_METADATA_POLICY"), notAPolicy.getMessage());
             assertTrue(AuthoritySupport.registryIfConfigured().isEmpty(), "a failed configuration publishes no registry");
             assertFalse(AuthoritySupport.isHostingConfigured(), "a failed configuration publishes no signing");
             assertFalse(TrustMarkSupport.isConfigured(), "a failed configuration publishes no Trust Mark store");

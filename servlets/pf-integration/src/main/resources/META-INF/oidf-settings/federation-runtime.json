@@ -660,7 +660,7 @@
       "kind": "env",
       "type": "secret",
       "default": null,
-      "description": "The bearer token or shared secret OIDF_PDP_AUTH sends",
+      "description": "The bearer token or shared secret OIDF_PDP_AUTH sends, or read from the file OIDF_PDP_AUTH_TOKEN_FILE names",
       "when_wrong": {"effect": "per-request", "detail": "The PDP refuses every call, which counts as no decision"},
       "profile": "any",
       "security": true,
@@ -669,7 +669,7 @@
         {"from": "env", "name": "OIDF_PDP_AUTH_TOKEN"}
       ],
       "aliases": [],
-      "file": false
+      "file": true
     },
     {
       "name": "OIDF_PDP_AUTH_HEADER",
@@ -876,7 +876,7 @@
       "kind": "env",
       "type": "secret",
       "default": null,
-      "description": "The OpenBao token, for the vault backing",
+      "description": "The OpenBao token, for the vault backing, or read from the file OIDF_BRIDGE_VAULT_TOKEN_FILE names",
       "when_wrong": {"effect": "per-request", "detail": "Refused: token requests that need a bridge key fail (500)"},
       "profile": "any",
       "security": true,
@@ -885,7 +885,7 @@
         {"from": "env", "name": "OIDF_BRIDGE_VAULT_TOKEN"}
       ],
       "aliases": [],
-      "file": false
+      "file": true
     }
   ],
   "removed": [

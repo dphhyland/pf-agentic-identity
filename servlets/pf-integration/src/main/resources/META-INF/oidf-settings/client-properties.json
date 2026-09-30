@@ -301,7 +301,7 @@
       "default": 60,
       "min": -9223372036854775808,
       "max": 9223372036854775807,
-      "description": "The oldest a statement in a chain presented at the token endpoint may be, in seconds; -1 is no limit. The attestation criterion's default is -1, not 60 (F-0199)",
+      "description": "The oldest a statement in a presented chain may be, in seconds, before it is fetched again; -1 is no limit. From 0.6.0 one default, 60, for every reader: the OGNL chain criterion, and the attester's chain at the attestation criterion and the token-endpoint filter, which used -1 before (F-0198)",
       "when_wrong": {"effect": "per-request", "detail": "Not a whole number: the default, with a warning"},
       "profile": "any",
       "security": true,

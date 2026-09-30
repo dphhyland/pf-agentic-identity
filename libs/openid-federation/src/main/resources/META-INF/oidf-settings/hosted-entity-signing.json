@@ -30,7 +30,7 @@
       "kind": "env",
       "type": "secret",
       "default": null,
-      "description": "The OpenBao token for the same, read as one setting by both; unset, the first of OPENBAO_TOKEN, BAO_TOKEN and VAULT_TOKEN that is set, with a warning",
+      "description": "The OpenBao token for the same, read as one setting by both, or from the file OIDF_OPENBAO_TOKEN_FILE names; unset, the first of OPENBAO_TOKEN, BAO_TOKEN and VAULT_TOKEN that is set, with a warning",
       "when_wrong": {"effect": "doesnt-start", "detail": "A superseded name set to another value than this: hosting and the attester do not start. Missing or refused: a hosted agent's configuration answers 500"},
       "profile": "any",
       "security": true,
@@ -43,7 +43,7 @@
         {"name": "BAO_TOKEN", "sources": [{"from": "env", "name": "BAO_TOKEN"}]},
         {"name": "VAULT_TOKEN", "sources": [{"from": "env", "name": "VAULT_TOKEN"}]}
       ],
-      "file": false
+      "file": true
     }
   ],
   "removed": []
