@@ -20,6 +20,7 @@ import com.pingidentity.ps.oidf.jose.HttpPostClient;
 import com.pingidentity.ps.oidf.jose.JdkHttpClient;
 import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.jose.SigningKeyProvider;
 import com.pingidentity.ps.oidf.pf.ClientStore;
@@ -688,41 +689,41 @@ final class RegistrationService {
      * Nothing here is verified - a notice only earns a renewal attempt, which validates like any other.
      */
     static boolean presentsChange(List<String> presented, Client registered, String clientId) {
-        JwtClaims offered = entityConfiguration(presented.isEmpty() ? null : presented.get(0), clientId);
+        UnverifiedClaims offered = entityConfiguration(presented.isEmpty() ? null : presented.get(0), clientId);
         if (offered == null) {
             return false;
         }
-        JwtClaims current = entityConfiguration(firstChainEntry(registered), clientId);
+        UnverifiedClaims current = entityConfiguration(firstChainEntry(registered), clientId);
         if (current == null) {
             return true;
         }
         return issuedAt(offered) > issuedAt(current)
-                && (!Objects.equals(offered.getClaimValue("jwks"), current.getClaimValue("jwks"))
-                        || !Objects.equals(offered.getClaimValue("metadata"), current.getClaimValue("metadata")));
+                && (!Objects.equals(offered.unverifiedClaim("jwks"), current.unverifiedClaim("jwks"))
+                        || !Objects.equals(offered.unverifiedClaim("metadata"), current.unverifiedClaim("metadata")));
     }
 
     /** Whether the presented Entity Configuration is older than the one the registration was built from. */
     static boolean predatesRegistration(List<String> presented, Client registered, String clientId) {
-        JwtClaims offered = entityConfiguration(presented.isEmpty() ? null : presented.get(0), clientId);
-        JwtClaims current = offered == null ? null : entityConfiguration(firstChainEntry(registered), clientId);
+        UnverifiedClaims offered = entityConfiguration(presented.isEmpty() ? null : presented.get(0), clientId);
+        UnverifiedClaims current = offered == null ? null : entityConfiguration(firstChainEntry(registered), clientId);
         return current != null && issuedAt(offered) < issuedAt(current);
     }
 
     /** The unverified claims of {@code jwt} when it is {@code clientId}'s Entity Configuration, else null. */
-    private static JwtClaims entityConfiguration(String jwt, String clientId) {
+    private static UnverifiedClaims entityConfiguration(String jwt, String clientId) {
         if (jwt == null) {
             return null;
         }
         try {
-            JwtClaims claims = JwtCodec.parseUnverifiedClaims(jwt);
-            return EntityId.same(claims.getIssuer(), clientId) && EntityId.same(claims.getSubject(), clientId) ? claims : null;
+            UnverifiedClaims claims = JwtCodec.parseUnverifiedClaims(jwt);
+            return EntityId.same(claims.unverifiedIssuer(), clientId) && EntityId.same(claims.unverifiedSubject(), clientId) ? claims : null;
         } catch (Exception e) {
             return null;
         }
     }
 
-    private static long issuedAt(JwtClaims claims) {
-        Object iat = claims.getClaimValue("iat");
+    private static long issuedAt(UnverifiedClaims claims) {
+        Object iat = claims.unverifiedClaim("iat");
         return iat instanceof Number number ? number.longValue() : Long.MIN_VALUE;
     }
 
@@ -1053,7 +1054,7 @@ final class RegistrationService {
     /** §12.2.3: the RP's Immediate Superior in the selected chain - the issuer of the statement about it. */
     private static String immediateSuperior(TrustChainValidationResult validation) throws Exception {
         List<String> chain = validation.trustChain();
-        return chain.size() < 2 ? validation.trustAnchorIssuer() : JwtCodec.parseUnverifiedClaims(chain.get(1)).getIssuer();
+        return chain.size() < 2 ? validation.trustAnchorIssuer() : JwtCodec.parseUnverifiedClaims(chain.get(1)).unverifiedIssuer();
     }
 
     /**

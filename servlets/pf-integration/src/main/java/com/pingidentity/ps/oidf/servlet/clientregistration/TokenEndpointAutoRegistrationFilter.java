@@ -275,7 +275,7 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
             return null;
         }
         try {
-            String sub = JwtCodec.parseUnverifiedClaims(jwt).getSubject();
+            String sub = JwtCodec.parseUnverifiedClaims(jwt).unverifiedSubject();
             return sub == null || sub.isBlank() ? null : sub;
         }
         catch (Exception e) {

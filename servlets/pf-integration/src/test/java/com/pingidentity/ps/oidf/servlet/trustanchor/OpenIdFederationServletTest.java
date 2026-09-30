@@ -129,7 +129,7 @@ class OpenIdFederationServletTest {
         Exchange exchange = new Exchange(new OpenIdFederationServlet(service, configuration, req -> PF, discovery), "/.well-known/openid-federation",
                 Map.of());
 
-        Map<?, ?> metadata = (Map<?, ?>) JwtCodec.parseUnverifiedClaims(exchange.body.toString()).getClaimValue("metadata");
+        Map<?, ?> metadata = (Map<?, ?>) JwtCodec.parseUnverifiedClaims(exchange.body.toString()).unverifiedClaim("metadata");
         assertEquals(PF + "/pf/JWKS", ((Map<?, ?>) metadata.get("openid_provider")).get("jwks_uri"),
                 "the request that asked for the Entity Configuration read PingFederate's discovery first");
     }
@@ -150,7 +150,7 @@ class OpenIdFederationServletTest {
 
         verify(exchange.response).setStatus(200);
         verify(exchange.response).setContentType("application/entity-statement+jwt");
-        assertEquals(PF, JwtCodec.parseUnverifiedClaims(exchange.body.toString()).getSubject());
+        assertEquals(PF, JwtCodec.parseUnverifiedClaims(exchange.body.toString()).unverifiedSubject());
     }
 
     @Test
@@ -160,7 +160,7 @@ class OpenIdFederationServletTest {
 
         verify(exchange.response).setStatus(200);
         verify(exchange.response).setContentType("application/entity-statement+jwt");
-        assertEquals(HOSTED, JwtCodec.parseUnverifiedClaims(exchange.body.toString()).getSubject());
+        assertEquals(HOSTED, JwtCodec.parseUnverifiedClaims(exchange.body.toString()).unverifiedSubject());
     }
 
     @Test

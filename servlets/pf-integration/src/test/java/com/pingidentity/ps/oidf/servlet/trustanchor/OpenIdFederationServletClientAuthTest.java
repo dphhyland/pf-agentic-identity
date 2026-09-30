@@ -150,7 +150,7 @@ class OpenIdFederationServletClientAuthTest {
 
         verify(exchange.response).setStatus(200);
         verify(exchange.response).setContentType("application/entity-statement+jwt");
-        assertEquals(HOSTED, JwtCodec.parseUnverifiedClaims(exchange.body.toString()).getSubject());
+        assertEquals(HOSTED, JwtCodec.parseUnverifiedClaims(exchange.body.toString()).unverifiedSubject());
     }
 
     @Test
@@ -172,12 +172,12 @@ class OpenIdFederationServletClientAuthTest {
         String optional = "{\"federation_resolve_endpoint\": \"optional\"}";
         Exchange anonymous = this.get(optional, "/federation/resolve", Map.of("sub", CLIENT, "trust_anchor", TA));
         verify(anonymous.response).setStatus(200);
-        assertNull(JwtCodec.parseUnverifiedClaims(anonymous.body.toString()).getClaimValue("aud"), "no aud for an unauthenticated request");
+        assertNull(JwtCodec.parseUnverifiedClaims(anonymous.body.toString()).unverifiedClaim("aud"), "no aud for an unauthenticated request");
 
         Exchange known = this.post(optional, "/federation/resolve", this.authenticated("sub", CLIENT, "trust_anchor", TA));
         verify(known.response).setStatus(200);
         verify(known.response).setContentType("application/resolve-response+jwt");
-        assertEquals(CLIENT, JwtCodec.parseUnverifiedClaims(known.body.toString()).getClaimValue("aud"),
+        assertEquals(CLIENT, JwtCodec.parseUnverifiedClaims(known.body.toString()).unverifiedClaim("aud"),
                 "the requesting party's Entity Identifier, and nothing else");
 
         assertEquals("invalid_request", this.post(optional, "/federation/resolve", Map.of("sub", CLIENT, "trust_anchor", TA))
@@ -207,7 +207,7 @@ class OpenIdFederationServletClientAuthTest {
         Exchange own = this.post(required, "/federation/trust_mark", this.authenticated("trust_mark_type", OPEN, "sub", CLIENT));
         verify(own.response).setStatus(200);
         verify(own.response).setContentType("application/trust-mark+jwt");
-        assertEquals(CLIENT, JwtCodec.parseUnverifiedClaims(own.body.toString()).getSubject());
+        assertEquals(CLIENT, JwtCodec.parseUnverifiedClaims(own.body.toString()).unverifiedSubject());
 
         assertEquals("invalid_request", this.post(required, "/federation/trust_mark",
                 this.authenticated("trust_mark_type", OPEN, "sub", HOSTED)).error(400).get("error"));
@@ -227,7 +227,7 @@ class OpenIdFederationServletClientAuthTest {
         assertEquals("invalid_client", this.post(required, "/federation/trust_mark_status", Map.of("trust_mark", mark)).error(401).get("error"));
         Exchange known = this.post(required, "/federation/trust_mark_status", this.authenticated("trust_mark", mark));
         verify(known.response).setStatus(200);
-        assertEquals("active", JwtCodec.parseUnverifiedClaims(known.body.toString()).getClaimValue("status"));
+        assertEquals("active", JwtCodec.parseUnverifiedClaims(known.body.toString()).unverifiedClaim("status"));
         Exchange get = this.get(required, "/federation/trust_mark_status", Map.of("trust_mark", mark));
         assertEquals("invalid_request", get.error(405).get("error"), "still POST only");
     }

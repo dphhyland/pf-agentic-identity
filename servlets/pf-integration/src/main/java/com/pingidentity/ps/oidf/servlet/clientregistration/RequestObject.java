@@ -5,6 +5,7 @@ package com.pingidentity.ps.oidf.servlet.clientregistration;
 
 import com.pingidentity.ps.oidf.federation.EntityId;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import java.util.ArrayList;
@@ -50,9 +51,9 @@ final class RequestObject {
     private final Kind kind;
     private final String compact;
     private final Map<String, Object> header;
-    private final JwtClaims claims;
+    private final UnverifiedClaims claims;
 
-    private RequestObject(Kind kind, String compact, Map<String, Object> header, JwtClaims claims) {
+    private RequestObject(Kind kind, String compact, Map<String, Object> header, UnverifiedClaims claims) {
         this.kind = kind;
         this.compact = compact;
         this.header = header;
@@ -67,7 +68,7 @@ final class RequestObject {
     static RequestObject read(Kind kind, String compact) throws RegistrationRejectedException {
         try {
             Map<String, Object> header = JwtCodec.compactProtectedHeader(compact);
-            JwtClaims claims = JwtCodec.isCompactJwe(compact) ? null : JwtCodec.parseUnverifiedClaims(compact);
+            UnverifiedClaims claims = JwtCodec.isCompactJwe(compact) ? null : JwtCodec.parseUnverifiedClaims(compact);
             return new RequestObject(kind, compact, header, claims);
         } catch (Exception e) {
             throw RegistrationRejectedException.request(400, errorFor(kind), what(kind) + " is not a compact JWS or JWE");
@@ -91,7 +92,7 @@ final class RequestObject {
         if (!fromHeader.isEmpty() || this.claims == null || this.kind != Kind.REQUEST_OBJECT) {
             return fromHeader;
         }
-        return strings(this.claims.getClaimValue("trust_chain"));
+        return strings(this.claims.unverifiedClaim("trust_chain"));
     }
 
     /**
@@ -169,19 +170,19 @@ final class RequestObject {
             throw this.refused("the request object's typ must be oauth-authz-req+jwt, if it has one");
         }
         if (this.kind == Kind.REQUEST_OBJECT) {
-            this.require(clientId.equals(this.claims.getClaimValue("client_id")), "its client_id must be the client_id of the request");
-            this.require(this.claims.getClaimValue("sub") == null, "it must not carry sub (OpenID Federation 1.0 §12.1.1.1)");
+            this.require(clientId.equals(this.claims.unverifiedClaim("client_id")), "its client_id must be the client_id of the request");
+            this.require(this.claims.unverifiedClaim("sub") == null, "it must not carry sub (OpenID Federation 1.0 §12.1.1.1)");
         } else {
-            this.require(clientId.equals(this.claims.getClaimValue("sub")), "its sub must be the client's Entity Identifier");
+            this.require(clientId.equals(this.claims.unverifiedClaim("sub")), "its sub must be the client's Entity Identifier");
         }
-        this.require(clientId.equals(this.claims.getClaimValue("iss")), "its iss must be the client's Entity Identifier");
-        this.require(onlyAudience(this.claims.getClaimValue("aud"), opIssuer), "its aud must be this OP's Entity Identifier and nothing else");
-        Object jti = this.claims.getClaimValue("jti");
+        this.require(clientId.equals(this.claims.unverifiedClaim("iss")), "its iss must be the client's Entity Identifier");
+        this.require(onlyAudience(this.claims.unverifiedClaim("aud"), opIssuer), "its aud must be this OP's Entity Identifier and nothing else");
+        Object jti = this.claims.unverifiedClaim("jti");
         this.require(jti instanceof String s && !s.isBlank(), "it must carry a jti");
-        Object exp = this.claims.getClaimValue("exp");
+        Object exp = this.claims.unverifiedClaim("exp");
         this.require(exp instanceof Number, "it must carry exp");
         this.require(((Number) exp).longValue() > now - CLOCK_SKEW_SECONDS, "it has expired");
-        Object iat = this.claims.getClaimValue("iat");
+        Object iat = this.claims.unverifiedClaim("iat");
         this.require(iat == null || iat instanceof Number n && n.longValue() <= now + CLOCK_SKEW_SECONDS, "its iat is in the future");
     }
 
@@ -218,15 +219,17 @@ final class RequestObject {
         if (this.encrypted()) {
             return;
         }
+        JwtClaims verified;
         try {
-            JwtCodec.verifySignature(this.compact, rpKeys, Set.of());
+            verified = JwtCodec.verifySignature(this.compact, rpKeys, Set.of());
         } catch (JwtVerificationException e) {
             throw RegistrationRejectedException.request(401, "invalid_client", what(this.kind)
                     + " is not signed by a key the RP publishes for openid_relying_party (" + e.code() + ")");
         }
-        long exp = ((Number) this.claims.getClaimValue("exp")).longValue();
+        // checkProfile held these to the profile before any key was fetched; the replay window reads the verified ones.
+        long exp = ((Number) verified.getClaimValue("exp")).longValue();
         long window = Math.max(CLOCK_SKEW_SECONDS, Math.min(exp - now + CLOCK_SKEW_SECONDS, MAX_REPLAY_WINDOW_SECONDS));
-        if (!replay.firstSeen(clientId, (String) this.claims.getClaimValue("jti"), window)) {
+        if (!replay.firstSeen(clientId, (String) verified.getClaimValue("jti"), window)) {
             throw this.refused(what(this.kind) + " has been used before (its jti is spent)");
         }
     }

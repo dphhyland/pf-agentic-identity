@@ -381,7 +381,7 @@ class HostedEntityServletEnrolTest {
         Exchange resolved = new Exchange("GET", "/a1/.well-known/openid-federation", null);
         verify(resolved.response).setStatus(200);
         verify(resolved.response).setContentType("application/entity-statement+jwt");
-        assertEquals(AUTHORITY + "/federation/agents/a1", com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(resolved.body.toString()).getSubject());
+        assertEquals(AUTHORITY + "/federation/agents/a1", com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(resolved.body.toString()).unverifiedSubject());
 
         assertEquals("not_found", new Exchange("GET", "/a1", null).json(404).get("error"));
         assertEquals("not_found", new Exchange("GET", "/a2/.well-known/openid-federation", null).json(404).get("error"));

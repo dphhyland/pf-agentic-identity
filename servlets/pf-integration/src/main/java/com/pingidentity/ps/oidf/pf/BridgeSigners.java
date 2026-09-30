@@ -4,8 +4,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.jose.LocalJwkSigner;
 import com.pingidentity.ps.oidf.jose.OpenBaoTransitSigner;
+import com.pingidentity.ps.oidf.platform.component.ComponentRegistry;
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
+import com.pingidentity.ps.oidf.platform.health.Startup;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -15,6 +22,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import com.pingidentity.ps.oidf.platform.settings.Secret;
 import com.pingidentity.ps.oidf.platform.settings.Settings;
 import com.pingidentity.ps.oidf.platform.settings.Sources;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 /**
  * Per-client signing keys for {@code attest_jwt_client_auth}.
@@ -49,6 +58,13 @@ import com.pingidentity.ps.oidf.platform.settings.Sources;
  * <p>Failure is per client, not per deployment. A client with no usable key cannot authenticate; every
  * other client is unaffected. Whether a deployment may run with NO bridge signing at all is still
  * {@link #isRequired()} ({@code OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY}, default true).
+ *
+ * <p><b>Checked at start (plan item H-JOSE-2).</b> {@link #startCheck()} builds every configured client's signer once
+ * the attestation filter starts, and again every {@link #CHECK_INTERVAL}, and records the clients whose key does not
+ * build - an RSA key under 2048 bits, an EC key off P-256/P-384/P-521, an {@code alg} the key cannot sign, a transit key
+ * the vault will not describe - as a {@code DEGRADED} part of {@code ATTESTATION_AUTH} ({@value #CHECK_PART}), naming
+ * the clients, never the keys. Until 0.6.0 such a key was found by the client's first bridged request, as a 500
+ * (F-0112).
  */
 public final class BridgeSigners {
 
@@ -59,7 +75,18 @@ public final class BridgeSigners {
     public static final String VAULT_ADDR_ENV = "OIDF_BRIDGE_VAULT_ADDR";
     public static final String VAULT_TOKEN_ENV = "OIDF_BRIDGE_VAULT_TOKEN";
 
+    /** The part of {@code ATTESTATION_AUTH} the start-up check of every client's key records its findings as. */
+    public static final String CHECK_PART = "BridgeSigners";
+    /** The executor the check runs on. */
+    public static final String CHECK_JOB = "bridge-signer-check";
+    /** How often the check runs again: a vault that was down at start is found again, and so is a mended file. */
+    public static final Duration CHECK_INTERVAL = Duration.ofMinutes(10);
+
+    private static final Log LOGGER = LogFactory.getLog(BridgeSigners.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final Object CHECK_LOCK = new Object();
+    private static ManagedExecutor checker;
+    private static volatile Set<String> unusable = Set.of();
 
     private static final ConcurrentHashMap<String, JwsSigner> SIGNERS = new ConcurrentHashMap<>();
     private static volatile Map<String, Object> keysByClient;
@@ -167,6 +194,90 @@ public final class BridgeSigners {
                         + "=false to run without attestation-based client authentication."));
     }
 
+    /**
+     * Starts the check of every configured client's key in this copy, once: a later call while it runs does nothing.
+     * Called from the attestation filter's start function, so only the webapp's copy runs it. Never throws and never
+     * blocks the filter's start: a vault-backed key is described by the vault, which is a network call.
+     */
+    public static void startCheck() {
+        try {
+            synchronized (CHECK_LOCK) {
+                if (checker != null && !checker.isClosed()) {
+                    return;
+                }
+                ComponentParts.Part part = Startup.begin(Startup.ATTESTATION_AUTH, CHECK_PART);
+                Optional<ManagedExecutor> started = ManagedExecutors.every(CHECK_JOB, Duration.ZERO, CHECK_INTERVAL,
+                        () -> BridgeSigners.checkOnce(part));
+                if (started.isEmpty()) {
+                    part.degraded("the check of the bridge signing keys could not start in this copy");
+                    return;
+                }
+                checker = started.get();
+            }
+        } catch (RuntimeException e) {
+            LOGGER.warn((Object) "the check of the bridge signing keys could not start", e);
+        }
+    }
+
+    /**
+     * One check: every client named in {@value #KEYS_ENV} has its signer built (and kept, so its first request does not
+     * build it again). The part is {@code READY} when every one builds, and {@code DEGRADED} naming the clients whose
+     * key does not otherwise; each is logged with the reason when first found. Never throws.
+     *
+     * @return the ids of the clients whose key does not build, or null when the key map could not be read
+     */
+    static List<String> checkOnce(ComponentParts.Part part) {
+        try {
+            if (!isConfigured()) {
+                part.ready();
+                return List.of();
+            }
+            List<String> bad = new ArrayList<>();
+            Set<String> before = unusable;
+            for (String clientId : keys().keySet()) {
+                try {
+                    forClient(clientId);
+                } catch (RuntimeException e) {
+                    bad.add(clientId);
+                    if (!before.contains(clientId)) {
+                        LOGGER.warn((Object) ("bridge signing: " + e.getMessage() + "; every attested request for " + clientId
+                                + " is refused until it is fixed"));
+                    }
+                }
+            }
+            unusable = Set.copyOf(bad);
+            if (bad.isEmpty()) {
+                part.ready();
+            } else {
+                part.degraded(checkDetail(bad));
+            }
+            return bad;
+        } catch (RuntimeException e) {
+            part.degraded("the bridge signing keys could not be read (" + e.getClass().getSimpleName() + ")");
+            return null;
+        }
+    }
+
+    /** The health detail naming the clients whose key does not build: as many as fit, then how many more. */
+    static String checkDetail(List<String> clients) {
+        StringBuilder text = new StringBuilder(clients.size() + " client(s) whose bridge signing key does not build, refused at"
+                + " the token endpoint until it is fixed (see the log): ");
+        int shown = 0;
+        for (String client : clients) {
+            String next = (shown == 0 ? "" : ", ") + client;
+            String more = " and " + (clients.size() - shown - 1) + " more";
+            if (text.length() + next.length() + (shown == clients.size() - 1 ? 0 : more.length()) > ComponentRegistry.MAX_REASON) {
+                break;
+            }
+            text.append(next);
+            shown++;
+        }
+        if (shown < clients.size()) {
+            text.append(shown == 0 ? "" : " and ").append(clients.size() - shown).append(shown == 0 ? " not named here" : " more");
+        }
+        return text.toString();
+    }
+
     private static JwsSigner build(String clientId, Map<String, Object> spec) {
         String backing = backing();
         Object keyRef = spec.get("key_ref");
@@ -251,10 +362,17 @@ public final class BridgeSigners {
         return FederationRuntimeConfig.settings(Sources.process());
     }
 
-    /** Test seam: drop memoised keys and signers so a test can change the environment. */
+    /** Test seam: drop memoised keys and signers, and stop this copy's check, so a test can change the environment. */
     static void resetForTest() {
         SIGNERS.clear();
         keysByClient = null;
         loadedFrom = null;
+        synchronized (CHECK_LOCK) {
+            if (checker != null) {
+                checker.close();
+            }
+            checker = null;
+            unusable = Set.of();
+        }
     }
 }

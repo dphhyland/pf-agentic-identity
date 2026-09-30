@@ -304,6 +304,8 @@ public final class ClientAttestationAuthFilter implements Filter {
         // a client they would refuse is named in the health detail before its first request is (plan item S4c).
         // Started here, the webapp's start function, so the engine's copy never runs it; it never blocks or throws.
         AttestationPolicyScan.start(this.clientStore, this.policies);
+        // Every configured client's bridge key built now, not at its first request (plan item H-JOSE-2, F-0112).
+        BridgeSigners.startCheck();
     }
 
     @Override
@@ -590,7 +592,7 @@ public final class ClientAttestationAuthFilter implements Filter {
             return null;
         }
         try {
-            Object value = com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(jwt).getClaimValue(name);
+            Object value = com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(jwt).unverifiedClaim(name);
             return value instanceof String ? (String) value : null;
         } catch (Exception e) {
             return null;
