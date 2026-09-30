@@ -61,8 +61,11 @@ class StockWarGoldenTest {
         int mapping = withListener.indexOf(Fixtures.CLIENT_ATTESTATION_MAPPING);
         assertTrue(mapping > 0 && mapping == withListener.lastIndexOf(Fixtures.CLIENT_ATTESTATION_MAPPING),
                 "ClientAttestationAuth mapped once, over every endpoint S4d names");
+        int belt = withListener.indexOf(Fixtures.ISSUED_DETAILS_BELT_BLOCK + Fixtures.CLIENT_ATTESTATION_FILTER_START);
+        assertTrue(belt > 0 && belt == withListener.lastIndexOf(Fixtures.ISSUED_DETAILS_BELT_BLOCK),
+                "the response belt registered once, just before ClientAttestationAuth (S4D3)");
         Path merged = dir.resolve("merged-web.xml");
-        Files.writeString(merged, withListener.replace(Fixtures.LIFECYCLE_LISTENER_BLOCK, "")
+        Files.writeString(merged, withListener.replace(Fixtures.LIFECYCLE_LISTENER_BLOCK, "").replace(Fixtures.ISSUED_DETAILS_BELT_BLOCK, "")
                 .replace(Fixtures.CLIENT_ATTESTATION_MAPPING, Fixtures.CLIENT_ATTESTATION_MAPPING_SHELL), StandardCharsets.UTF_8);
         assertEquals(SHELL_ASSEMBLED_WEB_XML, StagedManifest.sha256(merged));
 
