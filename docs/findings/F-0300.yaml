@@ -1,0 +1,20 @@
+id: F-0300
+title: A change to a client's attestation properties takes up to 30 s to apply, and the two routes can disagree meanwhile
+severity: low
+area: pf-integration
+source: design
+status: open
+plan_items: [S4c]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  AttestationPolicyResolver keeps each client's parsed attestation_* properties for 30 s (plan item S4c: "Cache
+  30 s"). Nothing tells it when a client changes: an administrator's edit goes through PingFederate's admin API,
+  which calls no code of ours, and the registration paths (RegistrationService, RegistrationCoordinator, S5C's in
+  Phase 3) write through PfMgmtClientStore without calling AttestationPolicyResolver.invalidate, which exists for
+  them. So a tightened property applies up to 30 s late, and because the filter (webapp classloader) and the OGNL
+  criterion (engine classloader) each hold a copy, the criterion can refuse a verification the filter made under the
+  old policy during that window - a refusal, never a loosening. Wiring invalidate(clientId) into PfMgmtClientStore's
+  add, update and disable would close the registration half; the engine copy still needs its own 30 s. Found while
+  building S4C, 2026-09-30.

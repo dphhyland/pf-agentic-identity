@@ -3,10 +3,20 @@ title: Attestation policy is dead on the filter path
 severity: high
 area: pf-integration
 source: review-2026-09-26
-status: open
+status: closed
 plan_items: [S-4, S4a, S4b, S4c, S4d]
 prs: []
-verification: ''
+verification: >
+  Closed by S4C on 2026-09-30. AttestationPolicyResolver gives ClientAttestationAuthFilter and the OGNL criterion
+  one policy per client: the server's, tightened by the client's attestation_* extended properties, which are read
+  from PingFederate's client manager (PfInternals.getClient, 13.1.3), parsed strictly and able only to tighten; a
+  value that does not parse or would loosen refuses the client (401 invalid_client). The filter publishes the
+  policy's fingerprint and the criterion refuses a reused verification whose fingerprint differs from its own.
+  AttestationPolicyRoutesTest drives both routes over one table of 19 client-property rows with real attestations
+  and proofs and they agree on every row (2026-09-30). On the rig (PingFederate 13.1.3, pfai-p3-s4c, 2026-09-30) a
+  client with attestation_dpop_max_age=30 was refused at the filter for a proof 120 s old and issued a token for a
+  fresh one; with attestation_dpop_max_age=3600 it was refused as an invalid policy and the start-up scan listed it
+  in health.
 target_release: 0.6.0
 notes: >
   Per-client attestation policy (the `attestation_*` extended properties) is read by the OGNL criterion route
