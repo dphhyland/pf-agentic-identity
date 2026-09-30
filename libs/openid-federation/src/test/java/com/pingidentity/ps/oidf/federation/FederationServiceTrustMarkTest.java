@@ -61,7 +61,7 @@ class FederationServiceTrustMarkTest {
     }
 
     private static FederationConfiguration configuration(List<String> authorityHints) {
-        return new FederationConfiguration(authorityHints, List.of(RP), null, false, false, null, null, null, 0, "RS256",
+        return new FederationConfiguration(authorityHints, List.of(RP), false, false, null, null, null, 0, "RS256",
                 AttestationMetadataConfig.defaults(), null, null, FederationConfiguration.DEFAULT_CLIENT_REGISTRATION_TYPES,
                 FederationConfiguration.ResolveDiscovery.KNOWN);
     }

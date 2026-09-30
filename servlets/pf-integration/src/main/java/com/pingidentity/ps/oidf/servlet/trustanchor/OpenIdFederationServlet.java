@@ -174,9 +174,8 @@ extends RequestScopedServlet {
             if (!marks.types().isEmpty()) {
                 // The grants live in the authority's store; HostedEntityServlet points the registry at it too, but starts
                 // only on its first request, so the store is resolved here as well - whichever runs first configures it.
-                if (!TrustMarkSupport.isConfigured()) {
-                    AuthorityDataSource.fromEnvironment().ifPresent(TrustMarkSupport::configureJdbcRegistry);
-                }
+                // In memory, or not PostgreSQL, is refused under production (PR-2).
+                AuthorityDataSource.trustMarkRegistry(Startup.FEDERATION);
                 service.trustMarkIssuing(new TrustMarkIssuer(marks.types(), TrustMarkSupport.shared(), AuthoritySupport::isActiveHostedEntity,
                         java.time.Clock.systemUTC()));
                 log.info("Issuing Trust Marks of types " + marks.types().keySet());
@@ -184,9 +183,7 @@ extends RequestScopedServlet {
             FederationRuntimeConfig.KeyHistorySettings keyHistory = runtime.keyHistory();
             KeyHistory history = null;
             if (keyHistory.enabled()) {
-                if (!KeyHistorySupport.isConfigured()) {
-                    AuthorityDataSource.fromEnvironment().ifPresent(KeyHistorySupport::configureJdbcStore);
-                }
+                AuthorityDataSource.keyHistoryStore(Startup.FEDERATION);
                 history = new KeyHistory(KeyHistorySupport.shared(), java.time.Clock.systemUTC(), java.time.Duration.ofSeconds(keyHistory.graceSeconds()));
                 service.historicalKeys(history);
             }

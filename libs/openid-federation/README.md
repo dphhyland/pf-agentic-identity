@@ -326,13 +326,23 @@ build from `OIDF_FEDERATION_TRUST_ANCHOR_JWKS` (`OIDF_TRUST_ANCHOR_JWKS` is its 
 `tools/pin-trust-anchor.py` captures them. Every setting the federation reads, with its default and what happens
 when it's wrong, is in [docs/federation/configuration.md](../../docs/federation/configuration.md).
 
-`FederationConfiguration.fromServletConfig` reads init-params with env fallbacks: `trustAnchorIssuers` /
-`OIDF_FEDERATION_TRUST_ANCHORS` (required), `subordinates` / `OIDF_FEDERATION_SUBORDINATES`,
-`ignoreSslErrors` / `OIDF_FEDERATION_IGNORE_SSL_ERRORS`, `signingAlgorithm` / `OIDF_FEDERATION_SIGNING_ALG` (RS256 or
-PS256), `attesterJwks` / `OIDF_FEDERATION_ATTESTER_JWKS` (public keys only - it is published, so anything else is
+`FederationConfiguration.fromServletConfig` reads each setting through its entry in the `federation-entity` settings
+catalogue ([docs/configuration/federation-entity.md](../../docs/configuration/federation-entity.md), plan item ST-5):
+the init-param first, then the environment variable, every value parsed strictly - a switch that is not `true` or
+`false`, a number past an `int`, a list of nothing or a choice not listed stops the servlet starting (FEDERATION
+`FAILED_CONFIG`), naming the setting; under development a legacy spelling such as `yes` is read as the reader before
+0.6.0 read it, with a warning. The settings: `trustAnchorIssuers` / `OIDF_FEDERATION_TRUST_ANCHORS` (required; each
+an Entity Identifier, an https URL with a host and no query, fragment or user info, or the servlet does not start;
+an issuer is matched to one with or without a trailing slash and whatever the case of its scheme and host),
+`subordinates` / `OIDF_FEDERATION_SUBORDINATES`, `ignoreSslErrors` / `OIDF_FEDERATION_IGNORE_SSL_ERRORS` (one setting
+for every reader: the init-param, then the system property `oidf.federation.ignore.ssl.errors`, the environment
+variable and the superseded `OIDF_TRUST_CONTROLLER_IGNORE_SSL` - `FederationRuntimeConfig` in pf-integration reads
+the same entry, without the init-param, so the two cannot disagree; F-0197), `signingAlgorithm` /
+`OIDF_FEDERATION_SIGNING_ALG` (RS256 or PS256, in any case), `attesterJwks` / `OIDF_FEDERATION_ATTESTER_JWKS` (public keys only - it is published, so anything else is
 refused), `organizationName` /
 `OIDF_FEDERATION_ORGANIZATION_NAME`, `clientRegistrationTypes` / `OIDF_FEDERATION_CLIENT_REGISTRATION_TYPES`
-(what `client_registration_types_supported` advertises; default `automatic,explicit`), `resolveDiscovery` /
+(what `client_registration_types_supported` advertises; default `automatic,explicit`, `none` for neither),
+`resolveDiscovery` /
 `OIDF_FEDERATION_RESOLVE_DISCOVERY` (`known`, the default: resolve only this entity, its subordinates and
 the entities it hosts, as §18.1 advises for an unauthenticated resolver; `any`: discover on demand).
 Init-param only: CORS (`corsEnabled`,
@@ -340,13 +350,16 @@ Init-param only: CORS (`corsEnabled`,
 `AttestationMetadataConfig` lists (`tokenEndpointAuthMethodsSupported`,
 `clientAttestationSigningAlgValuesSupported`, `clientAttestationPopSigningAlgValuesSupported`,
 `dpopSigningAlgValuesSupported`, `clientAttestationPopMethodsSupported`, `attestationChallengeEndpointEnabled`).
-Two more are read and have no effect: `trustControllerHost` (the controller is `FederationRuntimeConfig`'s) and
-`clientAttestationFormatsSupported`.
+`clientAttestationFormatsSupported` is read and has no effect. `trustControllerHost` was read and had none either (the
+controller is `FederationRuntimeConfig`'s); from 0.6.0 it is a removed name, and the servlet does not start while it
+is set.
 
-`RegistryHostedEntitySigner.fromEnvironment()` resolves the vault from `oidf.openbao.url` /
-`OIDF_OPENBAO_URL` / `OPENBAO_ADDR` / `BAO_ADDR` / `VAULT_ADDR` and `oidf.openbao.token` /
-`OIDF_OPENBAO_TOKEN` / `OPENBAO_TOKEN` / `BAO_TOKEN` / `VAULT_TOKEN` — system property first, then env,
-in that order; the same names `attestation-issuer` uses, so one vault serves both.
+`RegistryHostedEntitySigner.fromEnvironment()` reads the vault through the `hosted-entity-signing` entries
+`OIDF_OPENBAO_URL` and `OIDF_OPENBAO_TOKEN` - the system property (`oidf.openbao.url`, `oidf.openbao.token`), then
+the environment variable, then the superseded `OPENBAO_ADDR` / `BAO_ADDR` / `VAULT_ADDR` and `OPENBAO_TOKEN` /
+`BAO_TOKEN` / `VAULT_TOKEN` with a warning; a superseded name that holds another value is refused, and the token may
+come from the file `OIDF_OPENBAO_TOKEN_FILE` names. `attestation-issuer` reads the same two entries, so one vault
+serves both.
 
 ## Build
 

@@ -42,6 +42,8 @@ class SurfaceGateTest {
         System.clearProperty(POLICY_PROP);
         System.clearProperty(TOKEN_PROP);
         FederationRuntimeConfig.resetForTests();
+        // A refusal in code another test made (an in-memory store under production) must not refuse these parts.
+        com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.resetForTests();
     }
 
     @Test
@@ -60,6 +62,9 @@ class SurfaceGateTest {
     @Test
     void hostingWhoseConfigurationFailsPublishesNoHalfAuthorityAndAnswers503() throws Exception {
         boolean hostingBefore = AuthoritySupport.isHostingConfigured();
+        // Development: under production the registry in memory would refuse HOSTING first (PR-2).
+        com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.publish(new com.pingidentity.ps.oidf.platform.settings.ProfileAudit.Result(
+                com.pingidentity.ps.oidf.platform.profile.DeploymentProfile.DEVELOPMENT, java.util.List.of(), java.util.List.of()));
         // An authority is named, and its domain metadata policy is not one: the start fails before signing is published.
         System.setProperty(POLICY_PROP, "{\"openid_relying_party\":5}");
         FederationRuntimeConfig.resetForTests();
@@ -86,9 +91,14 @@ class SurfaceGateTest {
         try {
             System.setProperty(POLICY_PROP, "{\"openid_relying_party\":5}");
             FederationRuntimeConfig.resetForTests();
+            // Development: under production the direct URL would be refused before the policy is read (PR-2).
+            com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.publish(new com.pingidentity.ps.oidf.platform.settings.ProfileAudit.Result(
+                    com.pingidentity.ps.oidf.platform.profile.DeploymentProfile.DEVELOPMENT, java.util.List.of(), java.util.List.of()));
             Map<String, String> params = Map.of("authorityEntityId", "https://authority.example",
                     "jdbcUrl", "jdbc:example:a-store-no-one-connects-to");
-            assertThrows(RuntimeException.class, () -> HostedEntityServlet.configureAuthority(params::get));
+            IllegalStateException notAPolicy = assertThrows(IllegalStateException.class, () -> HostedEntityServlet.configureAuthorityFrom(com.pingidentity.ps.oidf.platform.settings.Sources
+                    .of(Map.of("OIDF_DEPLOYMENT_PROFILE", "development")::get, System::getProperty, params::get)));
+            assertTrue(notAPolicy.getMessage().contains("OIDF_AUTHORITY_METADATA_POLICY"), notAPolicy.getMessage());
             assertTrue(AuthoritySupport.registryIfConfigured().isEmpty(), "a failed configuration publishes no registry");
             assertFalse(AuthoritySupport.isHostingConfigured(), "a failed configuration publishes no signing");
             assertFalse(TrustMarkSupport.isConfigured(), "a failed configuration publishes no Trust Mark store");

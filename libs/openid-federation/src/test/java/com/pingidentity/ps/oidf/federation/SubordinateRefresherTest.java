@@ -45,7 +45,7 @@ class SubordinateRefresherTest {
 
     private static FederationService anchor(List<String> subordinates, HttpGetClient fetcher) throws Exception {
         FederationConfiguration config = new FederationConfiguration(
-                List.of(ANCHOR), subordinates, null, false, false, null, null, null, 0, "RS256", null);
+                List.of(ANCHOR), subordinates, false, false, null, null, null, 0, "RS256", null);
         return new FederationService(config, keys("anchor-key"), fetcher);
     }
 
@@ -64,7 +64,7 @@ class SubordinateRefresherTest {
     @Test
     void theFirstRoundRunsAtOnceAndAnUnreachableSubordinateDoesNotStopIt() throws Exception {
         String leafConfig = new FederationService(new FederationConfiguration(
-                List.of(ANCHOR), List.of(), null, false, false, null, null, null, 0, "RS256", null), keys("leaf-key"))
+                List.of(ANCHOR), List.of(), false, false, null, null, null, 0, "RS256", null), keys("leaf-key"))
                 .createEntityConfigurationJwt(LEAF);
         FederationService anchor = anchor(List.of(DOWN, LEAF), (url, accept) -> {
             this.fetched.add(url);
@@ -162,7 +162,7 @@ class SubordinateRefresherTest {
     void nothingStartsWithoutAFetcherOrSubordinates() throws Exception {
         anchor(List.of(), (url, accept) -> "").prewarmSubordinatesAsync();
         FederationConfiguration config = new FederationConfiguration(
-                List.of(ANCHOR), List.of(LEAF), null, false, false, null, null, null, 0, "RS256", null);
+                List.of(ANCHOR), List.of(LEAF), false, false, null, null, null, 0, "RS256", null);
         new FederationService(config, keys("anchor-key")).prewarmSubordinatesAsync();
         assertEquals(Optional.empty(), ManagedExecutors.live(FederationService.SUBORDINATE_REFRESH));
     }
