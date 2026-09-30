@@ -1,0 +1,22 @@
+id: U-0345
+title: A production-profile PingFederate without Redis refuses ATTESTATION_AUTH and ATTESTATION_ISSUER at deploy, and serves them with the in-memory-state risk
+area: client-attestation, attestation-issuer
+source: design
+status: open
+plan_items: [PR-2]
+prs: []
+recorded_in: docs/releases/unreleased/ST5A.md, Notes
+verify_by: >
+  On a rig built from this repository with OIDF_DEPLOYMENT_PROFILE unset, OIDF_REDIS_URL unset, attestation
+  authentication configured and OIDF_ACCEPTED_RISKS unset: server.log lists the two code refusals at deploy (before
+  any request), /agentic-identity/health/ready shows ATTESTATION_AUTH and ATTESTATION_ISSUER REFUSED, and
+  POST /federation/attestation-challenge and POST /federation/attestation answer 503. With
+  OIDF_ACCEPTED_RISKS=in-memory-state both are READY and a challenge is issued, with attestation.challenge.issued in
+  server.log (at DEBUG) and counted in oidf_events_total. Then set OIDF_ATTESTATION_ISSUER_ENABLED=false and see
+  /.well-known/client-attester answer 404.
+verification: ''
+notes: >
+  ST5A (2026-09-30) unit-tested each half - the refusal, the risk, development, the gate on every part of the
+  component - but did not boot the rig. What the unit tests cannot show is that PingFederate 13.1.3 initialises the
+  four servlets ST5A makes loadOnStartup (both challenge endpoints, the CAS metadata servlet and the
+  attester-configuration servlet) at deploy, which every earlier loadOnStartup part of S9A's showed on the rig.
