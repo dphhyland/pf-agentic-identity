@@ -29,12 +29,12 @@ public final class AttestationSubject {
     public static final String REQUEST_ATTRIBUTE = "com.pingidentity.ps.oidf.rar.attestation_context";
 
     /**
-     * The key under which the token-endpoint filter would publish the subject of a token-exchange
+     * The key under which the token-endpoint filter publishes the subject of a token-exchange
      * {@code subject_token} it has verified as PingFederate-signed. Read by {@link PrincipalResolver} for the
      * {@code subject_token} principal source, and from this attribute alone - the filter's map is built
-     * server-side from what it verified, and nothing a caller sends reaches it. The filter does not publish
-     * it yet ({@code delegationActChain} decodes the subject token without verifying it, 2026-09-27), so a
-     * token exchange resolves to {@code none} until it does.
+     * server-side from what it verified, and nothing a caller sends reaches it. From 0.6.0 the filter and the
+     * criterion publish it for a subject token that verifies against PingFederate's signing keys and issuer (F-0074);
+     * any other token exchange resolves to {@code none}.
      */
     public static final String VERIFIED_SUBJECT_TOKEN_KEY = "verified_subject_token_sub";
 

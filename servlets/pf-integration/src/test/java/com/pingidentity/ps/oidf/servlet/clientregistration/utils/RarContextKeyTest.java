@@ -57,4 +57,21 @@ class RarContextKeyTest {
                         + "drift: the RAR processor simply sees no attestation and falls back to the "
                         + "client as its own subject, silently dropping the ceiling.");
     }
+
+    private static final Pattern VERIFIED_SUBJECT_TOKEN_KEY = Pattern.compile(
+            "VERIFIED_SUBJECT_TOKEN_KEY\\s*=\\s*\"([^\"]+)\"");
+
+    /**
+     * The member of that context carrying the verified subject of a token exchange's subject token (F-0074): the
+     * filter publishes it only for a subject token PingFederate signed, and the plugin's PrincipalResolver takes a
+     * token exchange's principal from it alone. Drift here makes every token exchange decide about nobody again.
+     */
+    @Test
+    void theVerifiedSubjectTokenMemberIsIdenticalOnBothSides() throws IOException {
+        Matcher m = VERIFIED_SUBJECT_TOKEN_KEY.matcher(Files.readString(PLUGIN_SOURCE));
+        assertTrue(m.find(), "could not find VERIFIED_SUBJECT_TOKEN_KEY in AttestationSubject");
+        assertEquals(m.group(1), ClientAttestationUtils.VERIFIED_SUBJECT_TOKEN_KEY,
+                "the filter publishes the verified subject token's sub under one member and the RAR plugin reads another");
+        assertEquals("verified_subject_token_sub", ClientAttestationUtils.VERIFIED_SUBJECT_TOKEN_KEY);
+    }
 }

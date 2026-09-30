@@ -13,8 +13,8 @@ import com.pingidentity.ps.oidf.platform.events.LoggingSink;
  *
  * <p>Every code here is declared, with its fields and their PII classes, in
  * {@code META-INF/oidf-events/federation.json}; {@code EventsCataloguedTest} in pf-integration holds the two
- * together. {@link #ATTESTATION_VERIFIED} and {@link #ATTESTATION_REFUSED} are declared and never emitted (O-2,
- * Phase 3), and the catalogue marks them, and the other codes nothing emits yet, {@code declaredOnly}.
+ * together. {@link #ATTESTATION_VERIFIED} and {@link #ATTESTATION_REFUSED} are emitted by pf-integration's token-endpoint
+ * filter and OGNL criterion from 0.6.0 (O-2); the catalogue marks the codes nothing emits yet {@code declaredOnly}.
  *
  * <p>Same contract as before: the first {@link #configure} wins and a later one is ignored, and until something
  * configures one, events go to a {@link LoggingEventSink}. The engine classloader (OGNL issuance criteria) and the

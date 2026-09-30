@@ -324,15 +324,17 @@ internal error is 500 `server_error`.
 
 ### 3.6 Configuration
 
-**Per-client PF extended properties — verification** (read by `ClientAttestationUtils` as
-`extproperties.*`): `attestation_pop_max_age`, `attestation_dpop_max_age`, `attestation_clock_skew`,
-`attestation_challenge_required`, `attestation_expected_htu`, `attestation_accepted_algs`,
-`attestation_pop_algs`, `attestation_dpop_algs`, `attestation_required_claims`. Defaults come from
-`ClientAttestationConfig`: skew 60 s, PoP and DPoP max age 300 s, asymmetric algorithms only
-(`RS*`/`PS*`/`ES*`/`EdDSA` — no `none`, no MACs), challenge not required, no required disclosures.
+**Per-client PF extended properties — verification** (read by `AttestationPolicyResolver` from
+PingFederate's client manager, for the filter and the criterion alike from 0.6.0): `attestation_pop_max_age`,
+`attestation_dpop_max_age`, `attestation_clock_skew`, `attestation_challenge_required`, `attestation_expected_htu`,
+`attestation_accepted_algs`, `attestation_pop_algs`, `attestation_dpop_algs`, `attestation_required_claims`. Each can
+only tighten the server's policy, which comes from `ClientAttestationConfig`: skew 60 s, PoP and DPoP max age 300 s,
+asymmetric algorithms only (`RS*`/`PS*`/`ES*`/`EdDSA` - no `none`, no MACs), challenge not required, and the
+required disclosures `OIDF_ATTESTATION_REQUIRED_CLAIMS` names. A value that does not parse or would loosen the policy
+refuses the client (401 `invalid_client`); the pf-integration README's "Each client's attestation policy" has the rules.
 
-`attestation_required` is written onto a client by `RegistrationService` and declared in terraform, but
-**nothing reads it** — verification is driven by the presence of the headers, not by a flag.
+`attestation_required` is written onto a client by the registration paths and declared in terraform, and from 0.6.0
+the filter enforces it: a token request for the client without an attestation is refused (401 `invalid_client`).
 
 **Per-client PF extended properties — issuance** (`AttestationIssuanceConfig`): `attestation_issuer`,
 `attestation_issued_ttl`, `attestation_spiffe_bundle`, `attestation_bundle_url`,
@@ -655,7 +657,7 @@ the mapping — CONFIRM via GET /oauth/accessTokenMappings". If it is wrong, the
 nothing. *Closes when:* the id is confirmed against a live server and the comment is deleted.
 
 **Four extended properties the issuer reads are not declared in terraform.**
-`extended-properties.tf` declares `attestation_required` (which nothing reads) but omits
+`extended-properties.tf` declares `attestation_required` (which the filter enforces from 0.6.0) but omits
 `attestation_evidence`, `attestation_bundle_url`, `attestation_evidence_issuer` and
 `attestation_asserted_context_resolver`. PF rejects an `extended_parameters` entry whose name is not
 declared, so as it stands that terraform cannot create a client using cloud evidence, a remote trust
@@ -868,8 +870,8 @@ statement to expire. The wallet-provider path reads the same anchor set.
 
 - ~~`oidf.mock.attesters` out of the base Dockerfile into a dev-only overlay.~~ **Done** — the file is consumer-supplied and the property is conditional on it.
 - `extended-properties.tf`: add `attestation_evidence`, `attestation_bundle_url`,
-  `attestation_evidence_issuer`, `attestation_asserted_context_resolver`; drop the unread
-  `attestation_required` or wire it.
+  `attestation_evidence_issuer`, `attestation_asserted_context_resolver`. (`attestation_required` is wired: the
+  filter enforces it from 0.6.0.)
 - ~~`OIDF_BRIDGE_PRIVATE_JWK` as a documented deploy secret; consider making the filter refuse to start
   without it rather than degrading silently.~~ **Done** — per-client keys, and it does refuse.
 - Confirm the `attestATM` mapping id against a live server and delete the "CONFIRM" comment.
