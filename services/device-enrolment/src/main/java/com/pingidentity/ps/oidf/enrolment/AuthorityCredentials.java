@@ -274,8 +274,13 @@ interface AuthorityCredentials {
                 response = this.request(nonce);
             }
             if (response.statusCode() != 200) {
+                // The answer stays in this log: the exception's message reaches the enrolling device.
+                String body = response.body();
+                LOGGER.warn((Object) ("The authority's token endpoint refused device-enrolment's client " + this.auth.clientId()
+                        + " (HTTP " + response.statusCode() + "): "
+                        + body.substring(0, Math.min(body.length(), 512))));
                 throw EnrolmentException.serverError("the authority's token endpoint refused device-enrolment's client (HTTP "
-                        + response.statusCode() + "): " + response.body(), null);
+                        + response.statusCode() + "); device-enrolment's log has its answer", null);
             }
             JsonNode answer;
             try {
@@ -290,8 +295,9 @@ interface AuthorityCredentials {
             }
             boolean dpop = "DPoP".equalsIgnoreCase(type);
             if (!dpop && this.profile.isProduction()) {
-                throw EnrolmentException.serverError("the authority issued a " + type + " token, not a DPoP-bound one:"
-                        + " set Require DPoP on the client " + this.auth.clientId() + " in PingFederate", null);
+                LOGGER.warn((Object) ("The authority issued a " + type + " token, not a DPoP-bound one: set Require DPoP on"
+                        + " the client " + this.auth.clientId() + " in PingFederate"));
+                throw EnrolmentException.serverError("the authority issued a token that is not a DPoP-bound one", null);
             }
             if (!dpop) {
                 LOGGER.warn((Object) ("The authority issued a " + type + " token, not a DPoP-bound one: development only"));

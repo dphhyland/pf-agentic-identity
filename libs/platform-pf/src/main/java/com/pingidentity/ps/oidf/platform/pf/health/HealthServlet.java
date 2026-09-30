@@ -66,7 +66,8 @@ public class HealthServlet extends HttpServlet {
 
     /**
      * The operator routes this servlet serves, by method and servlet path: the table lives beside the paths it names
-     * (platform-pf's own), and HealthRoutesTest holds it to the {@code @WebServlet} mapping.
+     * (platform-pf's own), and HealthServletTest holds it to the {@code @WebServlet} mapping: every mapped path is live,
+     * ready or routed.
      */
     public static final OperatorRoutes ROUTES = OperatorRoutes.builder()
             .route("GET", DETAIL, DETAIL_ROUTE).route("HEAD", DETAIL, DETAIL_ROUTE)
@@ -108,24 +109,33 @@ public class HealthServlet extends HttpServlet {
                 resp.sendError(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
-            boolean authorised;
+            OperatorAuthenticator operators;
             try {
-                authorised = this.authenticator.get().authorise(req, resp, route.get());
+                operators = this.authenticator.get();
             } catch (LinkageError e) {
                 // A war that bundles platform-pf without rs-validation (gm-api.war: platform-pf declares it optional)
                 // cannot authenticate an operator, so the detail and info fail closed there.
                 LOG.warn("The health detail and info answer 503 in this war: the operator authenticator cannot load"
                         + " (" + e + "); the war needs rs-validation beside platform-pf");
-                resp.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
-                resp.setHeader("Cache-Control", "no-store");
-                resp.setContentLength(0);
+                unavailable(resp);
+                return;
+            } catch (RuntimeException e) {
+                // An authenticator that cannot be built (a store client that fails, say) fails closed the same way.
+                LOG.warn("The health detail and info answer 503: the operator authenticator could not be built (" + e + ")");
+                unavailable(resp);
                 return;
             }
-            if (!authorised) {
+            if (!operators.authorise(req, resp, route.get())) {
                 return;
             }
         }
         this.answer(path, "HEAD".equals(method), resp);
+    }
+
+    private static void unavailable(HttpServletResponse resp) {
+        resp.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+        resp.setHeader("Cache-Control", "no-store");
+        resp.setContentLength(0);
     }
 
     /** Writes the answer for {@code path}, one of the four mapped; any other path is the container's 404. */

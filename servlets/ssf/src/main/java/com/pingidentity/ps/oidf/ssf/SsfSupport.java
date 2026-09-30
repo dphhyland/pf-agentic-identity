@@ -445,7 +445,8 @@ public final class SsfSupport {
         return local;
     }
 
-    private static ReceiverAuthenticator buildIntrospectionAuthenticator(SsfConfiguration cfg) {
+    /** The receiver authenticator {@code cfg} describes: introspection, holding an answer's {@code aud} to the issuer. */
+    static ReceiverAuthenticator buildIntrospectionAuthenticator(SsfConfiguration cfg) {
         if (!cfg.receiverAuthConfigured()) {
             LOGGER.warn((Object) "SSF receiver auth: introspection client not configured; all receiver "
                     + "requests will be rejected until introspectionClientId/Secret are set");

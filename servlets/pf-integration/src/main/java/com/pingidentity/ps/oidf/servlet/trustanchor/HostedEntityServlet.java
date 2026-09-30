@@ -525,7 +525,7 @@ public class HostedEntityServlet extends RequestScopedServlet {
      * decision is 503, never a permit (AuthZEN 1.0 §10.1.2), unless the deployment fails open.
      *
      * <p>The PDP hears the entity's identifier, its Entity Types and the metadata it is to be enrolled with, whether it is
-     * listed, and who is enrolling it (the admin token's fingerprint, never the token).
+     * listed, and who is enrolling it (the operator token's {@code sub}, never the token).
      */
     static Refusal askPolicy(FederationPolicyDecisionPoint pdp, PdpSettings settings, HostedEntity entity, String authority, String actor) {
         if (pdp == null) {

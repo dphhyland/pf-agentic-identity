@@ -69,13 +69,23 @@ public final class RegisteredClientsServlet extends HttpServlet {
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        this.authenticator = OperatorApi.authenticator(config);
         String enabledSetting = OperatorApi.setting(config, "registeredClientsEnabled",
                 "oidf.registered.clients.enabled", "OIDF_REGISTERED_CLIENTS_ENABLED");
-        this.enabled = Boolean.parseBoolean(enabledSetting);
-        if (this.enabled && !this.authenticator.usable()) {
+        this.configure(OperatorApi.authenticator(config), Boolean.parseBoolean(enabledSetting));
+    }
+
+    /**
+     * Takes {@code authenticator} - null when it could not be built, on which every request answers 503 - and whether
+     * the surface is enabled, warning when it is enabled and nobody can be authenticated.
+     */
+    void configure(OperatorAuthenticator authenticator, boolean enabled) {
+        this.authenticator = authenticator;
+        this.enabled = enabled;
+        if (this.enabled && (this.authenticator == null || !this.authenticator.usable())) {
             LOGGER.warn((Object) ("/federation/registered-clients is enabled but no operator can be authenticated, so"
-                    + " every request will be refused: " + this.authenticator.problem()));
+                    + " every request will be refused: " + (this.authenticator == null
+                            ? "the operator authenticator could not be built (server.log says why)"
+                            : this.authenticator.problem())));
         }
     }
 

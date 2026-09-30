@@ -87,6 +87,19 @@ class PfIntrospectionReceiverAuthenticatorTest {
     }
 
     @Test
+    void theRuntimeAuthenticatorHoldsTheAudienceToTheSsfIssuer() throws Exception {
+        SsfConfiguration cfg = new SsfConfiguration.Builder().issuer(ISSUER).introspectionEndpoint(this.endpoint())
+                .introspectionClientId("ssf-rs").introspectionClientSecret("rs-secret").build();
+        ReceiverAuthenticator runtime = SsfSupport.buildIntrospectionAuthenticator(cfg);
+        this.answer.set("{\"active\":true,\"client_id\":\"r\",\"scope\":\"ssf.manage\",\"exp\":" + (now() + 300)
+                + ",\"aud\":\"https://elsewhere.example.com\"}");
+        assertFalse(runtime.authenticate("tok").isActive(), "an aud without OIDF_SSF_ISSUER is refused");
+        this.answer.set("{\"active\":true,\"client_id\":\"r\",\"scope\":\"ssf.manage\",\"exp\":" + (now() + 300)
+                + ",\"aud\":[\"https://elsewhere.example.com\",\"" + ISSUER + "\"]}");
+        assertTrue(runtime.authenticate("tok").isActive(), "an aud naming the issuer is let through");
+    }
+
+    @Test
     @Requirement("RFC7662 §2.2")
     void anInactiveTokenIsNotActive() throws Exception {
         this.answer.set("{\"active\":false}");

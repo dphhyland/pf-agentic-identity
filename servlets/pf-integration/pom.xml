@@ -250,6 +250,10 @@
                                         <include>com.pingidentity.ps.oidf.pf.OperatorApi.readable(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.OperatorApi.staticBearer(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.OperatorApi.unavailable(*</include>
+                                        <!-- S8b: an authenticator that cannot be built is null, and its routes 503; the DELETE route and its actor. -->
+                                        <include>com.pingidentity.ps.oidf.pf.OperatorApi.authenticator(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.doDelete(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegisteredClientsServlet.configure(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.write(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.jsonObject(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.metadataPolicyByType(*</include>

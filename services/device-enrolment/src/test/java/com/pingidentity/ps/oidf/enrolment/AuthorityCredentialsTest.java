@@ -218,6 +218,7 @@ class AuthorityCredentialsTest {
         EnrolmentException e = assertThrows(EnrolmentException.class,
                 () -> register(this.registrar("wrong", null, DeploymentProfile.PRODUCTION)));
         assertTrue(e.getMessage().contains("token endpoint refused"), e.getMessage());
+        assertFalse(e.getMessage().contains("access_token"), "the endpoint's answer stays in the log, not the device's error");
     }
 
     @Test
@@ -296,5 +297,28 @@ class AuthorityCredentialsTest {
         this.server.stop(0);
         assertTrue(assertThrows(EnrolmentException.class, () -> register(registrar)).getMessage().contains("could not reach"));
         assertEquals(0, JSON.readTree("{}").size());
+    }
+    @Test
+    void onlyANonceChallengeIsRetriedAndAnEmptyTokenIsNoToken() throws Exception {
+        java.util.Deque<String[]> answers = new java.util.ArrayDeque<>(List.of(
+                new String[] {"400", null, "{\"error\":\"invalid_request\"}"},
+                new String[] {"400", "n-2", "{\"error\":\"invalid_dpop_proof\"}"},
+                new String[] {"200", null, "{\"access_token\":\"\",\"token_type\":\"DPoP\"}"}));
+        this.server.removeContext("/as/token.oauth2");
+        this.server.createContext("/as/token.oauth2", exchange -> {
+            this.record(exchange);
+            String[] next = answers.poll();
+            if (next[1] != null) {
+                exchange.getResponseHeaders().add("DPoP-Nonce", next[1]);
+            }
+            this.answer(exchange, Integer.parseInt(next[0]), next[2]);
+        });
+        HostedEntityRegistrar.PingFederate registrar = this.registrar("s3cret", null, DeploymentProfile.PRODUCTION);
+        assertTrue(assertThrows(EnrolmentException.class, () -> register(registrar)).getMessage().contains("refused"),
+                "a 400 with no nonce is a refusal");
+        assertTrue(assertThrows(EnrolmentException.class, () -> register(registrar)).getMessage().contains("refused"),
+                "a nonce beside another error is a refusal, not a retry");
+        assertEquals(2, this.at("/as/token.oauth2").size(), "neither was retried");
+        assertTrue(assertThrows(EnrolmentException.class, () -> register(registrar)).getMessage().contains("no access_token"));
     }
 }

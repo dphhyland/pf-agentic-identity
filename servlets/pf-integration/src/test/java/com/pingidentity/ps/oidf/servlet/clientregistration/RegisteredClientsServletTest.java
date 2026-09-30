@@ -109,6 +109,30 @@ class RegisteredClientsServletTest {
     }
 
     @Test
+    void anAuthenticatorThatCouldNotBeBuiltAnswers503() throws Exception {
+        ClientStore store = mock(ClientStore.class);
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        RegisteredClientsServlet servlet = new RegisteredClientsServlet(store);
+
+        // OperatorApi.authenticator answers null when the authenticator cannot be built: init warns, and requests 503.
+        servlet.configure(null, true);
+        servlet.doGet(get("Bearer anything"), resp);
+
+        verify(resp).setStatus(503);
+        verifyNoInteractions(store);
+    }
+
+    @Test
+    void configureTakesAnyAuthenticatorAndOnlyWarnsWhenEnabled() {
+        RegisteredClientsServlet servlet = new RegisteredClientsServlet(mock(ClientStore.class));
+        servlet.configure(null, false);
+        servlet.configure(development(null), false);
+        servlet.configure(development(null), true);
+        servlet.configure(development("s3cret"), true);
+        servlet.configure(development("s3cret"), false);
+    }
+
+    @Test
     void anotherMethodIsNotARoute() throws Exception {
         ClientStore store = mock(ClientStore.class);
         HttpServletResponse resp = mock(HttpServletResponse.class);

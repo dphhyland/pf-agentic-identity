@@ -21,6 +21,11 @@
 - device-enrolment enrols agents with a DPoP-bound client-credentials token for `oidf.admin.entities`: new settings
   `PF_AUTHORITY_CLIENT_ID`, `PF_AUTHORITY_CLIENT_JWK`, `PF_AUTHORITY_CLIENT_SECRET` and
   `PF_AUTHORITY_TOKEN_ENDPOINT`.
+- Inside PingFederate, the server.log copy of every event goes through `PfAuditSink`'s process policy, so any
+  field an event classes `DIRECT_ID` - `claimed_label` today, and any another module adds - is written there as a
+  digest, not in clear. The audit log's copy is unchanged.
+- device-enrolment keeps the token endpoint's answer to a refused client in its own log; the enrolling device hears
+  only that the authority refused device-enrolment's client.
 - platform-pf publishes a test-jar with `OperatorTestKit`, for the operator surfaces' tests.
 
 ## Before you deploy
@@ -46,10 +51,11 @@
    system property and any `adminToken` init-param. Why: production never accepts it, and while it is set the
    operator API component is `REFUSED` and every operator route - hosted-entity enrolment, the registered clients and
    the health detail included - answers 503, so an upgrade with the token in place fails at once instead of leaving
-   an operator believing it still protects something (Phase 3 decision 20). How to tell: the health detail (or
-   server.log) shows `OPERATOR_API` `REFUSED` with "OIDF_AUTHORITY_ADMIN_TOKEN is set, and production never accepts
-   the static bearer: remove it". Unset with `OIDF_OPERATOR_API_ENABLED` unset beside it, production reports the
-   component `FAILED_CONFIG` naming the switch instead (F-0312); the fix is the same. Development-profile escape: the
+   an operator believing it still protects something (Phase 3 decision 20). How to tell: server.log's component line
+   shows `OPERATOR_API` `REFUSED` with "OIDF_AUTHORITY_ADMIN_TOKEN is set, and production never accepts the static
+   bearer: remove it", and `/agentic-identity/health/ready` answers 503; the health detail cannot say so, because it
+   is an operator route and answers 503 too. Still set, with `OIDF_OPERATOR_API_ENABLED` unset beside it, production
+   reports the component `FAILED_CONFIG` naming the switch instead (F-0312); the fix is the same. Development-profile escape: the
    token keeps working in development.
 3. **Give device-enrolment a PingFederate client.** What to do: in PingFederate, a client with the client credentials
    grant, the `oidf.admin.entities` scope, "Require DPoP" and `private_key_jwt` (or a secret); in device-enrolment,

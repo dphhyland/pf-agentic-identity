@@ -19,6 +19,7 @@ import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.WriteListener;
+import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.ByteArrayOutputStream;
@@ -319,6 +320,29 @@ class HealthServletTest {
         assertEquals("", a.text());
         assertEquals("no-store", a.headers.get("Cache-Control"));
         assertEquals(200, call(servlet, "GET", HealthServlet.LIVE, null).status, "live and ready need no authenticator");
+    }
+
+    @Test
+    void anAuthenticatorThatCannotBeBuiltFailsClosed() throws Exception {
+        Map<String, Object> versions = Map.of("agentic-identity", "0.6.0-TEST");
+        HealthServlet servlet = new HealthServlet(() -> {
+            throw new IllegalStateException("the store client failed");
+        }, name -> null, () -> versions);
+        Answer a = call(servlet, "GET", HealthServlet.DETAIL, "Bearer " + TOKEN);
+        assertEquals(503, a.status);
+        assertEquals("", a.text());
+        assertEquals("no-store", a.headers.get("Cache-Control"));
+        assertEquals(200, call(servlet, "GET", HealthServlet.LIVE, null).status, "live needs no authenticator");
+    }
+
+    @Test
+    void everyMappedPathIsLiveReadyOrRouted() {
+        String[] mapped = HealthServlet.class.getAnnotation(WebServlet.class).urlPatterns();
+        assertTrue(mapped.length > 0);
+        for (String path : mapped) {
+            boolean open = HealthServlet.LIVE.equals(path) || HealthServlet.READY.equals(path);
+            assertTrue(open || HealthServlet.ROUTES.match("GET", path).isPresent(), path + " has no route");
+        }
     }
 
     @Test

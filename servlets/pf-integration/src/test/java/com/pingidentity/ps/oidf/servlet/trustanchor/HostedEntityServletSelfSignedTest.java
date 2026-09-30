@@ -220,4 +220,20 @@ class HostedEntityServletSelfSignedTest {
         assertTrue(actor.matches("admin:[0-9a-f]{8}"), "the revocation names its operator: " + actor);
         assertEquals("not_found", new Exchange("GET", "/a1/.well-known/openid-federation", null).error(404), "a revoked agent is not served");
     }
+
+    @Test
+    void aRevocationWithNoEntityIs404AndOneTheStoreCannotRecordIs500() throws Exception {
+        assertEquals("not_found", new Exchange("DELETE", null, null).error(404), "the collection itself is not revocable");
+
+        AuthoritySupport.resetForTests();
+        javax.sql.DataSource unreachable = mock(javax.sql.DataSource.class);
+        when(unreachable.getConnection()).thenThrow(new java.sql.SQLException("the database is down"));
+        AuthoritySupport.configureJdbcRegistry(unreachable);
+        AuthoritySupport.configureSigning(entity -> {
+            throw new AssertionError("nothing is signed on a revocation");
+        }, AUTHORITY);
+        assertEquals("storage_failure", new Exchange("DELETE", "/a1", null).error(500));
+        assertTrue(this.events.withCode("federation.hosted_entity.revoked").isEmpty(),
+                "a revocation the store did not record is not announced");
+    }
 }
