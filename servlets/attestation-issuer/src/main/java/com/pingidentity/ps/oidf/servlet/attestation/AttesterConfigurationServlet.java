@@ -14,7 +14,12 @@ import com.pingidentity.ps.oidf.issuer.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.issuer.IssuanceException;
 import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
 import com.pingidentity.ps.oidf.issuer.SpiffeBinding;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
+import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
+import com.pingidentity.ps.oidf.platform.pf.settings.InitParams;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -54,8 +59,10 @@ import org.jose4j.json.JsonUtil;
  * behind a TLS-terminating proxy. The {@code challengeRequired} init-param mirrors the issuance servlet's
  * and must be configured to the same value.
  */
+// loadOnStartup: its part of ATTESTATION_ISSUER registers at deploy, not on the first request (finding F-0193); its init
+// never throws.
 @WebServlet(urlPatterns = {"/.well-known/client-attester", "/federation/.well-known/client-attester",
-        "/federation/attester-configuration"})
+        "/federation/attester-configuration"}, loadOnStartup = 1)
 public class AttesterConfigurationServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
 
@@ -73,10 +80,29 @@ public class AttesterConfigurationServlet extends HttpServlet {
     private volatile IssuanceClientResolver clientResolver;
     private boolean challengeRequired;
 
+    /** This servlet's part of ATTESTATION_ISSUER, from init; null when a test's constructor made it and init never ran. */
+    private transient volatile ComponentParts.Part part;
+
+    /**
+     * Registers the servlet's part of {@code ATTESTATION_ISSUER} and reads {@code challengeRequired} strictly, through
+     * the attestation-issuer catalogue (plan item ST-5): {@code true} or {@code false}, any case; anything else leaves
+     * the part {@code FAILED_CONFIG}, naming the setting, and the documents answer 503.
+     */
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        this.challengeRequired = Boolean.parseBoolean(config.getInitParameter("challengeRequired"));
+        ComponentParts.Part begun = Startup.begin(Startup.ATTESTATION_ISSUER, "AttesterConfigurationServlet");
+        this.part = begun;
+        begun.start(() -> this.challengeRequired = Settings.of(AttestationIssuanceServlet.SETTINGS)
+                .with(InitParams.sources(config)).bool("challengeRequired"));
+    }
+
+    @Override
+    protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        if (ComponentGate.servlet(this.part, resp)) {
+            return;
+        }
+        super.service(req, resp);
     }
 
     @Override

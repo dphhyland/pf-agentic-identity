@@ -44,6 +44,8 @@
     </dependencyManagement>
 
     <dependencies>
+        <!-- ProfileRefusals: the in-memory registry needs the in-memory-state risk in production (Phase 3 plan, decision 9). -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>
         <!-- JdbcAgentRegistry is written against java.sql; the driver is provided by the deployment.
              Tests run the shipped migration on PostgreSQL, a database per test class (libs/testkit). -->

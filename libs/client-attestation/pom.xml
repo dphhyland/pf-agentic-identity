@@ -47,6 +47,9 @@
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId></dependency>
         <!-- The shared vector file and its reader: the authorization server's runner (AsVectorRunnerTest). -->
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId><type>test-jar</type><scope>test</scope></dependency>
+        <!-- The challenge endpoints' part, gate and init-params (plan items S-9 and ST-5): platform.health's parts,
+             platform-pf's ComponentGate and InitParams. stage-modules.sh stages platform-pf beside this jar already. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform-pf</artifactId></dependency>
         <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>

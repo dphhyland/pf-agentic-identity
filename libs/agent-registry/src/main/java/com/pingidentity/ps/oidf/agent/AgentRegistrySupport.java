@@ -3,6 +3,10 @@
  */
 package com.pingidentity.ps.oidf.agent;
 
+import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.profile.AcceptedRisk;
+import com.pingidentity.ps.oidf.platform.profile.AcceptedRisks;
+import com.pingidentity.ps.oidf.platform.profile.ProfileRefusals;
 import java.util.Objects;
 import javax.sql.DataSource;
 import org.apache.commons.logging.Log;
@@ -17,7 +21,10 @@ import org.apache.commons.logging.LogFactory;
  * <p>Unlike {@code AuthoritySupport.registry()}, {@link #registry()} here does <strong>not</strong>
  * lazily default to an in-memory registry. {@link InMemoryAgentRegistry}'s hazard — a restart silently
  * re-mints every {@code agent_id} in the fleet — is exactly the kind of thing a caller must choose
- * explicitly via {@link #configureInMemoryRegistry()}, never fall into by omission.
+ * explicitly via {@link #configureInMemoryRegistry()}, never fall into by omission. Under the production profile that
+ * choice needs the {@code in-memory-state} accepted risk (Phase 3 plan, decisions 9 and 15), as every other store that
+ * keeps security state in one node's memory does: without it the attester ({@code ATTESTATION_ISSUER}), the component
+ * that mints {@code agent_id}, is refused. No servlet this repository ships configures a registry today.
  */
 public final class AgentRegistrySupport {
     private static final Log LOGGER = LogFactory.getLog(AgentRegistrySupport.class);
@@ -43,8 +50,27 @@ public final class AgentRegistrySupport {
         }
     }
 
-    /** Explicit opt-in to the in-memory registry — see its own javadoc for why this is never a default. */
+    /**
+     * Explicit opt-in to the in-memory registry — see its own javadoc for why this is never a default. Called from a
+     * part's start function: under production without the {@code in-memory-state} risk,
+     * {@link ProfileRefusals#refuse} refuses {@code ATTESTATION_ISSUER} and throws, and nothing is configured; under
+     * development it logs a WARN once.
+     *
+     * @throws com.pingidentity.ps.oidf.platform.settings.ProfileRefused under production, the risk not accepted
+     */
     public static void configureInMemoryRegistry() {
+        configureInMemoryRegistry(AcceptedRisks.current());
+    }
+
+    /** {@link #configureInMemoryRegistry()} against the accepted risks given rather than this process's. */
+    static void configureInMemoryRegistry(AcceptedRisks risks) {
+        AcceptedRisk risk = AcceptedRisk.IN_MEMORY_STATE;
+        if (!risks.accepts(risk)) {
+            ProfileRefusals.refuse(Startup.ATTESTATION_ISSUER, "the agent registry would be kept in this node's memory, where a"
+                    + " restart re-mints every agent_id. The production profile allows that only with the risk '" + risk.id()
+                    + "' accepted (" + risk.description() + "): configure a data store (configureJdbcRegistry), or add "
+                    + risk.id() + " to " + AcceptedRisks.SETTING + " on a standalone node");
+        }
         synchronized (LOCK) {
             if (registry != null) {
                 LOGGER.warn("AgentRegistrySupport registry already configured; ignoring a second configuration");

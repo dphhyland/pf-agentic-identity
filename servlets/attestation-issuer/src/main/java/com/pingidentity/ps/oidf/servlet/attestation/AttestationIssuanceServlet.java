@@ -37,6 +37,9 @@ import com.pingidentity.ps.oidf.clientattestation.AttestationRarModels;
 import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
+import com.pingidentity.ps.oidf.platform.pf.settings.InitParams;
+import com.pingidentity.ps.oidf.platform.settings.Secret;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
 import com.pingidentity.ps.oidf.rar.model.Omission;
 import com.pingidentity.ps.oidf.rar.model.RarModelException;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
@@ -50,6 +53,7 @@ import com.pingidentity.ps.oidf.agent.AgentRegistryException;
 import com.pingidentity.ps.oidf.agent.AgentRegistrySupport;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -57,6 +61,7 @@ import java.util.List;
 import java.util.Map;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.Set;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
@@ -132,15 +137,30 @@ public class AttestationIssuanceServlet extends HttpServlet {
      * by each supervisor retry after a dependency failure. What it throws is the part's state, never the container's.
      */
     private void init(ServletConfig config, ComponentParts.Part part) throws ServletException {
+        // The attester's challenges, spent proof jtis and evidence bindings: shared through Redis, or this node's memory,
+        // which the production profile allows only with the in-memory-state risk (Phase 3 plan, decisions 9 and 15).
+        AttestationSupport.requireSharedState(StoreNamespace.CAS);
         // The conflict event belongs in PingFederate's audit log; the sink is installed once per classloader, by
         // whichever servlet or filter initialises first.
         PfAuditEventSink.install();
-        boolean challengeRequired = Boolean.parseBoolean(config.getInitParameter("challengeRequired"));
-        List<String> customClaimsRequired = customClaimsFrom(config.getInitParameter("customClaimsRequired"),
-                "oidf.attestation.custom.claims.required", "OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED");
-        String baoUrl = config.getInitParameter("openBaoUrl");
-        String baoToken = config.getInitParameter("openBaoToken");
-        AttesterSigningKey signingKey = baoUrl != null && baoToken != null ? new AttesterSigningKey(baoUrl, baoToken) : null;
+        // Every setting this servlet reads, strictly, through the attestation-issuer catalogue (plan item ST-5): a value
+        // its entry refuses is FAILED_CONFIG, naming the setting, before anything is configured. The four read again
+        // when the first request builds its validators and resolvers are read here too, so a wrong one fails now.
+        Settings settings = Settings.of(SETTINGS).with(InitParams.sources(config));
+        boolean challengeRequired = settings.bool("challengeRequired");
+        List<String> customClaimsRequired = claims(settings, "OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED");
+        String baoUrl = settings.string("openBaoUrl");
+        Secret baoToken = settings.secret("openBaoToken");
+        settings.string("OIDF_ATTESTER_OP_ISSUER");
+        settings.jsonObject("OIDF_WALLET_PROVIDER_JWKS");
+        settings.jsonObject("OIDF_ENTRA_AGENT_DIRECTORY");
+        settings.url("OIDF_ATTESTER_SPIRE_ENTRIES_URL");
+        // OpenBao: this servlet's two init-params together, else OIDF_OPENBAO_URL and OIDF_OPENBAO_TOKEN and their
+        // superseded names, read now for the same reason.
+        AttesterSigningKey signingKey = baoUrl != null && baoToken != null ? new AttesterSigningKey(baoUrl, baoToken.reveal())
+                : AttesterSigningKey.fromEnvironment();
+        // The evidence policy's two settings (the evidence-policy catalogue), read the same way.
+        EvidencePolicy evidencePolicy = EvidencePolicy.fromEnvironment();
         // The containment model every ceiling here is held to, once per classloader (the token-endpoint filter
         // shares it in pf-runtime.war). A models document that cannot be read would have this attester mint
         // against something other than what the deployment wrote, so the part is FAILED_CONFIG and the gate answers
@@ -155,9 +175,26 @@ public class AttestationIssuanceServlet extends HttpServlet {
         }
         this.challengeRequired = challengeRequired;
         this.customClaimsRequired = customClaimsRequired;
-        if (signingKey != null) {
+        if (this.attesterSigningKey == null) {
             this.attesterSigningKey = signingKey;
         }
+        if (this.evidencePolicy == null) {
+            this.evidencePolicy = evidencePolicy;
+        }
+    }
+
+    /** The settings catalogue this servlet and the attester's two metadata servlets read. */
+    static final String SETTINGS = "attestation-issuer";
+
+    /** This process's attestation-issuer settings, for a read made when a request first needs it. */
+    static Settings processSettings() {
+        return Settings.of(SETTINGS);
+    }
+
+    /** A {@code words} setting as the claim list it is, in the order written; empty when unset. */
+    static List<String> claims(Settings settings, String name) {
+        Set<String> words = settings.words(name);
+        return words == null ? List.of() : List.copyOf(words);
     }
 
     @Override
@@ -579,7 +616,7 @@ public class AttestationIssuanceServlet extends HttpServlet {
      */
     static InstanceAttestationValidator federationWalletValidatorFromEnv() {
         FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
-        String opIssuer = env("oidf.attester.op.issuer", "OIDF_ATTESTER_OP_ISSUER");
+        String opIssuer = processSettings().string("OIDF_ATTESTER_OP_ISSUER");
         if (!runtime.isTrustControllerConfigured() || opIssuer == null) {
             return null;
         }
@@ -596,26 +633,22 @@ public class AttestationIssuanceServlet extends HttpServlet {
      * null when unset or unparseable.
      */
     static InstanceAttestationValidator staticWalletValidatorFromEnv() {
-        String jwks = env("oidf.wallet.provider.jwks", "OIDF_WALLET_PROVIDER_JWKS");
+        Map<String, Object> jwks = processSettings().jsonObject("OIDF_WALLET_PROVIDER_JWKS");
         if (jwks == null) {
             return null;
         }
         Map<String, List<JsonWebKey>> byProvider = new LinkedHashMap<>();
-        try {
-            JsonUtil.parseJson(jwks).forEach((provider, value) -> {
-                if (value instanceof Map) {
-                    try {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> jwksObj = (Map<String, Object>) value;
-                        byProvider.put(provider, new JsonWebKeySet(JsonUtil.toJson(jwksObj)).getJsonWebKeys());
-                    } catch (Exception ignored) {
-                        // skip a malformed provider entry
-                    }
+        jwks.forEach((provider, value) -> {
+            if (value instanceof Map) {
+                try {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> jwksObj = (Map<String, Object>) value;
+                    byProvider.put(provider, new JsonWebKeySet(JsonUtil.toJson(jwksObj)).getJsonWebKeys());
+                } catch (Exception ignored) {
+                    // skip a malformed provider entry
                 }
-            });
-        } catch (Exception e) {
-            return null;
-        }
+            }
+        });
         if (byProvider.isEmpty()) {
             return null;
         }
@@ -663,8 +696,8 @@ public class AttestationIssuanceServlet extends HttpServlet {
      * no directory configured simply has no client able to opt into {@link EntraDirectoryAssertedContextResolver#ID}.
      */
     static EntraDirectoryAssertedContextResolver entraDirectoryResolverFromEnv() {
-        String json = env("oidf.entra.agent.directory", "OIDF_ENTRA_AGENT_DIRECTORY");
-        return EntraDirectoryAssertedContextResolver.fromJson(json);
+        Map<String, Object> directory = processSettings().jsonObject("OIDF_ENTRA_AGENT_DIRECTORY");
+        return directory == null ? null : EntraDirectoryAssertedContextResolver.fromJson(JsonUtil.toJson(directory));
     }
 
     /**
@@ -720,35 +753,6 @@ public class AttestationIssuanceServlet extends HttpServlet {
         }
     }
 
-    /** A system property, falling back to an environment variable; null when neither is set. */
-    static String env(String property, String envVar) {
-        String value = System.getProperty(property);
-        if (value == null || value.isBlank()) {
-            value = System.getenv(envVar);
-        }
-        return value == null || value.isBlank() ? null : value.trim();
-    }
-
-    /**
-     * A comma-separated claim-name list from a servlet init-param, else the environment (sys-prop /
-     * env var); empty when neither is set. Shared with the discovery metadata servlet so the
-     * advertised {@code custom_claims_required} and the enforced set come from one configuration.
-     */
-    static List<String> customClaimsFrom(String initParam, String sysProp, String envVar) {
-        String csv = (initParam != null && !initParam.isBlank()) ? initParam : env(sysProp, envVar);
-        if (csv == null) {
-            return List.of();
-        }
-        List<String> out = new ArrayList<>();
-        for (String token : csv.split(",")) {
-            String trimmed = token.trim();
-            if (!trimmed.isEmpty()) {
-                out.add(trimmed);
-            }
-        }
-        return List.copyOf(out);
-    }
-
     RemoteJwksCache jwksCache() {
         return this.jwksCache;
     }
@@ -776,13 +780,10 @@ public class AttestationIssuanceServlet extends HttpServlet {
     }
 
     protected WorkloadIntrospector defaultWorkloadIntrospector() {
-        String url = System.getProperty("oidf.attester.spire.entries.url");
-        if (url == null || url.isBlank()) {
-            url = System.getenv("OIDF_ATTESTER_SPIRE_ENTRIES_URL");
-        }
-        if (url != null && !url.isBlank()) {
+        URI url = processSettings().url("OIDF_ATTESTER_SPIRE_ENTRIES_URL");
+        if (url != null) {
             LOGGER.info((Object) ("Workload introspection via SPIRE entries endpoint: " + url));
-            return new SpireSelectorIntrospector(url.trim());
+            return new SpireSelectorIntrospector(url.toString());
         }
         return WorkloadIntrospector.none();
     }

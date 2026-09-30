@@ -97,8 +97,16 @@ class RarModelsTest {
         assertTrue(missing.getMessage().startsWith(RarModels.ENV_MODELS_FILE + " could not be read"), missing.getMessage());
 
         env.put(RarModels.ENV_MODELS_FILE, "models\0.json");
-        assertEquals(RarModelException.Reason.MODEL_INVALID,
-                assertThrows(RarModelException.class, () -> RarModels.fromEnvironment(env)).reason(), "an invalid path is a read failure too");
+        RarModelException notAPath = assertThrows(RarModelException.class, () -> RarModels.fromEnvironment(env));
+        assertEquals(RarModelException.Reason.MODEL_INVALID, notAPath.reason(), "a value that is not a path is refused by its entry");
+        assertTrue(notAPath.getMessage().contains(RarModels.ENV_MODELS_FILE), notAPath.getMessage());
+
+        // The inline document's entry takes a JSON object and nothing else (plan item ST-5), naming the setting.
+        env.remove(RarModels.ENV_MODELS_FILE);
+        env.put(RarModels.ENV_MODELS, "[1]");
+        RarModelException notAnObject = assertThrows(RarModelException.class, () -> RarModels.fromEnvironment(env));
+        assertEquals(RarModelException.Reason.MODEL_INVALID, notAnObject.reason());
+        assertTrue(notAnObject.getMessage().contains(RarModels.ENV_MODELS), notAnObject.getMessage());
 
         env.remove(RarModels.ENV_MODELS_FILE);
         env.remove(RarModels.ENV_MODELS);
@@ -106,8 +114,14 @@ class RarModelsTest {
         assertTrue(RarModels.fromEnvironment(env).commonFieldsFallback());
         env.put(RarModels.ENV_PROFILE, " development ");
         assertTrue(RarModels.fromEnvironment(env).commonFieldsFallback());
+        String development = RarModels.fromEnvironment(env).fingerprint();
+        // F-0160: the profile is read as every other module reads it - development trimmed, in any case. Before 0.6.0
+        // "Development" left the fallback off here, and so gave another fingerprint than "development" does.
         env.put(RarModels.ENV_PROFILE, "Development");
-        assertFalse(RarModels.fromEnvironment(env).commonFieldsFallback(), "only the exact value");
+        assertTrue(RarModels.fromEnvironment(env).commonFieldsFallback(), "any case, as DeploymentProfile reads it");
+        assertEquals(development, RarModels.fromEnvironment(env).fingerprint());
+        env.put(RarModels.ENV_PROFILE, " DEVELOPMENT ");
+        assertTrue(RarModels.fromEnvironment(env).commonFieldsFallback());
         env.put(RarModels.ENV_PROFILE, "production");
         assertFalse(RarModels.fromEnvironment(env).commonFieldsFallback());
         env.put(RarModels.ENV_PROFILE, "");

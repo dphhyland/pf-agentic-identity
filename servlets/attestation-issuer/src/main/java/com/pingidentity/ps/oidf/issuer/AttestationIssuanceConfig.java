@@ -12,6 +12,11 @@ import org.jose4j.jwk.JsonWebKeySet;
 import org.jose4j.json.JsonUtil;
 import org.jose4j.lang.JoseException;
 import com.pingidentity.ps.oidf.clientattestation.AttestationRarModels;
+import com.pingidentity.ps.oidf.platform.settings.Catalogue;
+import com.pingidentity.ps.oidf.platform.settings.Setting;
+import com.pingidentity.ps.oidf.platform.settings.SettingRefused;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 import com.pingidentity.ps.oidf.rar.model.Json;
 import com.pingidentity.ps.oidf.rar.model.Omission;
 import com.pingidentity.ps.oidf.rar.model.RarModelException;
@@ -30,6 +35,11 @@ import com.pingidentity.ps.oidf.rar.model.RarModels;
  * {@code authorize(instance, client, INHERIT)}: it must sit within the client's, and it is kept as authorized,
  * with every field the client's ceiling constrains and the instance's leaves out filled from the client's
  * (CAS §7: "instances[i].entitlement ⊆ entitlement MUST hold at registration time").
+ *
+ * <p>Each property is parsed as its entry in the {@value #SETTINGS} settings catalogue says (plan item ST-5): the TTL a
+ * whole number of seconds from 1 to 64800, the evidence type one of the catalogue's choices (in any case), the bundle
+ * URL an http or https URL, the bundle and the signing JWK JSON objects. A value its entry refuses is the client's
+ * {@code invalid_client}, whose message names the property and never its value.
  *
  * <p>This class is pure data + parsing (no PingFederate types), so it is unit-testable offline. In the
  * runtime a resolver reads the properties off a PF {@code Client} and calls {@link #fromProperties}; the
@@ -150,28 +160,19 @@ public final class AttestationIssuanceConfig {
      */
     public static AttestationIssuanceConfig fromProperties(Map<String, String> props, RarModels models,
                                                            IssuedTtlCap cap) throws IssuanceException {
-        String issuer = trimmed(props.get(P_ISSUER));
+        String issuer = (String) property(P_ISSUER, props.get(P_ISSUER));
         if (issuer == null) {
             throw IssuanceException.invalidClient("missing " + P_ISSUER);
         }
-        long ttl = DEFAULT_TTL_SECONDS;
-        String ttlRaw = trimmed(props.get(P_TTL));
-        if (ttlRaw != null) {
-            try {
-                ttl = Long.parseLong(ttlRaw);
-            } catch (NumberFormatException e) {
-                throw IssuanceException.invalidClient(P_TTL + " is not a whole number of seconds");
-            }
-            if (ttl <= 0) {
-                throw IssuanceException.invalidClient(P_TTL + " must be positive");
-            }
-        }
+        java.time.Duration ttlSetting = (java.time.Duration) property(P_TTL, props.get(P_TTL));
+        long ttl = ttlSetting == null ? DEFAULT_TTL_SECONDS : ttlSetting.getSeconds();
         ttl = cap.apply(issuer, ttl);
 
         // What a given evidence type is and requires is the validator's own declaration — see
-        // InstanceAttestationValidators. Nothing about the supported set is restated here.
+        // InstanceAttestationValidators. Nothing about the supported set is restated here; the catalogue's choices
+        // are checked against it by a test.
         InstanceAttestationValidators known = InstanceAttestationValidators.defaults();
-        String evidenceType = trimmed(props.get(P_EVIDENCE));
+        String evidenceType = (String) property(P_EVIDENCE, props.get(P_EVIDENCE));
         if (evidenceType == null) {
             evidenceType = EVIDENCE_SPIFFE_JWT;
         } else if (!known.supports(evidenceType)) {
@@ -180,7 +181,9 @@ public final class AttestationIssuanceConfig {
 
         // The bundle source: an inline JWKS, or a URL fetched (and cached) at issuance time. Formats that
         // establish trust elsewhere (a wallet WIA trusts its provider) need none.
-        String bundleUrl = trimmed(props.get(P_BUNDLE_URL));
+        java.net.URI bundleUri = (java.net.URI) property(P_BUNDLE_URL, props.get(P_BUNDLE_URL));
+        String bundleUrl = bundleUri == null ? null : trimmed(props.get(P_BUNDLE_URL));
+        property(P_BUNDLE, props.get(P_BUNDLE));
         String bundleJson = trimmed(props.get(P_BUNDLE));
         if (bundleJson == null && bundleUrl == null && known.requiresTrustBundle(evidenceType)) {
             throw IssuanceException.invalidClient(
@@ -198,19 +201,20 @@ public final class AttestationIssuanceConfig {
             }
         }
 
-        List<Map<String, Object>> ceiling = clientCeiling(trimmed(props.get(P_ENTITLEMENT)), models);
-        String signingKeyRef = trimmed(props.get(P_SIGNING_KEY_REF));
+        List<Map<String, Object>> ceiling = clientCeiling((String) property(P_ENTITLEMENT, props.get(P_ENTITLEMENT)), models);
+        String signingKeyRef = (String) property(P_SIGNING_KEY_REF, props.get(P_SIGNING_KEY_REF));
+        property(P_SIGNING_JWK, props.get(P_SIGNING_JWK));
         Map<String, Object> signingJwk = parseObject(trimmed(props.get(P_SIGNING_JWK)), P_SIGNING_JWK);
-        String trustDomain = trimmed(props.get(P_TRUST_DOMAIN));
+        String trustDomain = (String) property(P_TRUST_DOMAIN, props.get(P_TRUST_DOMAIN));
         if (known.requiresTrustDomain(evidenceType) && trustDomain == null) {
             // The mapped SPIFFE ID's namespace comes from the trust domain; without it the binding
             // identifiers would be unanchored.
             throw IssuanceException.invalidClient(P_TRUST_DOMAIN + " is required when " + P_EVIDENCE
                     + " is " + evidenceType);
         }
-        String evidenceIssuer = trimmed(props.get(P_EVIDENCE_ISSUER));
-        List<SpiffeBinding> bindings = parseInstances(trimmed(props.get(P_INSTANCES)), ceiling, models);
-        String assertedContextResolverId = trimmed(props.get(P_ASSERTED_CONTEXT_RESOLVER));
+        String evidenceIssuer = (String) property(P_EVIDENCE_ISSUER, props.get(P_EVIDENCE_ISSUER));
+        List<SpiffeBinding> bindings = parseInstances((String) property(P_INSTANCES, props.get(P_INSTANCES)), ceiling, models);
+        String assertedContextResolverId = (String) property(P_ASSERTED_CONTEXT_RESOLVER, props.get(P_ASSERTED_CONTEXT_RESOLVER));
 
         return new AttestationIssuanceConfig(issuer, ttl, bundleKeys, ceiling, signingKeyRef, signingJwk,
                 trustDomain, bindings, evidenceType, bundleUrl, evidenceIssuer, assertedContextResolverId);
@@ -425,6 +429,43 @@ public final class AttestationIssuanceConfig {
             return JsonUtil.parseJson(json);
         } catch (JoseException e) {
             throw IssuanceException.invalidClient(field + " is not a valid JSON object");
+        }
+    }
+
+    /** The settings catalogue the {@code attestation_*} properties are catalogued in. */
+    public static final String SETTINGS = "issuance-client-properties";
+
+    /** The catalogue's settings, loaded once from this class's loader, read under this process's profile. */
+    private static final class ClientProperties {
+        static final Settings SETTINGS = Settings.of(Catalogue.load(AttestationIssuanceConfig.class.getClassLoader(),
+                AttestationIssuanceConfig.SETTINGS), Sources.process());
+    }
+
+    /**
+     * {@code raw} parsed as property {@code name}'s catalogue entry says: null when unset or blank, a {@code String}
+     * (trimmed) for a string or choice, a {@code Duration}, a {@code URI}, a {@code Map}, or a {@code Secret}.
+     *
+     * @throws IssuanceException {@code invalid_client} naming the property and what it must be, never the value
+     */
+    static Object property(String name, String raw) throws IssuanceException {
+        try {
+            return ClientProperties.SETTINGS.parse(name, raw);
+        } catch (SettingRefused e) {
+            throw IssuanceException.invalidClient(name + " is not " + expected(ClientProperties.SETTINGS.catalogue().setting(name)));
+        }
+    }
+
+    /** What a property's entry takes, as a refusal says it. */
+    static String expected(Setting setting) {
+        switch (setting.type()) {
+            case SECONDS:
+                return "a whole number of seconds from " + setting.min() + " to " + setting.max();
+            case CHOICE:
+                return "one of " + String.join(", ", setting.choices());
+            case URL:
+                return "an http or https URL";
+            default:
+                return "a JSON object";
         }
     }
 

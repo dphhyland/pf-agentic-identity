@@ -3,10 +3,13 @@
  */
 package com.pingidentity.ps.oidf.issuer;
 
-import java.util.Locale;
 import java.util.function.Function;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
+import com.pingidentity.ps.oidf.platform.settings.Catalogue;
+import com.pingidentity.ps.oidf.platform.settings.SettingRefused;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 
 /**
  * The deployment-wide policy on instance evidence, read from the environment once and applied to every
@@ -59,39 +62,38 @@ public final class EvidencePolicy {
     }
 
     /**
-     * @throws IllegalArgumentException for a value that is not a positive number, a switch that is neither
-     *                                  {@code true} nor {@code false}, or a lifetime above the production cap
-     *                                  under the production profile - each naming the variable
+     * The policy the sources describe, read through the {@value #SETTINGS} settings catalogue, strictly (plan item
+     * ST-5): the lifetime a whole number of seconds from 1, the switch {@code true} or {@code false} in any case. Under
+     * development a switch spelt as only the reader before 0.6.0 took it ({@code yes}, {@code 1}) is read as that
+     * reader read it, with a warning; production refuses it.
+     *
+     * @throws IllegalArgumentException for a value its entry refuses, or a lifetime above the production cap under the
+     *                                  production profile - each naming the variable
      */
     public static EvidencePolicy fromEnvironment(Function<String, String> props, Function<String, String> env) {
-        long lifetime = PRODUCTION_MAX_EVIDENCE_LIFETIME_SECONDS;
-        String raw = firstSet(props.apply(MAX_LIFETIME_PROPERTY), env.apply(MAX_LIFETIME_ENV));
-        if (raw != null) {
-            try {
-                lifetime = Long.parseLong(raw);
-            } catch (NumberFormatException e) {
-                throw new IllegalArgumentException(MAX_LIFETIME_ENV + " is not a number: " + raw);
-            }
-            if (lifetime <= 0L) {
-                throw new IllegalArgumentException(MAX_LIFETIME_ENV + " must be positive, got " + raw);
-            }
-            if (lifetime > PRODUCTION_MAX_EVIDENCE_LIFETIME_SECONDS && isProduction(env)) {
-                throw new IllegalArgumentException(MAX_LIFETIME_ENV + "=" + raw + " is above the production cap of "
-                        + PRODUCTION_MAX_EVIDENCE_LIFETIME_SECONDS + " s; production may only shorten it. Set "
-                        + PROFILE_ENV + "=development on a rig that needs longer-lived evidence");
-            }
+        Settings settings = Settings.of(CatalogueHolder.CATALOGUE, Sources.of(env, props, null));
+        long lifetime;
+        boolean single;
+        try {
+            lifetime = settings.duration(MAX_LIFETIME_ENV).getSeconds();
+            single = settings.bool(SINGLE_AUDIENCE_ENV);
+        } catch (SettingRefused e) {
+            throw new IllegalArgumentException(e.getMessage(), e);
         }
-        boolean single = false;
-        String switchValue = firstSet(props.apply(SINGLE_AUDIENCE_PROPERTY), env.apply(SINGLE_AUDIENCE_ENV));
-        if (switchValue != null) {
-            String lower = switchValue.toLowerCase(Locale.ROOT);
-            if ("true".equals(lower)) {
-                single = true;
-            } else if (!"false".equals(lower)) {
-                throw new IllegalArgumentException(SINGLE_AUDIENCE_ENV + " must be true or false, got " + switchValue);
-            }
+        if (lifetime > PRODUCTION_MAX_EVIDENCE_LIFETIME_SECONDS && isProduction(env)) {
+            throw new IllegalArgumentException(MAX_LIFETIME_ENV + "=" + lifetime + " is above the production cap of "
+                    + PRODUCTION_MAX_EVIDENCE_LIFETIME_SECONDS + " s; production may only shorten it. Set "
+                    + PROFILE_ENV + "=development on a rig that needs longer-lived evidence");
         }
         return new EvidencePolicy(lifetime, single);
+    }
+
+    /** The settings catalogue the policy is read through. */
+    public static final String SETTINGS = "evidence-policy";
+
+    /** The catalogue, loaded once from this class's loader. */
+    private static final class CatalogueHolder {
+        static final Catalogue CATALOGUE = Catalogue.load(EvidencePolicy.class.getClassLoader(), SETTINGS);
     }
 
     /** Everything but {@code OIDF_DEPLOYMENT_PROFILE=development} is production, an unset variable included. */
@@ -139,15 +141,5 @@ public final class EvidencePolicy {
         return SpiffeInstanceAttestationValidator.FORMAT.equals(instance.format())
                 ? IssuanceException.invalidSvid(message)
                 : IssuanceException.invalidInstanceAttestation(message);
-    }
-
-    private static String firstSet(String a, String b) {
-        if (a != null && !a.isBlank()) {
-            return a.trim();
-        }
-        if (b != null && !b.isBlank()) {
-            return b.trim();
-        }
-        return null;
     }
 }
