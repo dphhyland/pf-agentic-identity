@@ -36,7 +36,7 @@ public final class HostedEntityConfigurationCache {
     private static final HostedEntityConfigurationCache SHARED = new HostedEntityConfigurationCache(Clock.systemUTC(), MAX_ENTRIES);
 
     private final Clock clock;
-    private final Map<String, Entry> entries;
+    private final Map<String, Kept> entries;
 
     /** A cache of its own, for a test; the process's is {@link #shared()}. */
     HostedEntityConfigurationCache(Clock clock, int maxEntries) {
@@ -48,7 +48,7 @@ public final class HostedEntityConfigurationCache {
             private static final long serialVersionUID = 1L;
 
             @Override
-            protected boolean removeEldestEntry(Map.Entry<String, Entry> eldest) {
+            protected boolean removeEldestEntry(Map.Entry<String, Kept> eldest) {
                 return this.size() > maxEntries;
             }
         };
@@ -70,7 +70,7 @@ public final class HostedEntityConfigurationCache {
     /** The configuration built from exactly {@code entity}, while it has more than {@link #KEEP_WHILE_REMAINING} of its lifetime left. */
     synchronized String get(HostedEntity entity) {
         String key = EntityId.comparable(entity.entityId());
-        Entry entry = this.entries.get(key);
+        Kept entry = this.entries.get(key);
         if (entry == null) {
             return null;
         }
@@ -85,7 +85,7 @@ public final class HostedEntityConfigurationCache {
     synchronized void put(HostedEntity entity, String jwt, Instant iat, Instant exp) {
         long lifetime = exp.getEpochSecond() - iat.getEpochSecond();
         Instant renewAt = iat.plusSeconds((long) Math.floor(lifetime * (1.0 - KEEP_WHILE_REMAINING)));
-        this.entries.put(EntityId.comparable(entity.entityId()), new Entry(entity, Objects.requireNonNull(jwt, "jwt"), renewAt));
+        this.entries.put(EntityId.comparable(entity.entityId()), new Kept(entity, Objects.requireNonNull(jwt, "jwt"), renewAt));
     }
 
     /** Drops what is kept for {@code entityId}, in whichever spelling. */
@@ -104,6 +104,6 @@ public final class HostedEntityConfigurationCache {
         return this.entries.size();
     }
 
-    private record Entry(HostedEntity source, String jwt, Instant renewAt) {
+    private record Kept(HostedEntity source, String jwt, Instant renewAt) {
     }
 }
