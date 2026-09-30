@@ -5,7 +5,7 @@ area: pf-integration
 source: design
 status: open
 plan_items: [S4d]
-prs: []
+prs: [84]
 verification: ''
 target_release: 1.0.0
 notes: >

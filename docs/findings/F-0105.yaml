@@ -5,7 +5,7 @@ area: rar-paz-plugin
 source: pr-review
 status: closed
 plan_items: [S4d]
-prs: []
+prs: [84]
 verification: >
   Closed by S4D3 on 2026-09-30 (the PLAN's decision 14): the rig showed an access-token mapping's criterion sees the
   grant type and whether the request sent authorization_details (context.HttpRequest), so

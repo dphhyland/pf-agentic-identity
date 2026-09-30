@@ -4,7 +4,7 @@ area: pf-integration
 source: design
 status: closed
 plan_items: [S4d]
-prs: []
+prs: [84]
 recorded_in: the plan, To verify before relying on it, booted PingFederate item 15
 verify_by: >
   On the rig: a token request with Accept-Encoding, and the response's Content-Encoding. The response belt

@@ -5,7 +5,7 @@ area: pf-integration
 source: design
 status: closed
 plan_items: [S4d]
-prs: [81]
+prs: [81, 84]
 verification: >
   Closed by S4D3 on 2026-09-30, after S4D1 (PR #81) held details where PingFederate stores them (PAR, CIBA, the
   device endpoint). IssuedDetailsCriterion.withinCeiling on an access-token mapping holds what is about to be issued

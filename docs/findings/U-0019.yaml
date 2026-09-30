@@ -4,7 +4,7 @@ area: pf-integration
 source: design
 status: closed
 plan_items: [S4d]
-prs: [81]
+prs: [81, 84]
 recorded_in: the plan, To verify before relying on it, booted PingFederate item 4
 verify_by: >
   On the rig: authorize with one set of details, redeem the code with a narrower set, and read what the token
