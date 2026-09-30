@@ -1,0 +1,21 @@
+id: F-0431
+title: The deprecated relative replay methods, AttestationReplayCache.record and firstSeen, still have production callers
+severity: low
+area: client-attestation, openid-federation, pf-integration, device-enrolment
+source: pr-review
+status: open
+plan_items: [H-FED-10]
+prs: [99]
+verification: ''
+target_release: 1.0.0
+notes: >
+  Found by HFEDD on 2026-10-01 while listing every @Deprecated in main code (plan item H-FED-10), on origin/main
+  e377dbae. AttestationReplayCache.record(clientId, jti, ttlSeconds) and firstSeen, deprecated by S4c because a
+  retention counted from first use can be shorter than a proof's acceptance window, are still called by
+  RequestObject.verify, FrontChannelAutoRegistrationFilter (the request-object guard), OpenIdFederationServlet's
+  assertionNotSpent, EndpointClientAuthentication.authenticate and device-enrolment's EnrolmentService and
+  CaepEventHandler, so they cannot be removed yet; their javadoc (and the InMemory and Redis overrides') now says
+  removed at 1.0.0. The pf-integration and federation callers pass a ttl computed from the token's own exp plus the
+  skew, which is the absolute retention recordUntil takes; RequestObject caps it at MAX_REPLAY_WINDOW_SECONDS, and
+  whether that cap can fall short of an accepted request object's lifetime was not assessed here. The device-enrolment
+  callers' fixed 300 s is F-0305. Each caller moves to recordUntil before 1.0.0.
