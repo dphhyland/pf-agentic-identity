@@ -1,0 +1,19 @@
+id: F-0364
+title: OIDF_SSF_RECEIVER_POLL_URL may be an http URL in production, and the receiver's client-credentials token is sent there
+severity: medium
+area: ssf
+source: pr-review
+status: open
+plan_items: []
+prs: [87]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-09-30 in the review of package HSSF1. HSSF1 classes the receiver's new URL settings
+  (OIDF_SSF_RECEIVER_TOKEN_ENDPOINT, OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL,
+  OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL) forbidden in production when they are http, and refuses a transmitter that
+  names an http configuration_endpoint or poll endpoint_url. The static poll URL, OIDF_SSF_RECEIVER_POLL_URL, is an
+  older entry classed any: an http value is still read in production, and the receiver presents its bearer token -
+  from 0.6.0 the client-credentials token - there in clear. RFC 8936 §3: "The SET delivery method described in this
+  specification is based upon HTTP over TLS [RFC2818]". Classing it forbidden-in-production with governed
+  {"schemes": ["http"]}, as the three are, is the fix; it changes an existing entry, which HSSF1's scope left alone.

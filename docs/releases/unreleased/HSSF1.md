@@ -117,6 +117,9 @@
   keeps RFC 8417's reading for its other users.
 - setErrs releases the SET with no record kept of it (F-0361, S-10). The poll client's acknowledgements and the
   receiver's dedup window stay per node (F-0043, S10e).
+- Not yet covered by the https rule: the static `OIDF_SSF_RECEIVER_POLL_URL`, an older setting, may still be http in
+  production (F-0364). A receiver-only settings combination that is refused still takes the whole SSF component to
+  `FAILED_CONFIG`, as a receiver setting that fails to parse does (F-0363).
 - The token and stream clients use `java.net.http` with a 10 s connect and request timeout until S-5d moves them onto
   platform.http (wave 6).
 - `mvn verify` of servlets/ssf passed on JDK 20 and 17 (486 tests, the 100% METHOD gate with the new methods in it)
