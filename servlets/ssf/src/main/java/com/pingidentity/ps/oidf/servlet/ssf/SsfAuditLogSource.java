@@ -85,6 +85,8 @@ public final class SsfAuditLogSource extends AbstractAppender {
     private static List<LoggerConfig> attachedTo = List.of();
     private static LoggerContext listenedTo;
     private static PropertyChangeListener listener;
+    /** The configuration the source is hooked into: log4j also fires PROPERTY_CONFIG for updateLoggers on it. */
+    private static Configuration hookedInto;
     private static boolean lifecycleRegistered;
 
     private final AuditEventMapper mapper;
@@ -187,6 +189,7 @@ public final class SsfAuditLogSource extends AbstractAppender {
 
     private static int hook(LoggerContext ctx, SsfAuditLogSource source, String trigger) {
         Configuration conf = ctx.getConfiguration();
+        hookedInto = conf; // before updateLoggers, which fires PROPERTY_CONFIG for this same configuration
         List<LoggerConfig> hooked = new ArrayList<>();
         source.start();
         for (String name : AUDIT_LOGGERS) {
@@ -216,7 +219,7 @@ public final class SsfAuditLogSource extends AbstractAppender {
         PropertyChangeListener l = new PropertyChangeListener() {
             @Override
             public void propertyChange(PropertyChangeEvent evt) {
-                if (LoggerContext.PROPERTY_CONFIG.equals(evt.getPropertyName())) {
+                if (LoggerContext.PROPERTY_CONFIG.equals(evt.getPropertyName()) && evt.getNewValue() != hookedInto) {
                     reattach(ctx, fresh);
                 }
             }

@@ -11,7 +11,6 @@ import org.apache.commons.logging.LogFactory;
 import org.jose4j.jwa.AlgorithmConstraints;
 import org.jose4j.jwk.JsonWebKeySet;
 import org.jose4j.jwt.JwtClaims;
-import org.jose4j.jwt.MalformedClaimException;
 import org.jose4j.jwt.consumer.JwtConsumer;
 import org.jose4j.jwt.consumer.JwtConsumerBuilder;
 import org.jose4j.jwt.consumer.JwtContext;
@@ -165,7 +164,7 @@ final class PfIdTokenVerifier implements LogoutEventFilter.IdTokenVerifier {
      * Whether a verified JWT is an ID token: no {@code typ} or {@code typ JWT}, every claim OpenID Connect Core 1.0 §2
      * requires of one, and none of {@link #NOT_ID_TOKEN_CLAIMS}.
      */
-    static boolean isIdToken(String typ, JwtClaims claims) throws MalformedClaimException {
+    static boolean isIdToken(String typ, JwtClaims claims) {
         if (typ != null && !"JWT".equalsIgnoreCase(typ)) {
             return false;
         }
@@ -179,7 +178,7 @@ final class PfIdTokenVerifier implements LogoutEventFilter.IdTokenVerifier {
                 return false;
             }
         }
-        return claims.getIssuedAt() != null;
+        return true;
     }
 
     /** Test seam. */

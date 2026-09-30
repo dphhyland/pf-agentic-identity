@@ -267,6 +267,39 @@ class LogoutSubjectVerificationTest {
     }
 
     @Test
+    void theEdgesOfTheVerifier() throws Exception {
+        RsaJsonWebKey pfKey = key("pf-1");
+        long iat = now();
+        PfIdTokenVerifier verifier = PfIdTokenVerifier.withKeys(new JsonWebKeySet(pfKey), PF_ISSUER);
+        assertNull(verifier.verify(null, iat, 60), "no token, no hint");
+        assertEquals(LogoutEventFilter.HINT_INVALID, PfIdTokenVerifier.withKeys(new JsonWebKeySet(pfKey), " ")
+                .verify(idToken(pfKey, PF_ISSUER, "alice", iat), iat, 60).refusal(), "a blank issuer is no issuer");
+        assertEquals(LogoutEventFilter.HINT_INVALID, PfIdTokenVerifier.forDeployment(() -> null, PF_ISSUER)
+                .verify(idToken(pfKey, PF_ISSUER, "alice", iat), iat, 60).refusal(), "no key set at all");
+        String blankSid = token(pfKey, null, c -> {
+            c.setIssuer(PF_ISSUER);
+            c.setSubject("alice");
+            c.setAudience("rp");
+            c.setIssuedAt(NumericDate.fromSeconds(iat));
+            c.setExpirationTime(NumericDate.fromSeconds(iat + 300));
+            c.setClaim("sid", " ");
+        });
+        assertTrue(verifier.verify(blankSid, iat, 60).replayKey().startsWith("sub:"), "a blank sid is no sid");
+        assertEquals(LogoutEventFilter.HINT_NOT_ID_TOKEN, verifier.verify(token(pfKey, "secevent+jwt", c -> {
+            c.setIssuer(PF_ISSUER);
+            c.setSubject("alice");
+        }), iat, 60).refusal());
+        String stringIat = token(pfKey, null, c -> {
+            c.setIssuer(PF_ISSUER);
+            c.setSubject("alice");
+            c.setAudience("rp");
+            c.setClaim("iat", "yesterday");
+            c.setExpirationTime(NumericDate.fromSeconds(iat + 300));
+        });
+        assertEquals(LogoutEventFilter.HINT_INVALID, verifier.verify(stringIat, iat, 60).refusal(), "an iat that is not a number");
+    }
+
+    @Test
     void aBareSubParameterIsIgnoredByDefault() {
         LogoutEventFilter.IdTokenVerifier verifier = (jwt, now, maxAge) -> null;
         assertNull(read(request(null, "victim"), verifier),

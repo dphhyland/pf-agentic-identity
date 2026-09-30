@@ -111,9 +111,8 @@ public final class PushHeaderCipher {
     static Key key(String setting, String value) {
         byte[] raw;
         try {
-            String text = value.trim();
-            raw = text.indexOf('-') >= 0 || text.indexOf('_') >= 0 ? Base64.getUrlDecoder().decode(text)
-                    : Base64.getDecoder().decode(text);
+            // base64 or base64url: the URL alphabet's two letters mapped onto the standard one's
+            raw = Base64.getDecoder().decode(value.trim().replace('-', '+').replace('_', '/'));
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException(setting + " is not base64: generate one with `openssl rand -base64 32`");
         }
@@ -166,16 +165,22 @@ public final class PushHeaderCipher {
             }
             return header;
         }
+        return PREFIX + this.current.kid() + ":" + Base64.getUrlEncoder().withoutPadding().encodeToString(
+                encrypt(this.current.spec(), aad(streamId), header.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    /** A fresh 12-byte nonce, then AES-256-GCM's ciphertext and tag. */
+    private static byte[] encrypt(SecretKeySpec key, byte[] aad, byte[] plain) {
         try {
             byte[] nonce = new byte[NONCE_BYTES];
             RANDOM.nextBytes(nonce);
             Cipher c = Cipher.getInstance("AES/GCM/NoPadding");
-            c.init(Cipher.ENCRYPT_MODE, this.current.spec(), new GCMParameterSpec(TAG_BITS, nonce));
-            c.updateAAD(aad(streamId));
-            byte[] sealed = c.doFinal(header.getBytes(StandardCharsets.UTF_8));
+            c.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, nonce));
+            c.updateAAD(aad);
+            byte[] sealed = c.doFinal(plain);
             byte[] out = Arrays.copyOf(nonce, NONCE_BYTES + sealed.length);
             System.arraycopy(sealed, 0, out, NONCE_BYTES, sealed.length);
-            return PREFIX + this.current.kid() + ":" + Base64.getUrlEncoder().withoutPadding().encodeToString(out);
+            return out;
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("SSF: could not encrypt a push authorization_header: " + e.getClass().getSimpleName(), e);
         }

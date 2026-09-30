@@ -45,6 +45,14 @@ public final class SsfEventBridge {
     private SsfEventBridge() {
     }
 
+    /** The emitter to use in place of the published transmitter's; tests only. */
+    private static volatile SsfEventEmitter testEmitter;
+
+    /** Test hook: emit through {@code emitter} (null: the published transmitter's again). */
+    static void useEmitterForTests(SsfEventEmitter emitter) {
+        testEmitter = emitter;
+    }
+
     /** Test hook: forget recent emissions so suppression doesn't leak across tests. */
     static void resetRecentForTests() {
         RECENT.clear();
@@ -182,20 +190,18 @@ public final class SsfEventBridge {
                 SsfEvents.setDropped(eventType, source, SsfEvents.DUPLICATE);
                 return 0;
             }
-            if (!SsfSupport.isConfigured()) {
+            SsfEventEmitter emitter = testEmitter;
+            if (emitter == null && !SsfSupport.isConfigured()) {
                 SsfEvents.setDropped(eventType, source, SsfEvents.NOT_STARTED);
                 return 0;
             }
-            int n = call.apply(SsfSupport.eventEmitter()).size();
+            int n = call.apply(emitter != null ? emitter : SsfSupport.eventEmitter()).size();
             if (n > 0) {
                 recordEmission(label, subject);
-                if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug((Object) ("SSF " + label + ": emitted " + n + " SET(s) for "
-                            + subject.canonicalKey()));
-                }
             }
             return n;
-        } catch (Exception e) {
+        } catch (Exception | LinkageError | java.util.ServiceConfigurationError e) {
+            // PingFederate's signing keys not linking included: signalling never breaks the flow that raised it
             LOGGER.warn((Object) ("SSF " + label + " emission skipped: " + e.getMessage()));
             SsfEvents.setDropped(eventType, source, SsfEvents.FAILED);
             return 0;
