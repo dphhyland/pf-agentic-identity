@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.issuer;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -18,10 +19,19 @@ import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
  * previously-fetched copy exists, the stale copy is served rather than failing issuance (the keys it holds
  * were valid recently, and signature verification still gates everything). A fetch failure with no cached
  * copy is a {@code server_error}.
+ *
+ * <p>Only signing keys are kept ({@link #signingKeys}): a key whose {@code use} is present and not {@code sig} is
+ * dropped, since RFC 7517 §4.2 says {@code use} "is employed to indicate whether a public key is used for encrypting
+ * data or verifying the signature on data". The cache is bounded: a set of more than {@value #MAX_KEYS} keys is
+ * refused as a failed fetch, and at most {@value #MAX_ENTRIES} URLs are held, the oldest fetch dropped first.
  */
 public final class RemoteJwksCache {
 
     public static final long DEFAULT_TTL_SECONDS = 300L;
+    /** The most keys one fetched set may hold; a provider's set holds a handful. */
+    public static final int MAX_KEYS = 64;
+    /** The most URLs held at once. */
+    public static final int MAX_ENTRIES = 256;
 
     private final HttpGetClient http;
     private final long ttlSeconds;
@@ -51,9 +61,16 @@ public final class RemoteJwksCache {
         }
         try {
             String body = this.http.get(url, "application/json");
-            List<JsonWebKey> keys = new JsonWebKeySet(body).getJsonWebKeys();
+            List<JsonWebKey> all = new JsonWebKeySet(body).getJsonWebKeys();
+            if (all.size() > MAX_KEYS) {
+                throw new IllegalArgumentException("JWKS carries more than " + MAX_KEYS + " keys");
+            }
+            List<JsonWebKey> keys = signingKeys(all);
             if (keys.isEmpty()) {
-                throw new IllegalArgumentException("JWKS carries no keys");
+                throw new IllegalArgumentException("JWKS carries no signing keys");
+            }
+            if (cached == null && this.cache.size() >= MAX_ENTRIES) {
+                this.evictOldest();
             }
             this.cache.put(url, new Entry(keys, now));
             return keys;
@@ -63,6 +80,39 @@ public final class RemoteJwksCache {
             }
             throw IssuanceException.serverError("trust bundle could not be fetched: " + url);
         }
+    }
+
+    /** The keys whose {@code use} is absent or {@code sig}, in order; empty for null. */
+    public static List<JsonWebKey> signingKeys(List<JsonWebKey> keys) {
+        List<JsonWebKey> out = new ArrayList<>();
+        if (keys != null) {
+            for (JsonWebKey key : keys) {
+                if (key.getUse() == null || "sig".equals(key.getUse())) {
+                    out.add(key);
+                }
+            }
+        }
+        return out;
+    }
+
+    /** Drops the entry fetched longest ago. */
+    private void evictOldest() {
+        String oldest = null;
+        long at = Long.MAX_VALUE;
+        for (Map.Entry<String, Entry> e : this.cache.entrySet()) {
+            if (e.getValue().fetchedAtEpochSeconds < at) {
+                at = e.getValue().fetchedAtEpochSeconds;
+                oldest = e.getKey();
+            }
+        }
+        if (oldest != null) {
+            this.cache.remove(oldest);
+        }
+    }
+
+    /** How many URLs are held. */
+    int size() {
+        return this.cache.size();
     }
 
     private static final class Entry {

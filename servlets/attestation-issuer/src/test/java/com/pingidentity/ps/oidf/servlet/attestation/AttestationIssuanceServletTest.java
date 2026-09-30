@@ -1101,8 +1101,15 @@ class AttestationIssuanceServletTest {
         return jws.getCompactSerialization();
     }
 
-    /** gke-sa-token client: bundle by URL, trust domain pinned, same inline attester signing key. */
+    /**
+     * gke-sa-token client: bundle by URL, trust domain pinned, same inline attester signing key; and the registry's
+     * cloud validators under a production policy that pins the cluster's issuer (plan item H-ATT-1).
+     */
     private AttestationIssuanceConfig gkeConfig() throws Exception {
+        servlet.setInstanceValidators(com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators.defaults(
+                com.pingidentity.ps.oidf.issuer.CloudTokenValidator.Policy.of(
+                        Map.of(AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN, java.util.Set.of(GKE_CLUSTER_ISSUER)),
+                        3600L, null, null, null, null, false, true)));
         Map<String, String> props = new HashMap<>();
         props.put(AttestationIssuanceConfig.P_ISSUER, ISSUER);
         props.put(AttestationIssuanceConfig.P_EVIDENCE, AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN);

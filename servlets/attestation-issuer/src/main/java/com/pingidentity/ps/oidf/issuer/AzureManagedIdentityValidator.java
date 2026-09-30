@@ -3,69 +3,54 @@
  */
 package com.pingidentity.ps.oidf.issuer;
 
-import java.security.Key;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
-import org.jose4j.jwa.AlgorithmConstraints;
-import org.jose4j.jwk.JsonWebKey;
-import org.jose4j.jws.JsonWebSignature;
+import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.jose4j.jwt.JwtClaims;
-import org.jose4j.jwt.NumericDate;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
 
 /**
- * The {@code azure-mi-token} evidence type: an Entra-signed OAuth token issued to an Azure managed identity
- * (obtained by the workload from Azure Instance Metadata Service, with a custom {@code resource} set to
- * this attester), validated against Entra's public JWKS. This is the evidence available to workloads whose
- * platform identity is a managed identity rather than a Kubernetes one — Container Apps, VMs, and Functions
- * all qualify — the Azure analogue of {@link GcpSaTokenValidator}.
+ * The {@code azure-mi-token} evidence type: an Entra-signed access token issued to an Azure managed identity (from the
+ * Instance Metadata Service, with this attester as its {@code resource}), verified against the tenant's JWKS and
+ * mapped onto {@code spiffe://<attestation_trust_domain>/azure/mi/<oid>}.
  *
- * <p>The token's {@code sub} is opaque and MI-shape-dependent; the stable identifier is the {@code oid}
- * claim (the identity's object id — stable across both system- and user-assigned managed identities), so
- * the mapped SPIFFE ID is {@code spiffe://<attestation_trust_domain>/azure/mi/<oid>} (the trust domain is
- * required in this mode and names the identifier namespace — e.g. {@code <tenant>.azure.demo} by deployment
- * convention; Azure defines no canonical SPIFFE mapping for managed identities, matching AWS's IAM-role
- * synthesis in {@link AwsStsWebIdentityValidator}). Bindings then list exactly the object ids permitted to
- * act as instances of the client.
+ * <p>Microsoft's access token claims reference (read 2026-09-30) defines the claims relied on: {@code tid} "Represents
+ * the tenant that the user is signing in to", a GUID; {@code oid} "The immutable identifier for the requestor, which
+ * is the verified identity of the user or service principal" - a managed identity is a service principal, so
+ * {@code oid} is the managed-identity claim; and {@code iss} "the Microsoft Entra tenant", whose "GUID portion"
+ * "can use ... to restrict the set of tenants". {@code xms_mirid} is not in that reference and is not read.
  *
- * <p>Checks mirror the other validators: signature under an asymmetric-only constraint with the bundle key
- * selected by {@code kid} (the bundle is the tenant's rotating JWKS at
- * {@code https://login.microsoftonline.com/<tenant>/discovery/v2.0/keys} — configure it by URL);
- * {@code iss} must equal the client's pinned {@code attestation_evidence_issuer}
- * ({@code https://login.microsoftonline.com/<tenant>/v2.0}) when set; {@code aud} must include the attester
- * issuer; {@code exp} required and unexpired; {@code oid} required. Failures throw {@code invalid_svid}.
+ * <p>Beyond {@link CloudTokenValidator}'s checks: {@code tid} is present and is one of {@code OIDF_ATTESTER_AZURE_TENANTS}
+ * when that is set, else the tenant in {@code iss}; {@code oid} is present and is one of
+ * {@code OIDF_ATTESTER_AZURE_MANAGED_IDENTITIES} when that is set.
  */
-public final class AzureManagedIdentityValidator implements InstanceAttestationValidator {
+public final class AzureManagedIdentityValidator extends CloudTokenValidator {
 
-    private static final Set<String> PERMITTED_ALGORITHMS = ClientAttestationConfig.DEFAULT_ASYMMETRIC_ALGORITHMS;
-
-    /** The selector names this validator proves; see {@link #selectors}. */
+    /** The selector names this validator proves. */
     static final List<String> SELECTOR_NAMES = List.of("issuer", "tenant_id", "object_id");
 
-    private final long allowedClockSkewSeconds;
+    /** Entra's v1 and v2 issuers; group 1 or 2 is the tenant. Development's default when no issuer is pinned. */
+    static final Pattern TENANT_ISSUER = Pattern.compile(
+            "https://sts\\.windows\\.net/([0-9a-f-]{36})/|https://login\\.microsoftonline\\.com/([0-9a-f-]{36})/v2\\.0");
 
     public AzureManagedIdentityValidator() {
-        this(ClientAttestationConfig.DEFAULT_CLOCK_SKEW_SECONDS);
+        this(ClientAttestationConfig.DEFAULT_CLOCK_SKEW_SECONDS, Policy::process);
     }
 
-    public AzureManagedIdentityValidator(long allowedClockSkewSeconds) {
-        this.allowedClockSkewSeconds = allowedClockSkewSeconds;
+    public AzureManagedIdentityValidator(Policy policy) {
+        this(ClientAttestationConfig.DEFAULT_CLOCK_SKEW_SECONDS, () -> policy);
+    }
+
+    AzureManagedIdentityValidator(long allowedClockSkewSeconds, Supplier<Policy> policy) {
+        super(allowedClockSkewSeconds, policy);
     }
 
     @Override
     public String id() {
         return AttestationIssuanceConfig.EVIDENCE_AZURE_MI_TOKEN;
-    }
-
-    @Override
-    public String format() {
-        return SpiffeInstanceAttestationValidator.FORMAT;
-    }
-
-    /** Azure has no canonical SPIFFE mapping — the ID is synthesised from the identity's object id. */
-    @Override
-    public boolean requiresTrustDomain() {
-        return true;
     }
 
     @Override
@@ -85,130 +70,28 @@ public final class AzureManagedIdentityValidator implements InstanceAttestationV
     }
 
     @Override
-    public InstanceIdentity validate(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
-            throws IssuanceException {
-        VerifiedSvid verified = verify(evidence, bundleKeys, config);
-        return InstanceIdentity.ofSpiffe(verified.svid(), this.id(), verified.selectors());
+    protected Pattern developmentIssuer() {
+        return TENANT_ISSUER;
     }
 
-    /**
-     * The SPIFFE-typed validation, kept public so the mapping detail (trust domain, path, raw token) stays
-     * independently assertable; {@link #validate} adapts the result to an {@link InstanceIdentity}.
-     */
-    public SpiffeSvid validateSvid(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
-            throws IssuanceException {
-        return verify(evidence, bundleKeys, config).svid();
-    }
-
-    /** Every check on the token, then the identity it maps onto and the selectors it proves. */
-    private VerifiedSvid verify(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
-            throws IssuanceException {
-        if (evidence == null || evidence.isBlank()) {
-            throw IssuanceException.invalidSvid("no managed-identity token presented");
+    @Override
+    protected Mapped map(JwtClaims claims, Policy policy, AttestationIssuanceConfig config) throws IssuanceException {
+        String tid = EvidenceSelectors.stringClaim(claims, "tid");
+        Set<String> tenants = policy.azureTenants();
+        Matcher issuer = TENANT_ISSUER.matcher(claims.getClaimValueAsString("iss"));
+        String issuerTenant = issuer.matches() ? (issuer.group(1) != null ? issuer.group(1) : issuer.group(2)) : null;
+        String tenant = tid == null ? null : tid.toLowerCase(Locale.ROOT);
+        if (tenant == null || (tenants != null ? !tenants.contains(tenant) : !tenant.equals(issuerTenant))) {
+            throw refused("tenant", "token's tid is not " + (tenants != null ? "a tenant " + Policy.AZURE_TENANTS + " lists"
+                    : "the tenant of its pinned issuer"));
         }
-        if (bundleKeys == null || bundleKeys.isEmpty()) {
-            throw IssuanceException.invalidSvid("no trust bundle configured for this client");
+        String oid = EvidenceSelectors.stringClaim(claims, "oid");
+        Set<String> identities = policy.azureManagedIdentities();
+        if (oid == null || oid.isBlank() || (identities != null && !identities.contains(oid.toLowerCase(Locale.ROOT)))) {
+            throw refused("managed_identity", "token has no 'oid' (managed-identity object id) claim, or one "
+                    + Policy.AZURE_MANAGED_IDENTITIES + " does not list");
         }
-        String trustDomain = config.expectedTrustDomain();
-        if (trustDomain == null || trustDomain.isBlank()) {
-            throw IssuanceException.invalidClient(
-                    AttestationIssuanceConfig.P_TRUST_DOMAIN + " is required for azure-mi-token evidence");
-        }
-
-        JsonWebSignature jws = new JsonWebSignature();
-        String kid;
-        String alg;
-        try {
-            jws.setCompactSerialization(evidence);
-            kid = jws.getKeyIdHeaderValue();
-            alg = jws.getAlgorithmHeaderValue();
-        } catch (Exception e) {
-            throw IssuanceException.invalidSvid("token is not a well-formed compact JWS");
-        }
-        if (alg == null || !PERMITTED_ALGORITHMS.contains(alg)) {
-            throw IssuanceException.invalidSvid("token uses an unsupported signing algorithm: " + alg);
-        }
-
-        Key verificationKey = SpiffeSvidValidator.selectKey(bundleKeys, kid);
-        jws.setKey(verificationKey);
-        jws.setAlgorithmConstraints(new AlgorithmConstraints(AlgorithmConstraints.ConstraintType.PERMIT, alg));
-        try {
-            if (!jws.verifySignature()) {
-                throw IssuanceException.invalidSvid("token signature did not verify against the trust bundle");
-            }
-        } catch (IssuanceException e) {
-            throw e;
-        } catch (Exception e) {
-            throw IssuanceException.invalidSvid("token signature verification failed");
-        }
-
-        JwtClaims claims;
-        try {
-            claims = JwtClaims.parse(jws.getPayload());
-        } catch (Exception e) {
-            throw IssuanceException.invalidSvid("token payload is not valid JWT claims");
-        }
-
-        String expectedIssuer = config.evidenceIssuer();
-        String issuer = claims.getClaimValueAsString("iss");
-        if (expectedIssuer != null && !expectedIssuer.equals(issuer)) {
-            throw IssuanceException.invalidSvid(
-                    "token issuer '" + issuer + "' does not match expected '" + expectedIssuer + "'");
-        }
-
-        String oid = claims.getClaimValueAsString("oid");
-        if (oid == null || oid.isBlank()) {
-            throw IssuanceException.invalidSvid("token has no 'oid' (managed-identity object id) claim");
-        }
-
-        long now = NumericDate.now().getValue();
-        long exp;
-        try {
-            if (!claims.hasClaim("exp")) {
-                throw IssuanceException.invalidSvid("token has no 'exp'");
-            }
-            exp = claims.getExpirationTime().getValue();
-        } catch (IssuanceException e) {
-            throw e;
-        } catch (Exception e) {
-            throw IssuanceException.invalidSvid("token 'exp' is malformed");
-        }
-        if (exp + this.allowedClockSkewSeconds < now) {
-            throw IssuanceException.invalidSvid("token has expired");
-        }
-        long iat = 0L;
-        try {
-            if (claims.hasClaim("iat")) {
-                iat = claims.getIssuedAt().getValue();
-            }
-        } catch (Exception ignored) {
-            iat = 0L;
-        }
-
-        List<String> audiences;
-        try {
-            audiences = claims.getAudience();
-        } catch (Exception e) {
-            throw IssuanceException.invalidSvid("token 'aud' is malformed");
-        }
-        if (audiences == null || !audiences.contains(config.issuer())) {
-            throw IssuanceException.invalidSvid("token audience does not include this issuer: " + config.issuer());
-        }
-
-        String path = "/azure/mi/" + oid;
-        String spiffeId = "spiffe://" + trustDomain + path;
-        return new VerifiedSvid(new SpiffeSvid(spiffeId, trustDomain, path, audiences, exp, iat, evidence),
-                selectors(EvidenceSelectors.stringClaim(claims, "iss"), EvidenceSelectors.stringClaim(claims, "tid"),
-                        EvidenceSelectors.stringClaim(claims, "oid")));
-    }
-
-    /**
-     * The token's selectors: {@code issuer} (its {@code iss}), {@code tenant_id} (its {@code tid}) and
-     * {@code object_id} (its {@code oid}, the managed identity). {@code tid} is covered by the signature but compared
-     * with nothing; pin {@code attestation_evidence_issuer} to the tenant's issuer to tie the token to one tenant.
-     */
-    EvidenceSelectors selectors(String issuer, String tenantId, String objectId) throws IssuanceException {
-        return EvidenceSelectors.of(this.id(), SELECTOR_NAMES, IssuanceException::invalidSvid,
-                "issuer", issuer, "tenant_id", tenantId, "object_id", objectId);
+        return new Mapped("/azure/mi/" + oid, this.selectors("issuer", EvidenceSelectors.stringClaim(claims, "iss"),
+                "tenant_id", tid, "object_id", oid));
     }
 }

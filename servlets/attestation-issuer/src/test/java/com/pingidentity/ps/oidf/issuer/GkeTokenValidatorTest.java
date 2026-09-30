@@ -24,7 +24,7 @@ class GkeTokenValidatorTest {
             "https://container.googleapis.com/v1/projects/demo-project/locations/us-central1-a/clusters/spiffe-demo";
     private static final String TRUST_DOMAIN = "demo-project.svc.id.goog";
 
-    private final GkeTokenValidator validator = new GkeTokenValidator();
+    private final GkeTokenValidator validator = new GkeTokenValidator(CloudPolicies.development());
     private PublicJsonWebKey clusterKey;
     private List<JsonWebKey> bundle;
     private AttestationIssuanceConfig config;
