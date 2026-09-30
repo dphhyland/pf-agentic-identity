@@ -178,23 +178,16 @@ public final class Setting {
      *   <li>otherwise the default, which may be none.</li>
      * </ol>
      *
-     * <p>The value is then parsed by {@link #parse}. {@link Settings} is the way in; this is its rule. Removed
+     * <p>The value is then parsed by {@link #parse}, under {@code profile}: in development a value only a legacy
+     * spelling makes readable ({@link #legacy}) resolves to what the reader before 0.6.0 read it as, with a warning that
+     * names the strict spelling, and the result records the spelling ({@link Resolved#legacySpelling()}); in production
+     * it is refused as any value that does not parse is. The escape goes at 1.0 with the deprecated aliases (Phase 3
+     * plan, decision 11). {@link Settings} is the way in; this is its rule. Removed
      * names are the catalogue's rule, not one setting's: {@link Settings} refuses every one that is set, with
      * {@link Catalogue#refuseRemoved}, before it resolves anything.
      *
      * @throws SettingRefused        for a refusal above or a value its type refuses
      * @throws IllegalArgumentException for a PingFederate-supplied kind, which has nothing to resolve
-     */
-    Resolved resolve(Sources from) {
-        return resolve(from, DeploymentProfile.of(name -> from.get(Source.ENV, name)));
-    }
-
-    /**
-     * As {@link #resolve(Sources)}, under {@code profile}: in development a value only a legacy spelling makes
-     * readable ({@link #legacy}) resolves to what the reader before 0.6.0 read it as, with a warning that names the
-     * strict spelling, and the result records the spelling ({@link Resolved#legacySpelling()}); in production it is
-     * refused as any value that does not parse is. The escape goes at 1.0 with the deprecated aliases (Phase 3 plan,
-     * decision 11).
      */
     Resolved resolve(Sources from, DeploymentProfile profile) {
         Raw raw = resolveRaw(from);
@@ -229,7 +222,7 @@ public final class Setting {
     }
 
     /**
-     * The rule of {@link #resolve(Sources)} up to the value, not parsed: the first source set, a {@code _FILE}
+     * The rule of {@link #resolve(Sources, DeploymentProfile)} up to the value, not parsed: the first source set, a {@code _FILE}
      * variant's file, the aliases, or the default (whose provenance is {@link Source#DEFAULT}).
      *
      * @throws SettingRefused for a refusal of the rule: a name and its {@code _FILE} variant both set, a file that

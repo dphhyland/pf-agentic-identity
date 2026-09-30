@@ -8,6 +8,7 @@ import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
 import com.pingidentity.ps.oidf.platform.profile.AcceptedRisk;
 import com.pingidentity.ps.oidf.platform.profile.AcceptedRisks;
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
+import com.pingidentity.ps.oidf.platform.settings.ProfileAudit;
 import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -18,10 +19,12 @@ import java.util.function.Function;
 
 /**
  * The start-up audit (plan item F-2): this repository's version and commit, PingFederate's version, the deployment
- * profile, the topology, the accepted risks, every insecure TLS use and each component's state, for one war's copy
- * of platform, written as one banner. It reports and refuses nothing: refusing a component for what the audit finds
- * is PR-5 (Phase 3), and until then an {@code OIDF_ACCEPTED_RISKS} entry that does not parse is listed here, and
- * logged at WARN by the listener, and its risk is simply not accepted (Phase 2 plan, decision 7).
+ * profile, the topology, the accepted risks, the production profile's violations and warnings (plan item PR-5), the
+ * refusals made in code, every setting read from a legacy spelling, every insecure TLS use and each component's state,
+ * for one war's copy of platform, written as one banner. The banner reports; the refusing is done before any
+ * {@code init}, by the listener's sweep through {@code ProfileRefusals}, and this lists what it refused. An
+ * {@code OIDF_ACCEPTED_RISKS} entry that does not parse is listed here, and logged at WARN by the listener, and its
+ * risk is simply not accepted.
  *
  * <p>Every value is written on one line of at most {@value #MAX_VALUE} characters, control, format and separator
  * characters replaced with {@code ?}: the profile and the risk refusals quote what an operator set.
@@ -49,6 +52,9 @@ final class StartupAudit {
      * @param profileSaid   how the environment names it ({@link DeploymentProfile#describe})
      * @param topology      {@value #STANDALONE} until C-1
      * @param risks         {@code OIDF_ACCEPTED_RISKS}, parsed
+     * @param audit         the production profile's sweep, as the listener published it
+     * @param codeRefusals  the refusals made in code so far ({@code ProfileRefusals.refuse})
+     * @param legacy        the settings read from a legacy spelling so far
      * @param insecureTls   the settings that asked for insecure TLS in this copy so far
      * @param hostnamesOff  whether the JDK HTTP client's host name check is off for the whole JVM
      * @param components    this copy's components and their states
@@ -57,7 +63,8 @@ final class StartupAudit {
      * @param platformFrom  where this copy of platform was loaded from
      */
     record Facts(String war, Map<String, Object> versions, DeploymentProfile profile, String profileSaid, String topology,
-            AcceptedRisks risks, List<InsecureTls.Use> insecureTls, boolean hostnamesOff, List<ComponentStatus> components,
+            AcceptedRisks risks, ProfileAudit.Result audit, List<ProfileAudit.Violation> codeRefusals, List<String> legacy,
+            List<InsecureTls.Use> insecureTls, boolean hostnamesOff, List<ComponentStatus> components,
             List<ManagedExecutor.Status> executors, Optional<String> mxBean, String platformFrom) {
     }
 
@@ -66,10 +73,12 @@ final class StartupAudit {
 
     /** The profile and the accepted risks, as an environment and a date give them; the rest as passed. */
     static Facts collect(String war, Map<String, Object> versions, Function<String, String> env, LocalDate today,
+            ProfileAudit.Result audit, List<ProfileAudit.Violation> codeRefusals, List<String> legacy,
             List<InsecureTls.Use> insecureTls, boolean hostnamesOff, List<ComponentStatus> components,
             List<ManagedExecutor.Status> executors, Optional<String> mxBean, String platformFrom) {
         return new Facts(war, versions, DeploymentProfile.of(env), DeploymentProfile.describe(env), STANDALONE,
-                AcceptedRisks.of(env, today), insecureTls, hostnamesOff, components, executors, mxBean, platformFrom);
+                AcceptedRisks.of(env, today), audit, codeRefusals, legacy, insecureTls, hostnamesOff, components, executors,
+                mxBean, platformFrom);
     }
 
     /** The banner: a heading line, then one labelled line per fact, continuation lines indented under the value. */
@@ -83,8 +92,11 @@ final class StartupAudit {
         line(out, "topology", f.topology());
         lines(out, "accepted risks", accepted(f.risks()));
         line(out, "risk refusals", f.risks().refusals().isEmpty() ? "none"
-                : f.risks().refusals().size() + ", each logged at WARN; those risks are not accepted, and nothing"
-                        + " refuses a start for them until PR-5");
+                : f.risks().refusals().size() + ", each logged at WARN; those risks are not accepted");
+        lines(out, "violations", violations(f.audit()));
+        lines(out, "refused in code", refusedInCode(f.codeRefusals()));
+        lines(out, "profile notes", f.audit().warnings());
+        lines(out, "legacy values", f.legacy());
         lines(out, "insecure TLS", insecure(f.insecureTls()));
         line(out, "JDK host names", f.hostnamesOff()
                 ? "NOT checked by any java.net.http client in this JVM (" + InsecureTls.JDK_HOSTNAME_VERIFICATION_PROPERTY + ")"
@@ -102,6 +114,26 @@ final class StartupAudit {
             AcceptedRisk risk = e.getKey();
             String until = e.getValue().map(d -> "until " + d).orElse("no expiry");
             out.add(risk.id() + " (" + until + "): " + risk.description());
+        }
+        return out;
+    }
+
+    /**
+     * Each violation of the sweep, as {@code REFUSED: <line>} under production and {@code not refused (development):
+     * <line>} under development.
+     */
+    static List<String> violations(ProfileAudit.Result audit) {
+        List<String> out = new ArrayList<>();
+        for (ProfileAudit.Violation v : audit.violations()) {
+            out.add((audit.refuses() ? "REFUSED: " : "not refused (development): ") + v.line());
+        }
+        return out;
+    }
+
+    static List<String> refusedInCode(List<ProfileAudit.Violation> refusals) {
+        List<String> out = new ArrayList<>();
+        for (ProfileAudit.Violation v : refusals) {
+            out.add("REFUSED: " + v.setting() + ": " + v.reason());
         }
         return out;
     }
@@ -153,8 +185,13 @@ final class StartupAudit {
 
     /** A value as one line an operator can read: separators and control characters become {@code ?}, and it is cut. */
     static String oneLine(String value) {
+        return oneLine(value, MAX_VALUE);
+    }
+
+    /** {@link #oneLine(String)}, cut at {@code max} characters rather than {@value #MAX_VALUE}. */
+    static String oneLine(String value, int max) {
         String text = value == null ? "" : value.strip();
-        int end = Math.min(text.length(), MAX_VALUE);
+        int end = Math.min(text.length(), max);
         if (end < text.length() && Character.isHighSurrogate(text.charAt(end - 1))) {
             end--;
         }

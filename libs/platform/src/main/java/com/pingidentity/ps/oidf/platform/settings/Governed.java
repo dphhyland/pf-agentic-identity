@@ -84,7 +84,7 @@ public final class Governed {
 
     /** Whether {@code scheme} is a scheme's name: a lower-case letter, then letters, digits, {@code +}, {@code .} and {@code -}. */
     static boolean isScheme(String scheme) {
-        return scheme != null && SCHEME.matcher(scheme).matches();
+        return SCHEME.matcher(scheme).matches();
     }
 
     /**

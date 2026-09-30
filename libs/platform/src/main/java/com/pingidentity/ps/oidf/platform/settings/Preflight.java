@@ -146,15 +146,19 @@ public final class Preflight {
         return value;
     }
 
-    /** The {@code -Dname=value} (or {@code -Dname}, an empty value) words of a {@code JAVA_OPTS} value. */
+    /**
+     * The {@code -Dname=value} (or {@code -Dname}, an empty value) words of a {@code JAVA_OPTS} value, split at
+     * whitespace, each word unquoted as a value is.
+     */
     static Map<String, String> systemProperties(String javaOpts) {
         Map<String, String> properties = new LinkedHashMap<>();
         if (javaOpts == null) {
             return properties;
         }
-        for (String word : javaOpts.trim().split("\\s+")) {
+        for (String raw : javaOpts.trim().split("\\s+")) {
+            String word = unquote(raw);
             if (word.startsWith("-D") && word.length() > 2) {
-                String definition = unquote(word.substring(2));
+                String definition = word.substring(2);
                 int equals = definition.indexOf('=');
                 properties.put(equals < 0 ? definition : definition.substring(0, equals),
                         equals < 0 ? "" : definition.substring(equals + 1));

@@ -437,8 +437,9 @@ public final class Catalogue {
                     Object spelt = setting.parse(defaultValue);
                     return Governed.values(List.of(choices.get(0).equals(spelt) ? choices.get(1) : choices.get(0)), false);
                 }
-                throw refuse(at, "a " + type.id() + (type == SettingType.CHOICE ? " of " + choices.size() + " choices" : "")
-                        + " with a default classed " + profile + " says which values the profile governs, in governed");
+                throw refuse(at, "an entry of type " + type.id() + (type == SettingType.CHOICE ? " with " + choices.size()
+                        + " choices" : "") + " and a default, classed " + profile + ", says in governed which values the"
+                        + " profile acts on");
             }
             if (!acts) {
                 throw refuse(at, "governed goes with forbidden-in-production or accepted-risk:<id>, not " + profile);

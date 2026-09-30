@@ -259,7 +259,7 @@ public final class ProfileAudit {
         if (risk != null && risks.accepts(risk)) {
             return null;
         }
-        String accept = risk == null ? "No release accepts '" + id + "'; " + undo(setting)
+        String accept = risk == null ? "No release accepts '" + id + "'; " + lowerFirst(undo(setting))
                 : "Accept the risk by adding " + id + (risk.dated() ? "@YYYY-MM-DD" : "") + " to " + AcceptedRisks.SETTING
                         + ", or " + lowerFirst(undo(setting));
         return new Violation(Kind.ACCEPTED_RISK, setting.name(), what + ", which the production profile allows only with the"
@@ -312,10 +312,14 @@ public final class ProfileAudit {
         return setting.type() == SettingType.BOOL || setting.type() == SettingType.CHOICE;
     }
 
-    /** How an operator takes the governed value away: back to the default, or unset. */
+    /** How an operator takes a governed value away: back to the default, another scheme, or unset. */
     static String undo(Setting setting) {
         if (setting.defaultValue() != null && quotable(setting)) {
             return "Set " + name(setting) + " to " + setting.parse(setting.defaultValue()) + ", or unset it";
+        }
+        if (setting.governed().form() == Governed.Form.SCHEMES) {
+            return "Give " + name(setting) + " a URL of another scheme (" + String.join(", ", setting.governed().values())
+                    + " is the one governed), or unset it";
         }
         if (setting.kind() == EntryKind.SYSTEM_PROPERTY) {
             return "Remove -D" + setting.name() + " from the JVM's options (JAVA_OPTS)";

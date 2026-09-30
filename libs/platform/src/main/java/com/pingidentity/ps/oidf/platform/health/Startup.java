@@ -75,7 +75,11 @@ public final class Startup {
             return false;
         }
         String reason = ProfileRefusals.reason(begun.component(), verdict.kind() == ComponentSwitches.Kind.ENABLED);
-        return reason != null && begun.refused(reason);
+        if (reason == null) {
+            return false;
+        }
+        begun.refused(reason);
+        return true;
     }
 
     /**

@@ -69,10 +69,6 @@ public final class ProfileRefusals {
 
     /** The sweep's result: the published one, or this copy's own evaluation, made once on first use. */
     public static ProfileAudit.Result current() {
-        ProfileAudit.Result local = result;
-        if (local != null) {
-            return local;
-        }
         synchronized (LOCK) {
             if (result == null) {
                 result = evaluation.get();
