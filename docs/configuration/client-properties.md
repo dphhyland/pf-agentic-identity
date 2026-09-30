@@ -4,6 +4,8 @@
 
 The settings of the `client-properties` component of `servlets/pf-integration`, read by package `com.pingidentity.ps.oidf.servlet.clientregistration`: generated from its catalogue, [client-properties.json](../../servlets/pf-integration/src/main/resources/META-INF/oidf-settings/client-properties.json), by `tools/config-reference.py`, and checked in CI. [How to read a row](README.md#reading-a-row).
 
+Under the production profile a violation by one of these settings refuses `FEDERATION`, `AUTO_REGISTRATION`, `ATTESTATION_AUTH` ([components](../development/settings-catalogue.md#components)).
+
 | Setting | Default | What it does | When it's wrong | Profile | Security |
 |---|---|---|---|---|---|
 | `status` (extended property) | Unset; one of `registered`, `auto_registered` | Who registered the client: registered (12.2 explicit) or auto_registered (12.1); a client without it was created by an administrator, and neither registration path touches it | **Per request**: Not declared in PingFederate: the registration is refused and the client disabled | Any | Yes |

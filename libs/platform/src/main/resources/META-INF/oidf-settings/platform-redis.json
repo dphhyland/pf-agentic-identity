@@ -11,8 +11,9 @@
       "type": "secret",
       "default": null,
       "description": "The shared Redis, as redis://[user[:password]@]host[:port][/db] or rediss:// for TLS; unset keeps each store in one node's memory",
-      "when_wrong": {"effect": "first-request", "detail": "A URL that does not parse, a scheme other than redis or rediss, or redis:// under the production profile: every store that would use Redis refuses its requests, and the log says why without the password"},
-      "profile": "any",
+      "when_wrong": {"effect": "first-request", "detail": "A URL that does not parse, a scheme other than redis or rediss, or redis:// under the production profile: every store that would use Redis refuses its requests, and the log says why without the password. From 0.6.0 a redis:// URL under the production profile also refuses the components that use Redis at start-up"},
+      "profile": "forbidden-in-production",
+      "governed": {"schemes": ["redis"]},
       "security": true,
       "sources": [
         {"from": "system-property", "name": "oidf.redis.url"},
@@ -27,8 +28,9 @@
       "type": "secret",
       "default": null,
       "description": "The shared Redis when OIDF_REDIS_URL and its property are unset: the name Railway and most managed Redis providers export; read as OIDF_REDIS_URL is",
-      "when_wrong": {"effect": "first-request", "detail": "As OIDF_REDIS_URL"},
-      "profile": "any",
+      "when_wrong": {"effect": "first-request", "detail": "As OIDF_REDIS_URL, when it is read: while OIDF_REDIS_URL or oidf.redis.url is set, REDIS_URL is not read and the production profile does not judge it"},
+      "profile": "forbidden-in-production",
+      "governed": {"schemes": ["redis"], "unless_set": ["OIDF_REDIS_URL"]},
       "security": true,
       "sources": [
         {"from": "env", "name": "REDIS_URL"}

@@ -165,6 +165,13 @@
                                         <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.oneLine(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAuditServlet.init(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAuditServlet.service(*</include>
+                                        <!-- lifecycle (PR-5): the production profile's sweep and what the banner and the log say of it -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.sweep(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.refusing(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.sweepLog(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.violations(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.label(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.refusedInCode(*</include>
                                         <!-- internals (F-1, PfInternals): add gate includes below this line -->
                                         <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.tokenEndpointBaseUrl(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.addClient(*</include>

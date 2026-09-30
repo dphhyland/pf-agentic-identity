@@ -6,6 +6,8 @@ The settings of the `fapi2-profile` component of `servlets/pf-integration`, read
 
 Families: `OIDF_FAPI2_`. A name under one of these that no catalogue declares is an unknown key.
 
+Under the production profile a violation by one of these settings refuses `FAPI` ([components](../development/settings-catalogue.md#components)).
+
 | Setting | Default | What it does | When it's wrong | Profile | Security |
 |---|---|---|---|---|---|
 | `OIDF_FAPI2_CLIENTS` (init-param `clients`, then system property `oidf.fapi2.clients`, then env `OIDF_FAPI2_CLIENTS`) | Unset; a list | The clients the FAPI 2.0 filter holds to issuer-only assertion audiences and PS256, ES256 or EdDSA DPoP proofs, comma-separated; * is every client | **Not checked**: An id that names no client holds nobody | Any | Yes |

@@ -6,9 +6,11 @@ The settings of the `outbound-fetch` component of `libs/oidf-jose`, read by pack
 
 Families: `OIDF_FETCH_`. A name under one of these that no catalogue declares is an unknown key.
 
+Under the production profile a violation by one of these settings refuses `FEDERATION`, `AUTO_REGISTRATION`, `ATTESTATION_AUTH`, `ATTESTATION_ISSUER`, `HOSTING` ([components](../development/settings-catalogue.md#components)).
+
 | Setting | Default | What it does | When it's wrong | Profile | Security |
 |---|---|---|---|---|---|
-| `OIDF_FETCH_ALLOW_HTTP` | `false` | Whether fetches, and a policy decision point's URL, may use http:// - for a development federation or PDP only | **Not checked**: Anything but true, in any case, means false | Not in production | Yes |
-| `OIDF_FETCH_ALLOW_PRIVATE_NETWORKS` | `false` | Whether fetches may reach private, loopback and link-local addresses; without it a host any of whose addresses is one is refused | **Not checked**: Anything but true, in any case, means false | Not in production | Yes |
+| `OIDF_FETCH_ALLOW_HTTP` | `false` | Whether fetches, and a policy decision point's URL, may use http:// - for a development federation or PDP only | **Not checked**: Anything but true, in any case, means false | Not in production: `true` | Yes |
+| `OIDF_FETCH_ALLOW_PRIVATE_NETWORKS` | `false` | Whether fetches may reach private, loopback and link-local addresses; without it a host any of whose addresses is one is refused | **Not checked**: Anything but true, in any case, means false | Not in production: `true` | Yes |
 | `OIDF_FETCH_HOST_ALLOWLIST` | Unset; a list | Hosts, comma-separated, exempt from the private-address rule; a name covers its subdomains, and https is still required | **Not checked**: Read as given, lower-cased; an entry that names no host exempts nothing | Any | Yes |
 | `OIDF_FETCH_MAX_BODY_BYTES` | `262144`; a whole number, at least 1 | The largest response body any federation fetch reads, in bytes | **Not checked**: Not a whole number above 0: the default, without a word | Any | Yes |
