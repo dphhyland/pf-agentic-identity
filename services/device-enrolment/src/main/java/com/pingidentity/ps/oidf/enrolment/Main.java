@@ -133,7 +133,12 @@ public final class Main {
      *   AGENT_AUTHORIZATION_DETAILS JSON array: the RFC 9396 ceiling every connector attestation carries
      *   PF_AUTHORITY_ENTITY_ID      the federation authority (PingFederate's issuer) hosting agent entities
      *   PF_AUTHORITY_URL            where to reach it from here (defaults to the entity id)
-     *   PF_AUTHORITY_ADMIN_TOKEN    its hosted-entity admin bearer token (OIDF_AUTHORITY_ADMIN_TOKEN over there)
+     *   PF_AUTHORITY_CLIENT_ID      device-enrolment's PingFederate client: a DPoP-bound client-credentials token with
+     *                               oidf.admin.entities for the hosted-entity API, by PF_AUTHORITY_CLIENT_JWK
+     *                               (private_key_jwt) or PF_AUTHORITY_CLIENT_SECRET (client_secret_basic), at
+     *                               PF_AUTHORITY_TOKEN_ENDPOINT (default <PF_AUTHORITY_URL>/as/token.oauth2)
+     *   PF_AUTHORITY_ADMIN_TOKEN    development only: the authority's static bearer (OIDF_AUTHORITY_ADMIN_TOKEN over
+     *                               there); production refuses to start with it set
      *   PF_AUTHORITY_INSECURE_TLS   "true" to trust its self-signed listener (dev only)
      *   AGENT_DISPLAY_NAME, AGENT_DESCRIPTION, AGENT_KEYWORDS (JSON array)
      *                               what the authority vouches for about every agent, in its own words
@@ -161,8 +166,12 @@ public final class Main {
         HostedEntityRegistrar federation = HostedEntityRegistrar.disabled();
         String authority = System.getenv("PF_AUTHORITY_ENTITY_ID");
         if (authority != null && !authority.isBlank()) {
-            federation = new HostedEntityRegistrar.PingFederate(authority, env("PF_AUTHORITY_URL", authority),
-                    required("PF_AUTHORITY_ADMIN_TOKEN"), Boolean.parseBoolean(env("PF_AUTHORITY_INSECURE_TLS", "false")));
+            federation = HostedEntityRegistrar.PingFederate.of(authority, new AuthorityCredentials.Settings(
+                    env("PF_AUTHORITY_URL", authority), env("PF_AUTHORITY_ADMIN_TOKEN", null),
+                    env("PF_AUTHORITY_CLIENT_ID", null), env("PF_AUTHORITY_CLIENT_SECRET", null),
+                    env("PF_AUTHORITY_CLIENT_JWK", null), env("PF_AUTHORITY_TOKEN_ENDPOINT", null)),
+                    Boolean.parseBoolean(env("PF_AUTHORITY_INSECURE_TLS", "false")),
+                    com.pingidentity.ps.oidf.platform.profile.DeploymentProfile.current());
         }
         String software = clientId == null ? "claude-bank-connector" : clientId;
         AgentMission mission = agentMission(software, System::getenv);

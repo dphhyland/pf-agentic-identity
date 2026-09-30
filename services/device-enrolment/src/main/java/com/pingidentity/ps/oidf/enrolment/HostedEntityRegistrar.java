@@ -5,11 +5,13 @@ package com.pingidentity.ps.oidf.enrolment;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -57,8 +59,9 @@ public interface HostedEntityRegistrar {
     }
 
     /**
-     * The PingFederate hosted-entity API: {@code POST <authority>/federation/agents} with the authority's
-     * admin bearer token (HostedEntityServlet, SELF_SIGNED mode).
+     * The PingFederate hosted-entity API: {@code POST <authority>/federation/agents} (HostedEntityServlet, SELF_SIGNED
+     * mode), an operator route that needs {@code oidf.admin.entities}: the headers come from {@link AuthorityCredentials}
+     * - a DPoP-bound client-credentials token, or in development the static bearer.
      */
     final class PingFederate implements HostedEntityRegistrar {
         private static final Log LOGGER = LogFactory.getLog(PingFederate.class);
@@ -68,7 +71,7 @@ public interface HostedEntityRegistrar {
 
         private final String authorityEntityId;
         private final URI baseUrl;
-        private final String adminToken;
+        private final AuthorityCredentials credentials;
         private final HttpClient http;
 
         /**
@@ -78,11 +81,35 @@ public interface HostedEntityRegistrar {
          *                    {@link InsecureTls}, which warns once and records the use; the host name is still checked
          */
         public PingFederate(String authorityEntityId, String baseUrl, String adminToken, boolean insecureTls) {
+            this(authorityEntityId, baseUrl, insecureTls, http -> new AuthorityCredentials.StaticBearer(adminToken));
+        }
+
+        /**
+         * @param credentials the credentials, given the HTTP client this registrar builds (the token endpoint is reached
+         *                    through the same client and TLS trust as the API)
+         */
+        PingFederate(String authorityEntityId, String baseUrl, boolean insecureTls,
+                     java.util.function.Function<HttpClient, AuthorityCredentials> credentials) {
             this.authorityEntityId = Objects.requireNonNull(authorityEntityId, "authorityEntityId");
             this.baseUrl = URI.create(Objects.requireNonNull(baseUrl, "baseUrl").replaceAll("/+$", ""));
-            this.adminToken = Objects.requireNonNull(adminToken, "adminToken");
             this.http = InsecureTls.trustAnyCertificate(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)), INSECURE_TLS,
                     insecureTls).build();
+            this.credentials = Objects.requireNonNull(credentials.apply(this.http), "credentials");
+        }
+
+        /**
+         * The registrar {@code settings} describe in {@code profile} ({@link AuthorityCredentials#from}): Main's one
+         * way in.
+         *
+         * @throws IllegalStateException naming the settings to change
+         */
+        public static PingFederate of(String authorityEntityId, AuthorityCredentials.Settings settings, boolean insecureTls,
+                                      DeploymentProfile profile) {
+            PingFederate registrar = new PingFederate(authorityEntityId, settings.authorityUrl(), insecureTls,
+                    http -> AuthorityCredentials.from(settings, profile, http, Clock.systemUTC()));
+            LOGGER.info((Object) ("federation onboarding at " + authorityEntityId + " authenticates with "
+                    + registrar.credentials.describe()));
+            return registrar;
         }
 
         @Override
@@ -106,13 +133,16 @@ public interface HostedEntityRegistrar {
                 body.put("ownerRef", ownerRef);
             }
             try {
-                HttpRequest request = HttpRequest.newBuilder(URI.create(this.baseUrl + "/federation/agents"))
+                URI collection = URI.create(this.baseUrl + "/federation/agents");
+                HttpRequest.Builder request = HttpRequest.newBuilder(collection)
                         .timeout(Duration.ofSeconds(10))
-                        .header("Authorization", "Bearer " + this.adminToken)
                         .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
-                        .build();
-                HttpResponse<String> response = this.http.send(request, HttpResponse.BodyHandlers.ofString());
+                        .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)));
+                this.credentials.headers("POST", collection).forEach(request::header);
+                HttpResponse<String> response = this.http.send(request.build(), HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() == 401) {
+                    this.credentials.rejected();
+                }
                 if (response.statusCode() != 201) {
                     throw EnrolmentException.serverError("the federation authority refused the agent (HTTP "
                             + response.statusCode() + "): " + response.body(), null);
