@@ -47,7 +47,9 @@ class DeclarationTest {
                         List.of("/as/token.oauth2")),
                 new Declaration.Filter("ClientAttestationAuth", Fixtures.PFI + "clientregistration.ClientAttestationAuthFilter",
                         List.of("/as/token.oauth2", "/as/par.oauth2", "/as/bc-auth.ciba", "/as/device_authz.oauth2",
-                                "/as/introspect.oauth2", "/as/revoke_token.oauth2", "/as/authorization.oauth2"))), d.filters);
+                                "/as/introspect.oauth2", "/as/revoke_token.oauth2", "/as/authorization.oauth2")),
+                new Declaration.Filter("AttestationMetadata", Fixtures.PFI + "oauth.AttestationMetadataFilter",
+                        List.of("/.well-known/openid-configuration", "/.well-known/oauth-authorization-server"))), d.filters);
         // The script's three checks: auto-registration before attestation; Fapi2Profile before auto-registration;
         // and front-channel registration after both Fapi2Profile and the description sanitiser. Then S4d's two:
         // Fapi2Profile, and front-channel registration, before ClientAttestationAuth on every path they share. Then the

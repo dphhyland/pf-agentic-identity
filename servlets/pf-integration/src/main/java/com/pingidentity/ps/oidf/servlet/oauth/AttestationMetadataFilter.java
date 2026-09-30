@@ -26,6 +26,7 @@ import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.WriteListener;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpServletResponseWrapper;
 import org.apache.commons.logging.Log;
@@ -54,7 +55,8 @@ import org.jose4j.lang.JoseException;
  *       not an array of strings, or one past the limit.</li>
  *   <li>With {@code ATTESTATION_AUTH} switched off, or no ABCA-10 method configured, the request is passed on untouched:
  *       nothing is held and nothing added (plan item S9b: a disabled component advertises nothing).</li>
- *   <li>A {@code HEAD} is passed on, less its {@code Content-Length}, which would be the unextended document's.</li>
+ *   <li>A {@code HEAD} is rendered by PingFederate as the {@code GET} it describes, and answered with the extended
+ *       document's {@code Content-Length} and no body.</li>
  * </ul>
  *
  * <p>It belongs to no component and has no gate: it never refuses a request, and what it adds is decided by
@@ -82,8 +84,8 @@ public final class AttestationMetadataFilter implements Filter {
         this(AttestationMetadataConfig::current);
     }
 
-    /** Test seam: the member set from {@code configuration}. */
-    AttestationMetadataFilter(Supplier<AttestationMetadataConfig> configuration) {
+    /** The member set from {@code configuration}: a test's, or a consumer's that builds its own. */
+    public AttestationMetadataFilter(Supplier<AttestationMetadataConfig> configuration) {
         this.configuration = configuration;
     }
 
@@ -118,22 +120,20 @@ public final class AttestationMetadataFilter implements Filter {
             return;
         }
         String method = http.getMethod();
-        if ("HEAD".equalsIgnoreCase(method)) {
-            chain.doFilter(request, new NoLength(out));
-            return;
-        }
-        if (!"GET".equalsIgnoreCase(method)) {
+        boolean head = "HEAD".equalsIgnoreCase(method);
+        if (!head && !"GET".equalsIgnoreCase(method)) {
             chain.doFilter(request, response);
             return;
         }
         Held held = new Held(out);
-        chain.doFilter(request, held);
-        this.finish(http, out, held, members, document);
+        // A HEAD is rendered as the GET it describes, so that its Content-Length is the extended document's; no body is sent.
+        chain.doFilter(head ? new AsGet(http) : http, held);
+        this.finish(http, out, held, members, document, head);
     }
 
     /** Sends PingFederate's document with the members added, or as it came. */
-    void finish(HttpServletRequest request, HttpServletResponse out, Held held, AttestationMetadataConfig members, String document)
-            throws IOException {
+    void finish(HttpServletRequest request, HttpServletResponse out, Held held, AttestationMetadataConfig members, String document,
+            boolean head) throws IOException {
         byte[] body = held.close();
         if (body == null) {
             count(document, "too_large");
@@ -170,6 +170,9 @@ public final class AttestationMetadataFilter implements Filter {
         }
         count(document, outcome);
         out.setContentLength(sent.length);
+        if (head) {
+            return;
+        }
         ServletOutputStream stream = out.getOutputStream();
         stream.write(sent);
         stream.flush();
@@ -218,46 +221,15 @@ public final class AttestationMetadataFilter implements Filter {
         return ANSWERS.get(document, outcome);
     }
 
-    /** A {@code HEAD} response without a length: the extended document's is not known without rendering it. */
-    static final class NoLength extends HttpServletResponseWrapper {
-        NoLength(HttpServletResponse response) {
-            super(response);
+    /** A {@code HEAD} request as the {@code GET} whose headers it asks for. */
+    static final class AsGet extends HttpServletRequestWrapper {
+        AsGet(HttpServletRequest request) {
+            super(request);
         }
 
         @Override
-        public void setContentLength(int len) {
-        }
-
-        @Override
-        public void setContentLengthLong(long len) {
-        }
-
-        @Override
-        public void setHeader(String name, String value) {
-            if (!"Content-Length".equalsIgnoreCase(name)) {
-                super.setHeader(name, value);
-            }
-        }
-
-        @Override
-        public void addHeader(String name, String value) {
-            if (!"Content-Length".equalsIgnoreCase(name)) {
-                super.addHeader(name, value);
-            }
-        }
-
-        @Override
-        public void setIntHeader(String name, int value) {
-            if (!"Content-Length".equalsIgnoreCase(name)) {
-                super.setIntHeader(name, value);
-            }
-        }
-
-        @Override
-        public void addIntHeader(String name, int value) {
-            if (!"Content-Length".equalsIgnoreCase(name)) {
-                super.addIntHeader(name, value);
-            }
+        public String getMethod() {
+            return "GET";
         }
     }
 
