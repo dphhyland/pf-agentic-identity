@@ -117,7 +117,8 @@ public final class OAuthErrorDescriptionFilter implements Filter {
         private Mode mode = Mode.UNDECIDED;
         private ServletOutputStream stream;
         private PrintWriter writer;
-        private Integer contentLength;
+        /** A length declared while the status was an error and before the body was decided on. */
+        private Long contentLength;
 
         ErrorsOnly(HttpServletResponse response) {
             super(response);
@@ -133,8 +134,10 @@ public final class OAuthErrorDescriptionFilter implements Filter {
             if (this.mode == Mode.UNDECIDED) {
                 this.mode = isError(this.real.getStatus()) ? Mode.HOLDING : Mode.PASSING;
                 if (this.mode == Mode.PASSING && this.contentLength != null) {
+                    // The status stopped being an error after the length was declared: the length is PingFederate's.
                     this.real.setContentLengthLong(this.contentLength);
                 }
+                this.contentLength = null;
             }
             return this.mode;
         }
@@ -166,7 +169,7 @@ public final class OAuthErrorDescriptionFilter implements Filter {
                 this.real.setContentLength(out.length);
                 this.real.getOutputStream().write(out);
                 this.real.getOutputStream().flush();
-            } else if (this.mode == Mode.UNDECIDED && this.contentLength != null && !this.real.isCommitted()) {
+            } else if (this.mode == Mode.UNDECIDED && this.contentLength != null) {
                 // No body was written: the length PingFederate declared is its to keep.
                 this.real.setContentLengthLong(this.contentLength);
             }
@@ -177,13 +180,17 @@ public final class OAuthErrorDescriptionFilter implements Filter {
             this.setContentLengthLong(len);
         }
 
+        /**
+         * Passed on for a body that goes through; for one that will be held - the status is an error - kept until the body
+         * is decided on, and recomputed if it is held. After a {@code sendError} the length is the container's.
+         */
         @Override
         public void setContentLengthLong(long len) {
-            if (this.mode == Mode.PASSING) {
+            boolean passes = this.mode == Mode.PASSING || this.mode == Mode.UNDECIDED && !isError(this.real.getStatus());
+            if (passes) {
                 this.real.setContentLengthLong(len);
             } else if (this.mode == Mode.UNDECIDED) {
-                // Recomputed for a held body; passed on for one that goes through.
-                this.contentLength = (int) Math.min(len, Integer.MAX_VALUE);
+                this.contentLength = len;
             }
         }
 
@@ -215,12 +222,10 @@ public final class OAuthErrorDescriptionFilter implements Filter {
             }
         }
 
+        /** Held, a flush waits for the end; otherwise it is the container's (the writer holds no bytes of its own). */
         @Override
         public void flushBuffer() throws IOException {
             if (this.mode != Mode.HOLDING) {
-                if (this.writer != null && this.mode == Mode.PASSING) {
-                    this.writer.flush();
-                }
                 this.real.flushBuffer();
             }
         }

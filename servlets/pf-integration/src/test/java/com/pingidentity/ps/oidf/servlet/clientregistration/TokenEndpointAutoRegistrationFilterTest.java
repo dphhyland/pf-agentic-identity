@@ -376,6 +376,37 @@ class TokenEndpointAutoRegistrationFilterTest {
         assertTrue(zero.contains("trustChainEntryMaxAgeSeconds must be between 1"), "it used to mean 60, quietly: " + zero);
     }
 
+    /**
+     * H-FED-4 (F-0046): a trust chain's messages and the URL the request named are peer text. However the federation
+     * registration fails - refused, unreachable, or a fault of ours - the caller reads only the code's fixed description
+     * and a reference, and the server log holds the detail.
+     */
+    @Test
+    void aHostileMarkerNeverReachesTheResponse() throws Exception {
+        String marker = "hfede-marker-" + java.util.UUID.randomUUID();
+        String markedClient = "https://rp.example.com/" + marker;
+        List<Exception> failures = List.of(
+                new RegistrationRejectedException(401, "invalid_client", "no authority_hint leads from " + markedClient,
+                        RegistrationRejectedException.Kind.TRUST, null),
+                new RegistrationRejectedException(503, "temporarily_unavailable", "fetching " + markedClient + " failed",
+                        RegistrationRejectedException.Kind.TRANSPORT, null),
+                new IllegalStateException("statement from " + markedClient + " broke the parser"));
+        for (Exception failure : failures) {
+            this.body.getBuffer().setLength(0);
+            when(this.response.getWriter()).thenReturn(new PrintWriter(this.body));
+            when(this.request.getParameter("client_id")).thenReturn(markedClient);
+            when(this.service.admit(anyString(), anyList(), anyString())).thenThrow(failure);
+
+            this.filter(true).doFilter(this.request, this.response, this.chain);
+
+            assertFalse(this.body.toString().contains(marker), this.body.toString());
+            PublicErrorsAssert.assertGeneric((String) this.answered().get("error"), this.body.toString());
+            assertTrue(this.refusals.lines().stream().anyMatch(line -> line.contains(marker)) || failure instanceof IllegalStateException,
+                    "a refusal's detail is the server log's");
+            org.mockito.Mockito.reset(this.service);
+        }
+    }
+
     @Test
     @Requirement("OIDFED §10.5")
     void aFederationThatCannotBeReachedIsTemporarilyUnavailable() throws Exception {

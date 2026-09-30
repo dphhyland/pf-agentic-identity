@@ -174,6 +174,29 @@ class OpenIdFederationServletTest {
         assertError(get("/federation/fetch", Map.of("sub", new String[] {"https://stranger.example"})), 404, "not_found");
     }
 
+    /**
+     * H-FED-4 (F-0046): whatever the caller put in a parameter - a subject, an issuer, a trust anchor, an entity type -
+     * the federation endpoints answer with the code's fixed description and a reference, never the value.
+     */
+    @Test
+    void aHostileMarkerNeverReachesTheResponse() throws Exception {
+        String marker = "hfede-marker-" + java.util.UUID.randomUUID();
+        String markedEntity = "https://stranger.example/" + marker;
+        List<Exchange> exchanges = List.of(
+                get("/federation/fetch", Map.of("sub", new String[] {markedEntity})),
+                get("/federation/fetch", Map.of("sub", new String[] {marker})),
+                get("/federation/fetch", Map.of("sub", new String[] {HOSTED}, "iss", new String[] {markedEntity})),
+                get("/federation/list", Map.of("intermediate", new String[] {marker})),
+                get("/federation/resolve", Map.of("sub", new String[] {markedEntity}, "trust_anchor", new String[] {markedEntity})),
+                get("/federation/" + marker, Map.of()),
+                new Exchange(servlet(true), "/federation/fetch", Map.of("sub", new String[] {HOSTED})));
+        for (Exchange exchange : exchanges) {
+            String body = exchange.body.toString();
+            assertTrue(!body.contains(marker), body);
+            PublicErrorsAssert.assertGeneric((String) exchange.error().get("error"), body);
+        }
+    }
+
     @Test
     @Requirement({"OIDFED §8.2.2(1)", "OIDFED §8.2.1(2.2)"})
     void listTakesRepeatedEntityTypesAndAnswersAJsonArray() throws Exception {

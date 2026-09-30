@@ -260,4 +260,13 @@ class FapiResourceServerFilterTest {
         filter.doFilter(httpReq, resp, chain2);
         verify(chain2).doFilter(httpReq, resp);
     }
+
+    /** H-FED-4: a token in the query - whatever it carries - is never written back, and the refusal is generic. */
+    @Test
+    void aHostileMarkerNeverReachesTheResponse() throws Exception {
+        String marker = "hfede-marker-" + UUID.randomUUID();
+        String body = refusal(filter("*"), "access_token=" + marker + "&" + marker + "=1", null);
+        assertFalse(body.contains(marker), body);
+        com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert.assertGeneric("invalid_request", body);
+    }
 }

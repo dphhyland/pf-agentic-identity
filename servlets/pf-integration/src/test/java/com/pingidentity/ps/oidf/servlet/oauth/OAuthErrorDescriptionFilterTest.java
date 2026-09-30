@@ -105,7 +105,11 @@ class OAuthErrorDescriptionFilterTest {
                 this.contentLength = null;
                 return null;
             }).when(this.response).reset();
-            doAnswer(call -> this.calls.add("flushBuffer")).when(this.response).flushBuffer();
+            doAnswer(call -> {
+                this.calls.add("flushBuffer");
+                this.committed = true;
+                return null;
+            }).when(this.response).flushBuffer();
             doAnswer(call -> this.calls.add("resetBuffer")).when(this.response).resetBuffer();
         }
 
@@ -195,6 +199,7 @@ class OAuthErrorDescriptionFilterTest {
             wrapped.getWriter().flush();
             seenDuringChain.add(holder[0].text());
             assertEquals(ErrorsOnly.Mode.PASSING, ((ErrorsOnly) resp).mode());
+            assertTrue(wrapped.isCommitted(), "what went out is the container's");
             wrapped.flushBuffer();
         });
         assertEquals(List.of("{\"access_token\":", "{\"access_token\":\"t\"}"), seenDuringChain,
@@ -239,8 +244,11 @@ class OAuthErrorDescriptionFilterTest {
             wrapped.setStatus(400);
             wrapped.setContentType("application/json");
             wrapped.getOutputStream().write("{\"error\":\"half".getBytes(StandardCharsets.UTF_8));
+            wrapped.getOutputStream().write('!');
             wrapped.sendError(500, "boom");
             wrapped.getOutputStream().write("after".getBytes(StandardCharsets.UTF_8));
+            wrapped.getOutputStream().write('!');
+            wrapped.setContentLength(3);
             assertEquals(ErrorsOnly.Mode.SENT, ((ErrorsOnly) resp).mode());
         });
         assertEquals(List.of("sendError 500 boom"), real.calls);
@@ -293,6 +301,53 @@ class OAuthErrorDescriptionFilterTest {
             ((HttpServletResponse) resp).resetBuffer();
         });
         assertEquals(2, passing.calls.stream().filter("resetBuffer"::equals).count(), "otherwise the container's");
+    }
+
+    @Test
+    void aLengthDeclaredWhileTheStatusWasAnErrorFollowsWhereTheBodyGoes() throws Exception {
+        Real empty = run((req, resp) -> {
+            ((HttpServletResponse) resp).setStatus(400);
+            ((HttpServletResponse) resp).setContentLength(0);
+        });
+        assertEquals(0L, empty.contentLength, "no body: the declared length stands");
+
+        Real recovered = run((req, resp) -> {
+            HttpServletResponse wrapped = (HttpServletResponse) resp;
+            wrapped.setStatus(400);
+            wrapped.setContentLength(3);
+            wrapped.setStatus(200);
+            wrapped.getOutputStream().write('o');
+            wrapped.getOutputStream().write(new byte[] {'k', '!'}, 0, 2);
+            wrapped.setContentLengthLong(3);
+        });
+        assertEquals(3L, recovered.contentLength, "a body that goes through keeps the length declared for it");
+        assertEquals("ok!", recovered.text());
+    }
+
+    @Test
+    void aHeldBodyWhoseStatusStopsBeingAnErrorGoesOutAsWrittenWithItsOwnLength() throws Exception {
+        String odd = "{\"error_description\":\"x\u202f\"}";
+        Real real = run((req, resp) -> {
+            HttpServletResponse wrapped = (HttpServletResponse) resp;
+            wrapped.setStatus(400);
+            wrapped.setContentType("application/json");
+            wrapped.getOutputStream().write(odd.getBytes(StandardCharsets.UTF_8));
+            wrapped.setContentLength(1);
+            wrapped.setStatus(200);
+        });
+        assertEquals(odd, real.text(), "only an error's description is rewritten");
+        assertEquals(real.body.size(), real.contentLength, "a held body's length is recomputed, whatever was declared while it was held");
+    }
+
+    @Test
+    void aFlushBeforeAnyBodyIsTheContainersAndDecidesNothing() throws Exception {
+        Real real = run((req, resp) -> {
+            HttpServletResponse wrapped = (HttpServletResponse) resp;
+            wrapped.getWriter();
+            wrapped.flushBuffer();
+            assertEquals(ErrorsOnly.Mode.UNDECIDED, ((ErrorsOnly) resp).mode());
+        });
+        assertEquals(List.of("flushBuffer"), real.calls);
     }
 
     @Test

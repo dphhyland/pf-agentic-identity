@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils;
 import java.util.Map;
+import java.util.List;
 import java.util.UUID;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -519,6 +520,50 @@ class ClientAttestationAuthFilterTest {
         verify(resp).setStatus(401);
         org.mockito.Mockito.verifyNoInteractions(chain);
         assertTrue(body.toString().contains("invalid_client"), body.toString());
+    }
+
+    /**
+     * H-FED-4 (F-0046): what the request chose - the client an attestation names, the audience of its proof, a
+     * header's value - never reaches the response of a caller that has not authenticated. Each refusal is the code's
+     * fixed description and a reference; the detail is on the server's log line.
+     */
+    @Test
+    void aHostileMarkerNeverReachesTheResponse(@TempDir Path dir) throws Exception {
+        String marker = "hfede-marker-" + UUID.randomUUID();
+        String markedClient = "https://rp.example/" + marker;
+        configureKeysFor(dir, DOFILTER_CLIENT_ID);
+        PublicJsonWebKey attesterKey = ecKey("attester-1");
+        PublicJsonWebKey imposterKey = ecKey("imposter-1");
+        PublicJsonWebKey instanceKey = ecKey("instance-1");
+        trustAttester(dir, attesterKey);
+        ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter(FIXED_ISSUER);
+        filter.init(null);
+        List<HttpServletRequest> hostile = List.of(
+                // a trusted attester vouching for a client with no bridge key, the client named by the marker
+                attestedRequest(attestationJwt(attesterKey, instanceKey, markedClient), popJwt(instanceKey, markedClient, OP_ISSUER), null),
+                // a forged attestation naming the marker
+                attestedRequest(attestationJwt(imposterKey, instanceKey, markedClient), popJwt(instanceKey, markedClient, OP_ISSUER), null),
+                // a proof addressed to the marker
+                attestedRequest(attestationJwt(attesterKey, instanceKey, DOFILTER_CLIENT_ID),
+                        popJwt(instanceKey, DOFILTER_CLIENT_ID, markedClient), null),
+                // an attestation that is the marker
+                attestedRequest(marker, marker, null),
+                // a repeated details parameter carrying it
+                attestedRequest(attestationJwt(attesterKey, instanceKey, DOFILTER_CLIENT_ID),
+                        popJwt(instanceKey, DOFILTER_CLIENT_ID, OP_ISSUER),
+                        Map.of("authorization_details", new String[] {marker, marker})));
+        boolean logged = false;
+        for (HttpServletRequest req : hostile) {
+            try (com.pingidentity.ps.oidf.servlet.oauth.RefusalLog log = com.pingidentity.ps.oidf.servlet.oauth.RefusalLog.open()) {
+                java.io.StringWriter body = new java.io.StringWriter();
+                filter.doFilter(req, responseCapturingBody(body), mock(FilterChain.class));
+                org.junit.jupiter.api.Assertions.assertFalse(body.toString().contains(marker), body.toString());
+                Map<String, Object> json = org.jose4j.json.JsonUtil.parseJson(body.toString());
+                com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert.assertGeneric((String) json.get("error"), body.toString());
+                logged |= log.lines().stream().anyMatch(line -> line.contains(marker));
+            }
+        }
+        assertTrue(logged, "the detail, marker and all, is the server log's");
     }
 
     @Test

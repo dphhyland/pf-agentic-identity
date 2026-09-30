@@ -55,6 +55,7 @@ class FederationErrorPageTest {
         assertFalse(page.contains("<b>"));
         assertFalse(page.contains("&amp;"), "the detail is never on the page");
         assertEquals("&quot;&#39;&amp;", FederationErrorPage.escape("\"'&"));
+        assertEquals("", FederationErrorPage.escape(null));
     }
 
     @Test
