@@ -15,6 +15,7 @@ import com.pingidentity.ps.oidf.platform.http.OutboundHttpException;
 import com.pingidentity.ps.oidf.platform.http.TlsTrust;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -55,6 +56,8 @@ class ReceiverTransportTest {
         assertEquals(4L * 1024 * 1024, PollReceiverClient.MAX_BODY_BYTES);
         assertEquals(Duration.ofSeconds(1), ReceiverStreamClient.CONNECT_TIMEOUT);
         assertEquals(Duration.ofSeconds(5), ReceiverStreamClient.TOTAL_TIMEOUT);
+        assertEquals(Duration.ofSeconds(1), ClientCredentialsToken.CONNECT_TIMEOUT);
+        assertEquals(Duration.ofSeconds(5), ClientCredentialsToken.TOTAL_TIMEOUT);
         assertEquals(Duration.ofSeconds(1), JwksHttpSource.CONNECT_TIMEOUT);
         assertEquals(Duration.ofMillis(2500), JwksHttpSource.TOTAL_TIMEOUT);
         assertEquals(64 * 1024, JwksHttpSource.MAX_BODY_BYTES);
@@ -95,7 +98,49 @@ class ReceiverTransportTest {
         }
     }
 
+    @Test
+    void aTokenEndpointThatNeverAnswersIsGivenUpOnAtFiveSeconds() throws Exception {
+        try (OutboundPeer peer = OutboundPeer.stalling()) {
+            failsAt(ClientCredentialsToken.TOTAL_TIMEOUT, () -> ClientCredentialsToken.httpTransport(false)
+                    .post(java.net.URI.create(peer.url("/token")), "grant_type=client_credentials", Map.of()), NO_HEAD);
+        }
+    }
+
     // ─────────────────────────────── the same, through the seams ───────────────────────────────
+
+    @Test
+    void aTokenEndpointThatDribblesEndsAtItsDeadline() throws Exception {
+        try (OutboundPeer peer = OutboundPeer.dribbling(200)) {
+            failsAt(SHORT, () -> ClientCredentialsToken.httpTransport(http(1 << 20), SHORT)
+                    .post(java.net.URI.create(peer.url("/token")), "grant_type=client_credentials", Map.of()),
+                    OutboundHttpException.Reason.DEADLINE);
+            assertEquals("closed", peer.closed());
+        }
+    }
+
+    /** The form's media type travels with the body; every other header as given. */
+    @Test
+    void theTokenRequestIsAFormPost() throws Exception {
+        try (OutboundPeer peer = OutboundPeer.plain(OutboundPeer.answer(200, "{\"access_token\":\"a\"}"))) {
+            java.util.LinkedHashMap<String, String> headers = new java.util.LinkedHashMap<>();
+            headers.put("Authorization", "Basic YzpzIQ==");
+            headers.put("content-type", "application/x-www-form-urlencoded");
+            headers.put("Accept", "application/json");
+            ClientCredentialsToken.Response r = ClientCredentialsToken.httpTransport(http(1 << 20), SHORT)
+                    .post(java.net.URI.create(peer.url("/token")), "grant_type=client_credentials", headers);
+            assertEquals(new ClientCredentialsToken.Response(200, "{\"access_token\":\"a\"}"), r);
+            OutboundPeer.Recorded request = peer.requests.poll(1, TimeUnit.SECONDS);
+            assertEquals("POST /token HTTP/1.1", request.requestLine());
+            assertEquals("application/x-www-form-urlencoded", request.header("Content-Type"));
+            assertEquals("Basic YzpzIQ==", request.header("Authorization"));
+            assertEquals(1, request.head().split("(?i)content-type:", -1).length - 1, "one Content-Type");
+            assertEquals("grant_type=client_credentials", request.body());
+            ClientCredentialsToken.httpTransport(http(1 << 20), SHORT).post(java.net.URI.create(peer.url("/token")), "x",
+                    Map.of());
+            assertEquals("application/x-www-form-urlencoded", peer.requests.poll(1, TimeUnit.SECONDS).header("Content-Type"),
+                    "a form when the caller names none");
+        }
+    }
 
     @Test
     void aPollOrStreamCallThatDribblesEndsAtItsDeadline() throws Exception {
@@ -146,6 +191,9 @@ class ReceiverTransportTest {
             OutboundHttpException stream = assertThrows(OutboundHttpException.class,
                     () -> ReceiverStreamClient.httpTransport(ReceiverBearer.fixed("t"), false).call("GET", huge.url("/s"), null));
             assertEquals(OutboundHttpException.Reason.BODY_TOO_LARGE, stream.reason());
+            OutboundHttpException token = assertThrows(OutboundHttpException.class, () -> ClientCredentialsToken
+                    .httpTransport(false).post(java.net.URI.create(huge.url("/token")), "x", Map.of()));
+            assertEquals(OutboundHttpException.Reason.BODY_TOO_LARGE, token.reason());
             OutboundHttpException poll = assertThrows(OutboundHttpException.class, () -> PollReceiverClient.httpTransport(
                     () -> big.url("/poll"), ReceiverBearer.fixed("t"), http(64 * 1024), SHORT).poll("{}"));
             assertEquals(OutboundHttpException.Reason.BODY_TOO_LARGE, poll.reason());
@@ -196,13 +244,17 @@ class ReceiverTransportTest {
                     Duration.ofSeconds(5)).poll("{}"));
             assertEquals(keys, ReceiverStreamClient.httpTransport(ReceiverBearer.fixed("t"), trusting, Duration.ofSeconds(5))
                     .call("GET", right.url("/ssf/streams"), null));
+            assertEquals(200, ClientCredentialsToken.httpTransport(trusting, Duration.ofSeconds(5))
+                    .post(java.net.URI.create(right.url("/token")), "x", Map.of()).status());
 
             for (Executable call : List.<Executable>of(
                     () -> JwksHttpSource.of(wrong.url("/jwks"), 60, trusting, Duration.ofSeconds(5)).keys(true),
                     () -> PollReceiverClient.httpTransport(() -> wrong.url("/poll"), ReceiverBearer.fixed("t"), trusting,
                             Duration.ofSeconds(5)).poll("{}"),
                     () -> ReceiverStreamClient.httpTransport(ReceiverBearer.fixed("t"), trusting, Duration.ofSeconds(5))
-                            .call("GET", wrong.url("/ssf/streams"), null))) {
+                            .call("GET", wrong.url("/ssf/streams"), null),
+                    () -> ClientCredentialsToken.httpTransport(trusting, Duration.ofSeconds(5))
+                            .post(java.net.URI.create(wrong.url("/token")), "x", Map.of()))) {
                 OutboundHttpException e = assertThrows(OutboundHttpException.class, call);
                 assertEquals(OutboundHttpException.Reason.TLS, e.reason(), e.getMessage());
             }

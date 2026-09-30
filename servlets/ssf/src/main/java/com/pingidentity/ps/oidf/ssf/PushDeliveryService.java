@@ -51,8 +51,8 @@ public final class PushDeliveryService {
     static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(2);
     static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(10);
     /**
-     * The most of a receiver's answer that is read: RFC 8935's answers are an empty 202 or a small JSON error, so
-     * a larger body is a failed attempt, retried like any other, and never read past the cap.
+     * The most of a receiver's answer that is read: RFC 8935 §2.2, "The body of the response MUST be empty", and a
+     * 400's is a small JSON error (§2.3), so a larger body is a failed attempt, retried, and never read past the cap.
      */
     static final long RESPONSE_BODY_CAP = 64L * 1024L;
     /** Only a 400's body is used, for the log line, and only this much of it. */

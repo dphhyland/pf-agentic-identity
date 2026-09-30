@@ -1,9 +1,9 @@
 id: U-0216
-title: That no consumer's federation fetches depend on a JVM proxy or on the JVM-wide switch that turns off host name checks
-area: consumers, oidf-jose
+title: That no consumer's federation or SSF fetches depend on a JVM proxy or on the JVM-wide switch that turns off host name checks
+area: consumers, oidf-jose, ssf
 source: design
 status: open
-plan_items: [S5a]
+plan_items: [S5a, S5d]
 prs: [60]
 recorded_in: docs/releases/unreleased/S5AR.md, Before you deploy
 verify_by: >
@@ -21,3 +21,21 @@ notes: >
   pf-oidf-modules nor idp-agentic-demo sets a proxy property in its repository, and idp-agentic-demo's
   pingfederate/Dockerfile:73 sets disableHostnameVerification; what the running deployments are started with was
   not read.
+  Package S5D, 2026-10-01: the SSF push delivery, the SSF receiver's poll, stream, token and JWKS calls, OpenBao's
+  transit signer, device-enrolment's authority and PingOne calls and gm-api's PDP call moved onto OutboundHttp too,
+  so none of them reads a JVM proxy setting (the JDK client took the default proxy selector, and gm-api's
+  HttpURLConnection the http.proxyHost and https.proxyHost properties) and each checks the host name whatever the
+  JVM-wide flag says. Every tracked file of both consumer repositories was searched with /usr/bin/grep for
+  proxyHost, proxyPort, socksProxy, nonProxyHosts, java.net.useSystemProxies, HTTP_PROXY, HTTPS_PROXY (either case),
+  JAVA_OPTS and disableHostnameVerification: pf-oidf-modules at 55629cc (2026-09-24) sets none of them;
+  idp-agentic-demo at 9eee704 (2026-09-07) sets no proxy and sets disableHostnameVerification in
+  pingfederate/Dockerfile:73 and pingfederate/rar-paz/Dockerfile.fragment:27, for the RAR plugin's call to
+  PingAuthorize (its comment: the SAN "doesn't match *.railway.internal"), a site S2C moved. What each consumer
+  reaches through the sites S5D moved: pf-oidf-modules runs the SSF transmitter (vars.production.env,
+  vars.staging.env and conformance/vars.env set OIDF_SSF_ISSUER), whose pushes go to receivers the conformance
+  suite names, and OpenBao at http://openbao.railway.internal:8200 (DEMO-MINT-DEPLOY.md), plaintext, so no
+  certificate is checked; it sets no OIDF_SSF_RECEIVER_* setting and runs neither gm-api nor device-enrolment.
+  idp-agentic-demo runs gm-api with AUTHZEN_BASE_URL at http://pingauthorize.railway.internal:1080 (gm-api/README.md),
+  plaintext, and sets no SSF, OpenBao or PF_AUTHORITY_* setting. So on the files, no consumer's SSF, OpenBao, PDP or
+  enrolment call depends on a proxy or on the flag. Still not read: the JVM arguments the running deployments were
+  started with, and domain-authority, which is not checked out here.

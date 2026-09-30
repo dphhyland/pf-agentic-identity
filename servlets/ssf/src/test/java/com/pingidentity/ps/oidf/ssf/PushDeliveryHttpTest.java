@@ -192,4 +192,24 @@ class PushDeliveryHttpTest {
             assertTrue(untrusted.message().startsWith("TLS: "), "the JVM's store does not hold the test CA: " + untrusted.message());
         }
     }
+
+    /**
+     * F-0405, pinned as it stands: under the production rules a host that does not resolve is refused, not retried,
+     * so its SET is dropped - as before 0.6.0, when the check ran ahead of the JDK client. S-10 is to make it a retry.
+     */
+    @Test
+    void anEndpointWhoseHostDoesNotResolveIsDroppedAsBefore() {
+        OutboundUrlPolicy strict = OutboundUrlPolicy.from(name -> null).withResolver(host -> {
+            throw new IllegalArgumentException("cannot resolve " + host);
+        });
+        PushDeliveryService.DeliveryResult r = PushDeliveryService.httpClient(strict, SHORT, SHORT, CAP)
+                .deliver("https://receiver.invalid/set", null, "j");
+        assertEquals(PushDeliveryService.Outcome.PERMANENT, r.outcome(), r.message());
+        PushDeliveryService.DeliveryResult lenient = PushDeliveryService.httpClient(OutboundUrlPolicy.permissive()
+                .withResolver(host -> {
+                    throw new IllegalArgumentException("cannot resolve " + host);
+                }), SHORT, SHORT, CAP).deliver("https://receiver.invalid/set", null, "j");
+        assertEquals(PushDeliveryService.Outcome.RETRYABLE, lenient.outcome(), "where the address rule does not apply it is a retry");
+        assertTrue(lenient.message().startsWith("UNRESOLVED: "), lenient.message());
+    }
 }

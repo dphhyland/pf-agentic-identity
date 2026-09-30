@@ -60,3 +60,14 @@ The servlet is the enforcement point; the decision is an **AuthZEN 1.0 PDP** it 
 (`/access/v1/evaluation`, resource search at `/access/v1/search/resource`). For a demo PDP, run
 `cmd/pdp` from `grant-evaluation-api`, or point `pdpUrl` at PingAuthorize behind its AuthZEN facade.
 The servlet needs no PDP code of its own.
+
+From 0.6.0 (plan item S5d) the call goes through libs/platform's `OutboundHttp`, and `pdpTimeoutMs` (10 s by
+default) bounds the whole exchange, the answer's body included; before, it bounded the connect and each read apart, so
+a PDP sending a byte at a time held a grant request without end. Connecting, TLS included, takes at most platform's
+default 5 s within it, and at most platform's default 256 KiB of the answer is read. A `pdpTimeoutMs` of zero or below,
+which meant no timeout, is now the 10 s default. The PDP is internal by design (the demo reaches PingAuthorize at
+`http://pingauthorize.railway.internal:1080`), so the URL `pdpUrl` names is exempt from the scheme and address rules -
+pinned to its scheme, host, port and path - and nothing else is; production already refuses an http `pdpUrl`. The JVM's
+trust store decides the PDP's certificate, which must name its host. Every failure - no answer by the deadline, a body
+over the cap, a TLS failure, a status other than 200 - is a PDP that could not be asked, a 503, with the reason in the
+log; never a denial.
