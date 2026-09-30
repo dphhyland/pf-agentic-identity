@@ -1,0 +1,19 @@
+id: F-0270
+title: While FAPI is failed every request to the endpoints its filter covers answers 503, PingFederate's own clients included
+severity: medium
+area: platform-pf, pf-integration
+source: design
+status: open
+plan_items: [S9b]
+prs: [72]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by package S9A (2026-09-30). ComponentGate lets a failed filter pass on the traffic its component does not
+  act on, so PingFederate's own SSO and OAuth keep serving (the programme's decision 4). Fapi2ProfileFilter's trigger
+  is its client list (OIDF_FAPI2_CLIENTS), which a failed start did not read, so the floor treats every request as
+  FAPI's and answers 503: failing open would let a FAPI client through unprofiled. On the rig in production profile
+  with OIDF_FAPI2_CLIENTS set and OIDF_FAPI_ENABLED unset, a client_credentials request from a plain PingFederate
+  client answered 503 "FAPI is not available". Who and when: S9b (Phase 3, wave 4) sets each surface's rule; reading
+  the client list apart from the rest of the filter's start, so that only those clients meet the 503, is the
+  obvious one.

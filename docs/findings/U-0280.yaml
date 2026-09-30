@@ -1,0 +1,17 @@
+id: U-0280
+title: A servlet that is not load-on-startup and whose init throws
+area: pf-integration
+source: design
+status: closed
+plan_items: [S9a]
+prs: [72]
+recorded_in: docs/operator/components.md, Verified on the rig
+verify_by: 'On the rig: a lazily initialised servlet whose init throws on its first request, and what the rest of pf-runtime.war does.'
+verification: >
+  Only that servlet fails. Seen on the rig 2026-09-30 (PingFederate 13.1.3, main at a5a2d49e, the rig's own
+  configuration, which names no authority): the first GET /federation/agents/probe-1 ran HostedEntityServlet.init,
+  which threw "HostedEntityServlet requires 'authorityEntityId'"; Jetty logged it at WARN against the request,
+  PingFederate's error servlet logged "Top level error", and the request answered 500. Every later request to that
+  path answered 404 - Jetty keeps the servlet unavailable and does not call init again - while discovery on the same
+  port answered 200. So a lazy servlet is no safe alternative to an init that never throws.
+notes: ''

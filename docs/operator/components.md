@@ -26,7 +26,7 @@ in the environment and not blank.
 
 **The SSF switches are not applied yet.** `OIDF_SSF_ENABLED` and `OIDF_SSF_RECEIVER_ENABLED` are catalogued and
 parsed, but the SSF servlets start as their own settings say until ST-5 moves their start-up onto the component
-parts (Phase 3, wave 3); until then setting either changes nothing.
+parts (Phase 3, wave 3); until then setting either changes nothing ([F-0271](../findings/F-0271.yaml)).
 
 ## How a switch is read
 
@@ -142,7 +142,7 @@ What PingFederate 13.1.3's Jetty does with an `init` that throws, the three case
    whole. With `OIDF_FEDERATION_TRUST_ANCHORS` unset, `OpenIdFederationServlet`'s init threw; Jetty ee9 logged
    "Failed startup of context" for pf-runtime.war and every runtime endpoint on 9031 answered 503, while the admin
    console on 9999 answered 200.
-2. **A filter** (2026-09-29, main at a5a2d49e, the rig on its own ports): the same. With no trust controller
+2. **A filter** (2026-09-29, main at a5a2d49e, the rig on its own ports, [U-0281](../findings/U-0281.yaml)): the same. With no trust controller
    configured, `FrontChannelAutoRegistrationFilter.init` threw, and server.log said:
 
    ```
@@ -153,7 +153,7 @@ What PingFederate 13.1.3's Jetty does with an `init` that throws, the three case
    ```
 
 3. **A servlet that is not load-on-startup** (2026-09-30, main at a5a2d49e, the rig's own configuration, which names
-   no authority): only that servlet fails, and the rest of the war keeps serving. The first
+   no authority, [U-0280](../findings/U-0280.yaml)): only that servlet fails, and the rest of the war keeps serving. The first
    `GET /federation/agents/probe-1` ran `HostedEntityServlet.init`, which threw "HostedEntityServlet requires
    'authorityEntityId'"; Jetty logged it at WARN against the request, PingFederate's error servlet logged "Top level
    error", and the request answered 500 with PingFederate's error page. Every later request to that path answered
@@ -180,4 +180,4 @@ while one whose `client_id` is an https URL answered 503 `{"error":"temporarily_
 "AUTO_REGISTRATION is not available"}`. `FEDERATION` was `FAILED_CONFIG` too, from explicit registration (the
 trust controller names no pinned anchor keys), and `OpenIdFederationServlet` stayed `READY`. Left unset in
 production, the rig's `OIDF_FAPI2_CLIENTS` makes `FAPI` `FAILED_CONFIG` and every token request answers 503
-(the same boot with only the two switches unset): the FAPI floor is every request.
+(the same boot with only the two switches unset): the FAPI floor is every request ([F-0270](../findings/F-0270.yaml)).

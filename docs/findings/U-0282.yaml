@@ -1,0 +1,20 @@
+id: U-0282
+title: The supervisor's retry of a part that failed on a dependency has not been seen in a running PingFederate
+area: platform
+source: design
+status: open
+plan_items: [S9a]
+prs: [72]
+recorded_in: docs/operator/components.md, What a component does when it fails; libs/platform/README.md, component
+verify_by: >
+  Boot the rig with a component whose start fails on a dependency that comes back - HOSTING with OIDF_AUTHORITY_JDBC_URL
+  naming a Postgres that is stopped at boot and started a minute later. Expect the part FAILED_DEPENDENCY in the
+  start-up audit, a thread named for the component-supervisor executor in a thread dump, oidf_component_retries_total
+  {component="HOSTING"} rising in the webapp's metrics MXBean, and the part READY (ready 200) within 300 s of the
+  database answering, with no retry after that.
+verification: ''
+notes: >
+  Package S9A (2026-09-30) tested the backoff and its jitter bounds with a fake clock and scheduler, retry to READY,
+  no retry of FAILED_CONFIG, and no schedule in a copy that is not the webapp's (SupervisorTest,
+  ComponentPartsStartTest), on JDK 17 and 21. On the rig every failure seen was a configuration failure, which is not
+  retried, so no retry ran there.
