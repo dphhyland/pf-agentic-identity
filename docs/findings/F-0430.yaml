@@ -16,8 +16,12 @@ notes: >
   was distributed (Phase 3 decision 7): new families went to platform.events, but the federation codes and their
   emitters did not move. FederationService, TrustMarkValidator, KeyHistory, RegistrationService, RegistrationPolicy,
   RegistrationExpirySweeper, HostedEntityServlet, HostedEntityAdmin, FederationAdminServlet, OIDFederationUtils,
-  TokenIssuancePolicy and AttestationIssuanceServlet still emit through FederationEvents; seven servlets and filters
-  install PfAuditEventSink; six classes use the façade LogSafe. Deleting them is a migration of every federation
+  TokenIssuancePolicy and AttestationIssuanceServlet still emit through FederationEvents; nine classes
+  install PfAuditEventSink (FrontChannelAutoRegistrationFilter, OpenIdRegistrationServlet,
+  TokenEndpointAutoRegistrationFilter, OIDFederationUtils, FapiEvents, FederationAdminServlet, HostedEntityServlet
+  and OpenIdFederationServlet in pf-integration, AttestationIssuanceServlet in attestation-issuer); five classes
+  outside the façade package use its LogSafe (EntityStatementChecks, TrustMarkValidator, RegistrationPolicy,
+  RegistrationService, FederationErrors). Deleting them is a migration of every federation
   emitter onto platform.events, not dead-code removal, so HFEDD kept them and their javadoc now says removed at
   1.0.0 (plan Phase 7, with the other deprecated aliases). Low: the façades forward to platform and work; the cost is
   two event APIs to maintain.

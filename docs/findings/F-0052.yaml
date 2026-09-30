@@ -17,7 +17,7 @@ verification: >
   production read to the private configurationOf, which the coverage gate now names); BridgeSigners.require; and
   every @Deprecated member of main code that nothing called - JwtCodec's three overloads without a
   VerificationPolicy, FederationService.fetchEntityStatement(String, String, String) and listSubordinates(String),
-  TrustChainValidationResult.leafMetadata(). The public resetForTests of TrustMarkSupport, AuthoritySupport,
+  TrustChainValidationResult.leafMetadata() - except RarEntitlement, whose deletion F-0100 leaves to the owner. The public resetForTests of TrustMarkSupport, AuthoritySupport,
   KeyHistorySupport, FederationRuntimeConfig and FederationPolicySupport are package-private; tests in other packages
   and modules reach them through <Class>TestAccess in openid-federation's test-jar and in a new pf-integration
   test-jar. The deprecated members that still have production callers are kept, each with its removal release in

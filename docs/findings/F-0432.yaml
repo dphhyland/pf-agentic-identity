@@ -1,7 +1,7 @@
 id: F-0432
 title: Public test seams remain in main code after the resetForTests hooks were closed
 severity: low
-area: pf-integration, platform
+area: pf-integration, client-attestation, platform
 source: pr-review
 status: open
 plan_items: [H-FED-10]
@@ -12,8 +12,11 @@ notes: >
   Found by HFEDD on 2026-10-01 (plan item H-FED-10), on origin/main e377dbae. HFEDD made the public resetForTests of
   TrustMarkSupport, AuthoritySupport, KeyHistorySupport, FederationRuntimeConfig and FederationPolicySupport
   package-private behind test-jar access classes. Other public members documented as test-only remain callable by
-  production code: FederationRuntimeConfig.install(config) ("a deployment never needs it"), FederationRuntimeConfig.from(env,
-  props) and FederationPolicySupport.configure(settings, post, get, clock) in pf-integration (each marked a test seam;
-  /usr/bin/grep finds no main-code caller), and platform's ProfileRefusals.resetForTests, which is outside the
-  packages HFEDD may write (libs/platform). Low: nothing calls them, and a caller would have to be code shipped in the
-  deployment; the fix is the same test-jar access pattern.
+  production code: FederationRuntimeConfig.install(config) ("a deployment never needs it"),
+  FederationRuntimeConfig.from(env, props) and FederationPolicySupport.configure(settings, post, get, clock) in
+  pf-integration (each marked a test seam; /usr/bin/grep finds no main-code caller); client-attestation's
+  AttestationSupport.acceptedRisksForTests(risks) (javadoc "Tests only"; no main-code caller), the one that matters
+  most, because a caller could replace the accepted-risks set requireSharedState reads and so skip the production
+  refusal of in-memory state; and platform's ProfileRefusals.resetForTests. The last two are outside the packages
+  HFEDD may write (libs/client-attestation, libs/platform). Low: nothing calls them, and a caller would have to be
+  code shipped in the deployment; the fix is the same test-jar access pattern.
