@@ -6,7 +6,7 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>ssf</artifactId>
-    <version>0.5.0-SNAPSHOT</version>
+    <version>0.6.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>ssf</name>
@@ -26,18 +26,23 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.5.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.6.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
     <dependencies>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
+        <!-- The SET model, minting, verification, subjects and event types, without PingFederate (plan item X-A14). -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>shared-signals</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-integration</artifactId></dependency>
         <!-- The agent instance registry: CAEP inbound signals suspend/revoke instances there. Dependency
              direction is one-way (servlets/ssf -> libs/device-instance) — device-instance and
@@ -55,10 +60,9 @@
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.mockito</groupId><artifactId>mockito-junit-jupiter</artifactId><scope>test</scope></dependency>
-        <!-- SsfStoresOnPostgresTest: the tables and ldm stores' SQL against a real Postgres, from IDM_TEST_JDBC_URL
-             (CI's service container) or Testcontainers, as device-instance's registry suite finds one. -->
-        <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>test</scope></dependency>
-        <dependency><groupId>org.testcontainers</groupId><artifactId>postgresql</artifactId><scope>test</scope></dependency>
+        <!-- The tables and ldm stores' whole contract against a real Postgres, a database per test class
+             (libs/testkit: OIDF_TEST_JDBC_URL, CI's service container, or Testcontainers). -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>testkit</artifactId><scope>test</scope></dependency>
     </dependencies>
 
     <build>
@@ -149,13 +153,18 @@
                                         <include>com.pingidentity.ps.oidf.ssf.SsfSupport.logBootFailure(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.SsfSupport.describe(*</include>
 
-                                        <!-- Inbound signals: which subject a received SET acts on. -->
+                                        <!-- Inbound signals: which subject a received SET acts on. receiverVerifier() keeps an inbound
+                                             sub_id to SsfSubjects' five formats, and parse() and fromCanonicalKey() refuse the rest
+                                             from every other door, until H-SSF-1. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.receiverVerifier(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSubjects.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSubjects.fromCanonicalKey(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.onSet(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.deviceIdOf(*</include>
 
-                                        <!-- Outbound signals: which PF audit events become SETs, and their signing. -->
+                                        <!-- Outbound signals: which PF audit events become SETs (their signing is
+                                             libs/shared-signals' SetMinter.sign, gated there). -->
                                         <include>com.pingidentity.ps.oidf.ssf.AuditEventMapper.map(*</include>
-                                        <include>com.pingidentity.ps.oidf.ssf.SetMinter.sign(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.ssf.SsfAuditLogSource.attachTo(*</include>
 
                                         <!-- SCIM subject lifecycle: which stream a subject is added to or removed from. -->

@@ -7,7 +7,8 @@ import java.io.IOException;
 import java.util.Map;
 
 /**
- * A single POST call. Implemented by {@link JdkHttpTransport}; stubbed in tests.
+ * A single POST call. Implemented by {@link PdpTransport} (platform's outbound client), guarded by
+ * {@link CircuitBreaker.Guarded}; stubbed in tests.
  *
  * <p>A transport throws {@link PdpUnavailableException} for the failures that mean the PDP was not reached -
  * connect, reset, deadline - and any other {@link IOException} for a failure that happened while talking to

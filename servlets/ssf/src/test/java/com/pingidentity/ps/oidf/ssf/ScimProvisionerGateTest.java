@@ -9,6 +9,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.servlet.ssf.SsfScimSubjectServlet;
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintWriter;
 import java.util.List;

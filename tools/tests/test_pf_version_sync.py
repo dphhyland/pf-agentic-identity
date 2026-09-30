@@ -72,6 +72,15 @@ class Sync(unittest.TestCase):
             self.assertEqual(read_env(root), ENV.replace(OLD_DIGEST, NEW_DIGEST))
             self.assertEqual(out.count("set "), 1)
 
+    def test_a_bump_on_a_named_stage(self):
+        # the Dockerfile's image FROM names its stage, and the later stages start from it
+        with tempfile.TemporaryDirectory() as root:
+            write(root, f"ARG STAGING_PROFILE=production\nFROM pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest@{NEW_DIGEST} AS pingfederate\n"
+                        "FROM pingfederate AS builder\nFROM pingfederate AS capability\nFROM capability AS deployment\n")
+            code, out, err = run(["--root", root])
+            self.assertEqual(code, 0, err)
+            self.assertEqual(read_env(root), ENV.replace(OLD_DIGEST, NEW_DIGEST))
+
     def test_already_in_step(self):
         with tempfile.TemporaryDirectory() as root:
             write(root, f"FROM pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest@{OLD_DIGEST}\n")

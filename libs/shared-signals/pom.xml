@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.pingidentity.ps.oidf</groupId>
+    <artifactId>shared-signals</artifactId>
+    <version>0.6.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>shared-signals</name>
+    <description>Security Event Tokens without PingFederate (plan item X-A14): the RFC 8417 SET model, minting behind
+        oidf-jose's signer abstractions, verification against a supplied key set, the RFC 9493 subject identifiers
+        and the Shared Signals Framework 1.0 complex subject, and the CAEP and RISC event types. No HTTP, no servlet
+        API, no PingFederate - servlets/ssf is the PingFederate transmitter and receiver built on it.</description>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
+    </properties>
+
+    <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
+         otherwise: no parent, plugin config kept local. -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.6.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- SigningKeyProvider, JwsSigner and CompactJws: the signer abstractions a SET is minted behind. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
+        <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+
+            <!--
+              Coverage gate on the decisions a receiver cannot re-check for itself: whether an inbound SET is
+              accepted (its typ, algorithm, signature, iss, aud, iat, jti, exp and events), what a sub_id parses
+              to and whether two subjects match, and what leaves as a signed SET. 100% line + branch, per METHOD,
+              enforced - a missed branch here is a forged or stale SET acted on, or a signal applied to the
+              wrong subject, not a cosmetic gap.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>METHOD</element>
+                                    <includes>
+                                        <!-- Verification: what an inbound SET must be before anything acts on it. -->
+                                        <include>com.pingidentity.ps.oidf.signals.SetVerifier.verify(*</include>
+                                        <include>com.pingidentity.ps.oidf.signals.SetVerifier.isSetType(*</include>
+                                        <include>com.pingidentity.ps.oidf.signals.SetVerifier.signatureVerifies(*</include>
+                                        <include>com.pingidentity.ps.oidf.signals.SetVerifier.audMatches(*</include>
+                                        <include>com.pingidentity.ps.oidf.signals.SetVerifier.requireEvents(*</include>
+                                        <include>com.pingidentity.ps.oidf.signals.SetVerifier.requireNumericDate(*</include>
+
+                                        <!-- Subjects: what a sub_id parses to, its stable key, and SSF's matching rule. -->
+                                        <include>com.pingidentity.ps.oidf.signals.SubjectId.fromMap(*</include>
+                                        <include>com.pingidentity.ps.oidf.signals.SubjectId.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.signals.SubjectId.parseSimple(*</include>
+                                        <include>com.pingidentity.ps.oidf.signals.SubjectId.complex(*</include>
+                                        <include>com.pingidentity.ps.oidf.signals.SubjectId.aliases(*</include>
+                                        <include>com.pingidentity.ps.oidf.signals.SubjectId.ipAddresses(*</include>
+                                        <include>com.pingidentity.ps.oidf.signals.SubjectId.requireString(*</include>
+                                        <include>com.pingidentity.ps.oidf.signals.SubjectId.fromCanonicalKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.signals.SubjectId.canonicalKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.signals.SubjectId.matches(*</include>
+
+                                        <!-- Minting: the typ and signer every outbound SET carries. -->
+                                        <include>com.pingidentity.ps.oidf.signals.SetMinter.sign(*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <!-- Published to the monorepo's own package registry. -->
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/dphhyland/pf-agentic-identity</url>
+        </repository>
+    </distributionManagement>
+</project>

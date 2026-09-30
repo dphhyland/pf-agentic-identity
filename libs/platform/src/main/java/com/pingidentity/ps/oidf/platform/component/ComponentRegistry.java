@@ -17,7 +17,8 @@ import java.util.regex.Pattern;
 /**
  * Components and their {@link ComponentState}s. A component registers once at initialisation, enabled or not,
  * and reports its state through the {@link Component} handle it gets back; health (plan item O-4) reads
- * {@link #snapshot()}. There is no supervisor here and no retry: S-9's backoff comes later (S9a, Phase 3).
+ * {@link #snapshot()}. Retrying is not done here: {@link Supervisor} starts a part again, and the part's
+ * {@code ComponentParts} reports the outcome through this registry.
  *
  * <p>A disabled component stays {@link ComponentState#DISABLED}: its handle's transitions do nothing. Registering
  * a name again - a servlet initialised a second time - starts it afresh, and the handle from the earlier
@@ -25,7 +26,8 @@ import java.util.regex.Pattern;
  *
  * <p>A reason is operator text and is kept to one short line: control, format and separator characters become
  * {@code ?} and it is cut at {@value #MAX_REASON} characters. A state that needs a reason and is given none says
- * "no reason given".
+ * "no reason given". A state that needs none may still carry a note - how its enable switch was read - which
+ * the start-up banner and the health detail show beside it.
  */
 public final class ComponentRegistry {
 
@@ -70,12 +72,18 @@ public final class ComponentRegistry {
      *                                  bug to find in its tests, not at run time
      */
     public Component register(String name, boolean enabled) {
+        return this.register(name, enabled, "");
+    }
+
+    /** As {@link #register(String, boolean)}, with a note shown beside the state (how its switch was read). */
+    public Component register(String name, boolean enabled, String note) {
         checkName(name);
+        String why = note(note);
         ComponentState initial = enabled ? ComponentState.STARTING : ComponentState.DISABLED;
         long generation;
         synchronized (this) {
             generation = ++this.generations;
-            this.entries.put(name, new Entry(generation, enabled, new ComponentStatus(name, enabled, initial, "", this.clock.instant())));
+            this.entries.put(name, new Entry(generation, enabled, new ComponentStatus(name, enabled, initial, why, this.clock.instant())));
         }
         LOG.info("Component " + name + ": registered " + initial);
         return new Component(name, generation);
@@ -103,7 +111,7 @@ public final class ComponentRegistry {
      * reason keeps the time it entered it.
      */
     boolean move(String name, long generation, ComponentState to, String reason) {
-        String why = to.needsReason() ? clean(reason) : "";
+        String why = to.needsReason() ? clean(reason) : note(reason);
         ComponentState from;
         synchronized (this) {
             // Never null: a handle exists only for a registered name, and nothing removes one.
@@ -130,6 +138,11 @@ public final class ComponentRegistry {
         if (name == null || !NAME.matcher(name).matches()) {
             throw new IllegalArgumentException("a component name is 1-64 of A-Z, 0-9 and '_', starting with a letter, as S-9 spells it (SSF_RECEIVER)");
         }
+    }
+
+    /** A note on a state that needs no reason: empty when none is given, else cleaned as a reason is. */
+    static String note(String note) {
+        return note == null || note.isBlank() ? "" : clean(note);
     }
 
     /** A reason as one short line an operator can read. */
@@ -172,13 +185,23 @@ public final class ComponentRegistry {
             return ComponentRegistry.this.status(this.name).orElseThrow();
         }
 
-        /** Starting again, after a failure: what S-9's supervisor will call before a retry. */
+        /** Starting again, after a failure: what the {@link Supervisor}'s attempt records before it retries. */
         public boolean starting() {
             return move(this.name, this.generation, ComponentState.STARTING, null);
         }
 
         public boolean ready() {
             return move(this.name, this.generation, ComponentState.READY, null);
+        }
+
+        /** Ready, with a note shown beside the state. */
+        public boolean ready(String note) {
+            return move(this.name, this.generation, ComponentState.READY, note);
+        }
+
+        /** Starting, with a note shown beside the state. */
+        public boolean starting(String note) {
+            return move(this.name, this.generation, ComponentState.STARTING, note);
         }
 
         public boolean degraded(String reason) {

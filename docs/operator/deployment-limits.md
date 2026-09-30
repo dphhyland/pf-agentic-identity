@@ -5,7 +5,7 @@ anyway. One section per limit; each names the release expected to lift it.
 
 ## One PingFederate node, until 0.7.0
 
-0.4.0 supports **a single PingFederate engine node**. Several pieces of state the modules keep are per node - in
+0.5.0, like 0.4.0, supports **a single PingFederate engine node**. Several pieces of state the modules keep are per node - in
 memory, or behind a loop that assumes it is the only one - and the cluster story that makes them shared is
 Phase 4 of the production programme, release 0.7.0: Redis-backed state through one platform client, leases for
 background work such as SSF push, JDBC client storage, and a cluster verification suite run on reference
@@ -16,10 +16,14 @@ Some of the state below can be shared today by configuring a store - Redis for t
 data store for SSF and the federation authority - and that removes the in-memory half of the problem. It does
 not make a cluster supported: the SSF push loop has no lease, the SSF receiver's dedupe and the challenge
 endpoints' caps stay per node, and nobody has run the modules on two nodes. The SSF module's boot log calls a
-JDBC-backed store "cluster-safe"; in 0.4.0 it is not ([F-0125](../findings/F-0125.yaml)).
+JDBC-backed store "cluster-safe"; in 0.4.0 and 0.5.0 it is not ([F-0125](../findings/F-0125.yaml)); 0.5.0's
+reactor build logged it again on 2026-09-29 (`SSF store: JDBC data store 'pf-ds', dialect 'tables'
+(cluster-safe, durable)`, from the SSF tests).
 
 What goes wrong on two nodes today, read from the code on 2026-09-27 (origin/main `714e7ce`) and not driven on a
-cluster:
+cluster. Phase 2 (0.5.0) moved none of it: the platform Redis client (C-2) keeps 0.4.0's keys and adds nothing
+shared, and the managed executors' one-of-each-job claim (C-3) is per JVM, not per cluster, so each node still
+runs its own SSF push loop:
 
 | State | Where it lives in 0.4.0 | On two nodes |
 |---|---|---|

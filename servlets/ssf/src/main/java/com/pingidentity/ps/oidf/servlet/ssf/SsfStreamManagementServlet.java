@@ -6,7 +6,8 @@ package com.pingidentity.ps.oidf.servlet.ssf;
 import com.pingidentity.ps.oidf.ssf.AuthContext;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.StreamManagementService;
-import com.pingidentity.ps.oidf.ssf.SubjectId;
+import com.pingidentity.ps.oidf.signals.SubjectId;
+import com.pingidentity.ps.oidf.ssf.SsfSubjects;
 import com.pingidentity.ps.oidf.ssf.SsfSupport;
 import java.io.IOException;
 import java.util.Map;
@@ -186,7 +187,7 @@ public class SsfStreamManagementServlet extends HttpServlet {
         if (!(subj instanceof Map)) {
             throw new IllegalArgumentException("missing required field: subject");
         }
-        SubjectId subject = SubjectId.fromMap((Map<String, Object>) subj);
+        SubjectId subject = SsfSubjects.parse((Map<String, Object>) subj);
         // Both are empty responses, and they differ: SSF §8.1.3.2 answers an add with 200, §8.1.3.3 a
         // remove with 204.
         if (add) {

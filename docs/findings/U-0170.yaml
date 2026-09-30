@@ -1,0 +1,24 @@
+id: U-0170
+title: Whether CodeQL's insecure-trustmanager query leaves InsecureTls unreported because of its guard
+area: platform, ci
+source: design
+status: closed
+plan_items: [PR-1]
+prs: [50]
+recorded_in: libs/platform/README.md, the tls section's last paragraph
+verify_by: >
+  Read the java/insecure-trustmanager results of the CodeQL analysis of PR1's pull request, and of main once it
+  merges: no alert at InsecureTls.java, and alerts 4 to 9 fixed.
+verification: >
+  Seen 2026-09-28 on PR #50: CodeQL 2.27.1's java-kotlin analysis of the merge commit 164903d (analysis
+  1847734799) ran codeql/java-queries, java/insecure-trustmanager among them, and returned no result - none at
+  InsecureTls.java. Alerts 4 to 9 have no instance on refs/pull/50/merge; that they turn `fixed` on main is
+  F-0042's to watch after the merge.
+notes: >
+  InsecureTrustManager.qll (github/codeql, read 2026-09-28) does not count an SSLContext.init as a sink when a
+  guard on a flag whose name matches (?i).*(secure|disable|selfCert|selfSign|validat|verif|trust|ignore|
+  nocertificatecheck).* controls it. InsecureTls.trustAnyCertificate calls init only inside `if (insecureTls)`,
+  the parameter that carries the setting's value. That is the query's own exclusion for an intentionally
+  insecure use, not a way around it: every trust-all here is behind an operator's switch. Should a later CodeQL
+  release report InsecureTls after all, the alert is the one development-only trust-all and only David
+  dismisses it.

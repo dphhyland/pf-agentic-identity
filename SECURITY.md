@@ -29,7 +29,7 @@ turn it on - GitHub's docs, read 2026-09-27: "Owners and administrators of publi
 security researchers to report vulnerabilities securely in the repository by enabling private vulnerability
 reporting" (Settings, then Advanced Security under "Security and quality", then Enable beside "Private
 vulnerability reporting") - and the gap is [F-0068](docs/findings/F-0068.yaml) in the findings register,
-targeted at 0.4.0. Until the button is there, keep the details out of public view: no issue, pull request or
+targeted at 0.6.0. Until the button is there, keep the details out of public view: no issue, pull request or
 discussion that names the module, the endpoint or the trigger, and no proof of concept. If you cannot wait,
 open an issue that says only that you have a security report and need a private channel, and the maintainer
 will answer with one. This paragraph goes when the feature is on.

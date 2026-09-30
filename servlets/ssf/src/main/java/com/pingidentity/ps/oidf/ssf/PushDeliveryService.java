@@ -5,6 +5,9 @@
 package com.pingidentity.ps.oidf.ssf;
 
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
+import com.pingidentity.ps.oidf.signals.SetMinter;
 import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -20,9 +23,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Flow;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.apache.commons.logging.Log;
@@ -106,7 +107,7 @@ public final class PushDeliveryService {
     private final SsfStore store;
     private final SsfConfiguration config;
     private final SetDeliveryClient client;
-    private volatile ScheduledExecutorService scheduler;
+    private volatile ManagedExecutor scheduler;
 
     public PushDeliveryService(SsfStore store, SsfConfiguration config, SetDeliveryClient client) {
         this.store = store;
@@ -233,8 +234,13 @@ public final class PushDeliveryService {
 
     // ─────────────────────────────── lifecycle ───────────────────────────────
 
+    /** The loop's managed executor; its thread is {@code oidf-ssf-push-delivery-1}. */
+    static final String EXECUTOR_NAME = "ssf-push-delivery";
+
     /**
-     * Start the background loop (idempotent). Ticks every {@code pushRetryBackoffSeconds}; each tick is
+     * Start the background loop (idempotent). Ticks every {@code pushRetryBackoffSeconds}, the first one tick from
+     * now, each starting one tick after the last ended; it runs once in the JVM, so a start that finds it running
+     * elsewhere starts nothing. Each tick is
      * {@link #runOnce}, so it is also what expires SETs on a transmitter with no push stream at all.
      * Nothing here touches the store or the network, so nothing here throws: the first tick is where a
      * store that is down is met, and a tick's failure is logged and the next tick tries again.
@@ -243,26 +249,33 @@ public final class PushDeliveryService {
         if (this.scheduler != null) {
             return;
         }
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "ssf-push-delivery");
-            t.setDaemon(true);
-            return t;
-        });
         long tick = Math.max(1, this.config.pushRetryBackoffSeconds());
-        this.scheduler.scheduleWithFixedDelay(() -> {
+        Optional<ManagedExecutor> started = ManagedExecutors.every(EXECUTOR_NAME, Duration.ofSeconds(tick), () -> {
             try {
                 runOnce(SetMinter.nowSeconds());
             } catch (Exception e) {
                 LOGGER.warn((Object) ("push delivery tick failed: " + e.getMessage()));
             }
-        }, tick, tick, TimeUnit.SECONDS);
+        });
+        if (started.isEmpty()) {
+            return;
+        }
+        this.scheduler = started.get();
         LOGGER.info((Object) ("SSF push delivery executor started (tick " + tick + "s)"));
     }
 
-    public synchronized void stop() {
-        if (this.scheduler != null) {
-            this.scheduler.shutdownNow();
+    /**
+     * Stops the loop: a tick in progress is interrupted - an exchange in flight is cancelled, which closes its
+     * connection (U-0077) - and waited for, briefly, outside this service's lock.
+     */
+    public void stop() {
+        ManagedExecutor running;
+        synchronized (this) {
+            running = this.scheduler;
             this.scheduler = null;
+        }
+        if (running != null) {
+            running.close();
         }
     }
 

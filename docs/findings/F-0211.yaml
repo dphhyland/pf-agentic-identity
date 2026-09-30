@@ -1,0 +1,19 @@
+id: F-0211
+title: The rig's container stops with a one-second grace, so a plain docker stop kills PingFederate
+severity: low
+area: conformance, docs
+source: design
+status: open
+plan_items: [D-7]
+prs: [57]
+verification: ''
+target_release: 1.0.0
+notes: >
+  Found by package F2 (2026-09-28). The rig's container, created by conformance/up.sh through Docker Compose 5.1.3
+  from conformance/docker-compose.yml (no stop_grace_period), had StopTimeout 1 in docker inspect, while the image
+  sets none. A plain docker stop therefore sent SIGKILL after one second: exit 137, twice in a row, before PingFederate
+  had stopped its contexts. docker stop -t 30 stopped it with exit 0 in about five seconds, and docker kill -s TERM
+  likewise. Where the one second comes from was not traced. The lifecycle listener's shutdown (five seconds at most)
+  and PingFederate's own need a grace period of ten seconds or more; docs/operator/startup-audit.md says so. Who and
+  when: the rig's compose file can set stop_grace_period in any package that owns it; the runbooks (D-7, Phase 7)
+  state the grace period for every reference deployment.

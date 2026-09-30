@@ -3,6 +3,8 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.signals.ReceivedSet;
+import com.pingidentity.ps.oidf.signals.SetVerifier;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;

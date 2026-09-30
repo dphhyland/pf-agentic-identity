@@ -1,0 +1,18 @@
+id: F-0246
+title: The SSF receiver accepts a SET carrying exp or sub, which SSF 1.0 forbids transmitters to send
+severity: low
+area: ssf, shared-signals
+source: pr-review
+status: open
+plan_items: [H-SSF-1]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  SSF 1.0 (29 August 2025) §4.1.7: "The "exp" claim MUST NOT be used in SETs." §4.1.2: "The JWT "sub" claim MUST
+  NOT be present in any SET containing an SSF event." §4.1.3 lists both among the restrictions that keep SETs from
+  being confused with other JWTs. Both are written to the transmitter; neither section says what a receiver does
+  with a SET that breaks them. libs/shared-signals' SetVerifier (PR #61) honours an exp as RFC 8417 §2.2 does
+  (refused once past) and ignores sub. Refusing either outright would be the stricter SSF receiver; H-SSF-1, which
+  reworks the receiver, decides, and the decision goes in SetVerifier with a test. Found 2026-09-28 while quoting
+  the SET claims for the verifier.

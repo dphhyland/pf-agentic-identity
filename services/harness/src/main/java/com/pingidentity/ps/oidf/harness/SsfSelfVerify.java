@@ -3,10 +3,10 @@
  * its signature + claims (typ, events, sub_id) — no PingFederate, no network.
  *
  * Ported from pf-oidf-modules (2026-08-18) when that repo was reduced to the demo UI + shell probes.
- * SigningKeyProvider's import updated for the unwound package layout (...oidf.common -> ...oidf.jose);
- * the ssf package itself didn't move.
+ * SigningKeyProvider's import updated for the unwound package layout (...oidf.common -> ...oidf.jose); the SET
+ * classes moved from ...oidf.ssf to libs/shared-signals' ...oidf.signals in 0.5.0 (plan item X-A14).
  *
- * Classpath: jose4j + ssf + oidf-jose. See services/harness/README.md.
+ * Classpath: jose4j + shared-signals + oidf-jose. See services/harness/README.md.
  */
 package com.pingidentity.ps.oidf.harness;
 
@@ -20,11 +20,11 @@ import org.jose4j.json.JsonUtil;
 import org.jose4j.jws.JsonWebSignature;
 
 import com.pingidentity.ps.oidf.jose.SigningKeyProvider;
-import com.pingidentity.ps.oidf.ssf.CaepRiscEvents;
-import com.pingidentity.ps.oidf.ssf.SecurityEventToken;
-import com.pingidentity.ps.oidf.ssf.SetMinter;
-import com.pingidentity.ps.oidf.ssf.SsfEventTypes;
-import com.pingidentity.ps.oidf.ssf.SubjectId;
+import com.pingidentity.ps.oidf.signals.CaepRiscEvents;
+import com.pingidentity.ps.oidf.signals.SecurityEventToken;
+import com.pingidentity.ps.oidf.signals.SetMinter;
+import com.pingidentity.ps.oidf.signals.EventTypes;
+import com.pingidentity.ps.oidf.signals.SubjectId;
 
 public final class SsfSelfVerify {
 
@@ -61,7 +61,7 @@ public final class SsfSelfVerify {
                 .jti(SetMinter.newJti())
                 .issuedAt(now)
                 .subjectId(SubjectId.issSub("https://op.example.com", "user-1"))
-                .event(SsfEventTypes.CAEP_SESSION_REVOKED, CaepRiscEvents.sessionRevoked(now, "logout"))
+                .event(EventTypes.CAEP_SESSION_REVOKED, CaepRiscEvents.sessionRevoked(now, "logout"))
                 .build();
 
         String jws = new SetMinter("RS256", keys).sign(set);
@@ -75,7 +75,7 @@ public final class SsfSelfVerify {
 
         Map<String, Object> claims = JsonUtil.parseJson(v.getPayload());
         fail += require("https://op.example.com".equals(claims.get("iss")), "iss");
-        fail += require(((Map<?, ?>) claims.get("events")).containsKey(SsfEventTypes.CAEP_SESSION_REVOKED),
+        fail += require(((Map<?, ?>) claims.get("events")).containsKey(EventTypes.CAEP_SESSION_REVOKED),
                 "events keyed by URI");
         fail += require(claims.containsKey("sub_id"), "sub_id present");
         if (fail == 0) {

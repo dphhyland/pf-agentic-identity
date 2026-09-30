@@ -18,7 +18,7 @@ import com.pingidentity.ps.oidf.jose.SigningKeyProvider;
 import com.pingidentity.ps.oidf.ssf.AuthContext;
 import com.pingidentity.ps.oidf.ssf.DeliveryMethod;
 import com.pingidentity.ps.oidf.ssf.InMemorySsfStore;
-import com.pingidentity.ps.oidf.ssf.SetMinter;
+import com.pingidentity.ps.oidf.signals.SetMinter;
 import com.pingidentity.ps.oidf.ssf.SetPublisher;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.SsfEventTypes;

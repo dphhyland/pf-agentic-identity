@@ -3,6 +3,8 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.signals.ReceivedSet;
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.util.Map;
 import java.util.Objects;
 import org.apache.commons.logging.Log;

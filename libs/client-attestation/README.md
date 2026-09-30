@@ -37,9 +37,10 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
   `client_id`, `cnf.jwk`, `authorization_details`, `workload`, `agent_id`) and the authenticated outcome
   (client id, confirmed key, PoP mode, attester, entitled vs granted details, and the fingerprint of the model
   set that checked the request).
-- **`DpopProofValidator` / `DpopProof`** — RFC 9449 proof validation for combined mode: `dpop+jwt`,
-  self-signature under the `jwk` header, algorithm allowlist, `htm`/`htu`, `iat` freshness, `jti`
-  required. The `htu` is compared after RFC 3986 syntax- and scheme-based normalisation (RFC 9449 §4.3):
+- **`DpopProofValidator` / `DpopProof`** (in oidf-jose, `com.pingidentity.ps.oidf.jose.dpop`, since 0.6.0: F-0225) —
+  RFC 9449 proof validation, used here for combined mode: `dpop+jwt`,
+  self-signature under the `jwk` header, algorithm allowlist, `htm` compared exactly (RFC 9110 §9.1: F-0226),
+  `htu`, `iat` freshness, `jti` required. The `htu` is compared after RFC 3986 syntax- and scheme-based normalisation (RFC 9449 §4.3):
   scheme and host in lower case, a default or empty port dropped, percent-encoded unreserved characters
   decoded, dot-segments removed, query and fragment ignored; the user information, the path's case and a
   trailing slash still count, and an `htu` that is not an absolute http or https URI is refused. Given no
@@ -65,19 +66,22 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
   500 `server_error`. The boolean views `firstSeen` and `consume` remain for callers written against them
   and throw `StoreUnavailableException` (an `IllegalStateException`) for an outage rather than answering
   `false`.
-- **`RedisAttestationStore` / `MiniRedisClient`** — the shared store over a dependency-free RESP client
-  (`redis://` and `rediss://`, small bounded pool). Issue is `SET … EX`, consume is `DEL`, first-seen is
-  `SET … NX EX`, bind is `SET … NX PX` then `GET` and compare. `rediss://` verifies the server the way a
-  browser does - its certificate chains to a trusted CA (the JVM's, or `OIDF_REDIS_CA_FILE`) and names the
-  URL's host (the HTTPS endpoint identification algorithm), with the host sent as SNI - and the handshake
-  completes before `AUTH` is encoded, so the password never travels before the peer is verified. Under
-  the production profile `redis://` is refused. Keys live under a `StoreNamespace`, one per surface:
+- **`RedisAttestationStore`** — the shared store over libs/platform's dependency-free Redis client
+  (`platform.redis.RedisClient`, plan item C-2, which is 0.4.0's `MiniRedisClient` moved there with a bounded
+  pool, a deadline on every command and Sentinel - [its section](../platform/README.md#redis)). Issue is
+  `SET … PX`, consume is `DEL`, first-seen is `SET … NX PX`, bind is `SET … NX PX` then `GET` and compare.
+  `rediss://` verifies the server the way a browser does - its certificate chains to a trusted CA (the JVM's,
+  or `OIDF_REDIS_CA_FILE`) and names the URL's host (the HTTPS endpoint identification algorithm), with the
+  host sent as SNI - and the handshake completes before `AUTH` is encoded, so the password never travels
+  before the peer is verified. Under the production profile `redis://` is refused. Keys live under a
+  `StoreNamespace`, one per surface, each a `RedisKeyspace` over the one client:
   `oidf:as:*` (the token endpoint's challenges and proof jtis), `oidf:cas:*` (the attester's challenges, proof
   jtis and evidence bindings), `oidf:fed:endpoint:*` (spent client assertions at the federation endpoints) and
   `oidf:admin:dpop:*` (reserved for the operator API, S-8). The layout under each: `:challenge:<value>`,
   `:jti:<client> <jti>`, `:evidence:<digest>`, the digest being the attester's SHA-256 of the evidence's
-  JWS Signing Input. No exception message quotes a URL's userinfo: `MiniRedisClient` replaces it with
-  `***`.
+  JWS Signing Input. The keys are byte for byte the ones 0.4.0 wrote, so a rolling upgrade from 0.4.0 finds
+  the challenges and spent proofs the old nodes recorded (`RedisAttestationStoreTest`). No exception message
+  quotes a URL's userinfo: the client replaces it with `***`.
 - **`AuthorizationDetailsGate`** (package-private) - [the token gate](#the-token-gate): the request's
   `authorization_details` against the attestation's, with the containment model.
 - **`AttestationRarModels`** - the model set this classloader enforces, read once from `OIDF_RAR_MODELS_FILE` or
@@ -143,9 +147,10 @@ details 401 `access_denied`. The vector file in `libs/rar-model`'s test-jar runs
 
 | Setting | Default | What it does | When it's wrong |
 |---|---|---|---|
-| `oidf.redis.url` (system property), then `OIDF_REDIS_URL`, then `REDIS_URL` (env) | unset | Set: challenge, replay and evidence-binding state lives in Redis, cluster-wide, under the namespaces above. Unset: per-node in-memory, which a clustered deployment must not run | Not a `redis://` or `rediss://` URL with a host: first request, every store accessor throws, so the token endpoint answers 500 `server_error` to attested clients and the challenge endpoint and the attester answer 500 - a configuration error, not an outage, so not a 503. `redis://` under the production profile: the same, with a message naming `OIDF_DEPLOYMENT_PROFILE` - the password would cross the network in the clear |
+| `oidf.redis.url` (system property), then `OIDF_REDIS_URL`, then `REDIS_URL` (env) | unset | Set: challenge, replay and evidence-binding state lives in Redis, cluster-wide, under the namespaces above. Unset: per-node in-memory, which a clustered deployment must not run. Read through libs/platform's `platform-redis` settings catalogue | Not a `redis://` or `rediss://` URL with a host: first request, every store accessor throws, so the token endpoint answers 500 `server_error` to attested clients and the challenge endpoint and the attester answer 500 - a configuration error, not an outage, so not a 503. `redis://` under the production profile: the same, with a message naming `OIDF_DEPLOYMENT_PROFILE` - the password would cross the network in the clear |
 | `OIDF_REDIS_CA_FILE` (`oidf.redis.ca.file`) | unset (the JVM's CAs) | A PEM file of one or more CA certificates to trust for `rediss://`, the shape managed Redis providers publish | Missing, unreadable or holding no certificate: first request, as above, naming the variable |
-| `OIDF_DEPLOYMENT_PROFILE` | unset (production) | `development` allows a plaintext `redis://` store, and lets an authorization_details type no model names fall back to the common fields; unset, `production` or anything else is production. Read directly from the environment until plan item PR-1 centralises it | Not checked beyond that: a typo is production |
+| `OIDF_REDIS_POOL_SIZE`, `OIDF_REDIS_BORROW_TIMEOUT_MS`, `OIDF_REDIS_COMMAND_TIMEOUT_MS`, `OIDF_REDIS_SENTINEL_MASTER`, `OIDF_REDIS_SENTINELS`, `OIDF_REDIS_SENTINEL_PASSWORD` | 8 / 1000 / 3000 / unset | The client's pool, its two deadlines, and finding the master through Redis Sentinel: [libs/platform](../platform/README.md#redis) | A value its catalogue entry refuses: first request, as for the URL, the message starting `a Redis setting is refused` and naming the setting. An exhausted pool or a command past its deadline is an outage, answered as `STORE_UNAVAILABLE` is above |
+| `OIDF_DEPLOYMENT_PROFILE` | unset (production) | `development` allows a plaintext `redis://` store, and lets an authorization_details type no model names fall back to the common fields; unset, `production` or anything else is production. Read through libs/platform's `DeploymentProfile` (plan item PR-1): `development` trimmed, in any case; the common-fields fallback is rar-model's and takes exactly `development` (F-0160) | Not checked beyond that: a typo is production |
 | `OIDF_RAR_MODELS_FILE`, `OIDF_RAR_MODELS` (env only) | unset (the built-in models) | A models document - a file path, or the document inline; one or the other - adding types, or fields to the built-in ones ([libs/rar-model](../rar-model/README.md#a-models-document)). Read once per classloader by `AttestationRarModels`, which logs the fingerprint. From plan item S1c, the RAR plugin reads the same variables and denies when its fingerprint differs | A document the library refuses, an unreadable file, or both set: every call refuses (`MODEL_INVALID`). The token-endpoint filter doesn't start, the attester's issuance servlet fails from its first request, and the issuance criterion refuses every attested token |
 | `challengeCacheMaxEntries`, `challengeTtlSeconds`, `replayCacheMaxEntries` (init-params on `ClientAttestationChallengeServlet`) | 8192 / 300 / 8192 | Sizing and TTL of the authorization server's stores. With Redis, only the TTL applies. The attester's endpoint reads the first two for its own challenges (see [attestation-issuer](../../servlets/attestation-issuer/README.md#configuration)); neither endpoint's settings reach the other's | Not an integer: at init, the value is ignored with a warning and the default used. A TTL that is not positive, or in memory a size that is neither positive nor -1: the endpoint fails to start and the store keeps what it had. With Redis only the TTL is checked; the size is not used |
 | `challengeRateLimitPerWindow`, `challengeRateLimitWindowSeconds`, `challengeRateLimitMaxCallers` (init-params on either challenge endpoint) | 60 / 60 / 16384 | The endpoint's per-caller cap: requests per window, the window, and how many callers it counts at once. Each endpoint has its own | Not an integer: ignored with a warning; zero or less: the default |
@@ -185,9 +190,11 @@ The TLS URL must name the host the certificate names (`localhost`), because one 
 instead and expects the handshake to fail before `AUTH`. `tools/ci/start-tls-redis.sh DIR PORT NAME` makes
 the CA and the certificate and starts the TLS server, and prints the two TLS variables. In CI, build.yml's
 java job runs both halves: a `redis` service for the plain one, and that script's server for the TLS one.
-The handshake is covered without them: `MiniRedisClientTlsTest` runs an in-JVM TLS server whose certificate
-`keytool` makes for the run, names `localhost` and not `127.0.0.1`, and checks that the client verifies the
-name, sends it as SNI and sends nothing to an address the certificate does not carry.
+The same variables run libs/platform's own `RedisLiveTest`, which drives the client's commands and Lua
+scripts against the real server. The handshake is covered without them: platform's `RedisClientTlsTest`
+runs an in-JVM TLS server whose certificate `keytool` makes for the run, names `localhost` and not
+`127.0.0.1`, and checks that the client verifies the name, sends it as SNI and sends nothing to an address
+the certificate does not carry.
 
 ## Security posture
 

@@ -38,23 +38,50 @@ when you touch anything that calls the SDK or `pf-protocolengine`.
 
 ## Tests that need Postgres
 
-Most tests need nothing. `libs/device-instance`'s registry suite (`IomInstanceRegistryTest`) needs a
-PostgreSQL it can create tables in: it takes `IDM_TEST_JDBC_URL`, `IDM_TEST_JDBC_USER` and
-`IDM_TEST_JDBC_PASSWORD`, and otherwise tries Testcontainers (the version the reactor pins is reported not to
-see Docker Desktop 29; plan item DB-1 moves it to 1.21.4), and otherwise skips - and a skipped suite
-under-counts the coverage dashboard. So give it a database:
+The store suites run on PostgreSQL, and only on it: H2 and HSQLDB were dropped in 0.5.0. They are the JDBC
+stores' tests in `libs/openid-federation` (hosted entities, Trust Marks, key history), `libs/agent-registry`,
+`libs/device-instance` (`IomInstanceRegistryTest`) and `servlets/ssf` (both durable SSF stores), and
+`libs/testkit`'s own. Each class gets a database of its own from `libs/testkit`'s `PostgresDatabase`
+extension, named `oidf_test_<class>_<random>`, created before the class and dropped after it, so classes,
+modules and worktrees can share one server. Where the server comes from, in order:
+
+1. `OIDF_TEST_JDBC_URL` (with `OIDF_TEST_JDBC_USER` and `OIDF_TEST_JDBC_PASSWORD`): a `jdbc:postgresql:` URL
+   whose user may `CREATE DATABASE`. The extension connects to the database the URL names only to create and
+   drop the others. `IDM_TEST_JDBC_URL`, `_USER` and `_PASSWORD` are read in 0.5.x as aliases, with a warning.
+2. Otherwise Testcontainers (1.21.4), when Docker answers: one `postgres:16-alpine` container for the test JVM.
+   Verified on this repository's development Mac with Docker Desktop 29.4.1 on 2026-09-28 (U-0050); 1.19.8,
+   which the reactor pinned before, did not find Docker Desktop 29 there.
+3. Otherwise the class is skipped, and says why. With `CI=true` it fails instead: a CI job that lost its
+   database must not go green by skipping the store suites. A skipped suite also under-counts the coverage
+   dashboard.
+
+So either leave Docker running, or name a server:
 
 ```sh
 docker run -d --rm --name pg-mine -e POSTGRES_USER=dashboard -e POSTGRES_PASSWORD=dashboard -e POSTGRES_DB=idm \
   -p 127.0.0.1:55432:5432 postgres:16-alpine
-IDM_TEST_JDBC_URL=jdbc:postgresql://127.0.0.1:55432/idm IDM_TEST_JDBC_USER=dashboard IDM_TEST_JDBC_PASSWORD=dashboard \
+OIDF_TEST_JDBC_URL=jdbc:postgresql://127.0.0.1:55432/idm OIDF_TEST_JDBC_USER=dashboard OIDF_TEST_JDBC_PASSWORD=dashboard \
   mvn -o -B clean verify
 docker stop pg-mine
 ```
 
-Pick a port nobody else on the machine is using; several worktrees build at once here. From Phase 2 (plan item
-DB-1) every store has a real-Postgres test and a unique database per test class, and CI runs a Postgres service
-container (R-CI5).
+`POSTGRES_USER` is the image's superuser, so it may create databases. Pick a port nobody else on the machine is
+using; several worktrees build at once here. A build that is killed leaves its `oidf_test_*` databases behind:
+drop them by hand, or stop the container. CI's `java` job runs a Postgres service and passes it to `mvn verify`
+as `OIDF_TEST_JDBC_URL`.
+
+A new store test registers the extension and applies its module's shipped migrations, which `Migrations` runs in
+version order within a family (plan decision 11: federation V100-V199, agent V200-V299, and so on):
+
+```java
+@RegisterExtension
+static final PostgresDatabase POSTGRES = new PostgresDatabase();
+
+@BeforeAll
+static void schema() throws Exception {
+    Migrations.apply(POSTGRES.dataSource(), 100, 199);
+}
+```
 
 ## Worktrees
 
@@ -72,8 +99,11 @@ The stash is shared by every worktree: prefer a temporary WIP commit to `git sta
   the SDK version the reactor compiles against, and the product version the Terraform provider is told.
   `tools/pf-version-check.py` checks every other place that names the version agrees with it;
   `tools/pf-version-sync.py` rewrites them when it changes.
-- `tools/set-version.py` keeps every pom on one project version: `--check` in CI, `0.5.0-SNAPSHOT` to bump.
-  gm-api is in the lockstep.
+- `tools/set-version.py` keeps every pom on one project version: `--check` in CI, a version such as `0.6.0-SNAPSHOT` to bump.
+  gm-api is in the lockstep. It sets each pom's `project.build.outputTimestamp` with the version, the date written
+  on every jar and war entry so that a rebuild is byte-identical: HEAD's commit time, in UTC, for a release, and
+  `2000-01-01T00:00:00Z` for a snapshot. `--check` fails when a pom has none, when they disagree or do not parse,
+  and when a release carries the snapshot's date. Never edit the version or the date by hand.
 - `tools/pf-provided-versions.py` compares the BOM's `version.pf.*` properties with the jars the image ships.
 
 Each has unit tests under `tools/tests/`, run by CI before the tool itself is trusted:
@@ -149,6 +179,34 @@ python3 tools/coverage-report.py --gate --baseline /tmp/baseline/coverage-dashbo
 id; if your branch is behind main, pick the run for a commit it contains, or merge main first, since a newer
 main can have gated methods your branch never had.
 
+## The image job
+
+Build's `image` job builds the Dockerfile's `capability` target - the PingFederate image with no configuration
+archive - for the production and the conformance profile, and a release needs it green. It runs the war
+assembler against PingFederate's own war (`StockWarGoldenTest`), `test-entrypoint.sh --image` in each image,
+the default `deployment` target from a placeholder archive and without one, and then a syft SBOM and a grype scan
+of each image beside the base image. What it checks, what fails and what is only reported is in
+[build/pingfederate/README.md](build/pingfederate/README.md#scanning-the-image); the commands to do the same
+locally are there too.
+
+When it fails:
+
+- **at the scan**: the job summary lists each HIGH or CRITICAL finding of ours, with the package, where it is and
+  the version that fixes it. Move the dependency, or rebuild what installed it. If it cannot be fixed yet, accept
+  it in `.github/grype.yaml` - one entry per vulnerability, package and version, with a reason a reviewer can
+  check and the finding that tracks it - in the same pull request. A PingFederate finding never fails the job;
+  it is listed under "PingFederate's findings" for the next version bump.
+- **on a day nothing changed**: grype reads the day's vulnerability database, and the image's `apk add` installs
+  the day's Alpine packages (F-0220), so a new advisory or package can fail a pull request that touched neither.
+  It is still ours to answer: fix or accept it as above, in its own pull request if that is clearer.
+- **at `StockWarGoldenTest`**: after a PingFederate bump the stock `web.xml` digest fails by design; take the
+  golden result again as the test's comment says.
+- **at a `docker build`**: the step's log names the stage (`builder`, `capability` or `deployment`) and the
+  instruction.
+
+The scanner and SBOM versions, like the linters', are in `tools/ci/install-lint-tools.sh` with their
+checksums; Dependabot does not move them.
+
 ## Pull requests
 
 The template asks for what a reviewer needs, in this order: Summary, What changed, Verification, Adversarial
@@ -180,11 +238,14 @@ release notes. The maintainer merges.
 
 The maintainer cuts a release. A pull request folds the fragments (`python3 tools/release-notes.py assemble
 <version>`, which appends them to `docs/releases/<version>.md` and CHANGELOG.md's `Unreleased` section and
-deletes them), sets every pom to the version (`python3 tools/set-version.py <version>`), gives the changelog's
+deletes them), sets every pom to the version and its outputTimestamp (`python3 tools/set-version.py <version>`), gives the changelog's
 `Unreleased` heading the version and date, and finishes `docs/releases/<version>.md`; its merge commit is tagged `v<version>` and the tag pushed. The tag starts
 [release.yml](.github/workflows/release.yml), which publishes the build it verified and nothing before it; the
-order is in the workflow's header. A `workflow_dispatch` with `dry_run` runs the same steps and stops once
-`dist/` is assembled, publishing nothing. Afterwards a pull request moves the poms to the next `-SNAPSHOT`.
+order is in the workflow's header. Once `dist/` is assembled, and before anything is published, it makes the
+rebuild the deploy will make with `mvn install` and compares every rebuilt jar and war with `dist/` byte for byte,
+so a build that is not reproducible stops the release before a draft or a package exists; after the deploy it
+compares again. A `workflow_dispatch` with `dry_run` runs the same steps up to and including that first
+comparison, and publishes nothing. Afterwards a pull request moves the poms to the next `-SNAPSHOT`.
 
 The release's second gate, after the tag-version check, is a green Build on the tagged commit. The newest Build
 run that a push to `main` or a dispatch started there must have concluded success, and so must the latest attempt

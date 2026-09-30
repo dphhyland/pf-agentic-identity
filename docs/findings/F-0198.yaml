@@ -1,0 +1,20 @@
+id: F-0198
+title: Two automatic-registration limits wrap past an int before they are checked, and one per-client limit has two defaults
+severity: low
+area: pf-integration
+source: design
+status: open
+plan_items: [ST-5]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by ST3A (2026-09-28) while transcribing defaults from the code. FederationRuntimeConfig reads
+  OIDF_AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES and OIDF_AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS as longs
+  and casts them to int before AutoRegistrationSettings checks they are at least 1, so 4294967297 is read as 1
+  and accepted, where the catalogue's range (1 to 2147483647) would refuse it. And the per-client extended
+  property trust_chain_request_max_age defaults to 60 seconds at the OGNL chain criterion
+  (OIDFederationUtils.validateTrustChain) and to -1, no limit, where ClientAttestationUtils resolves an attester's
+  chain (trustChainEntryMaxAge); the token-endpoint filter's attester resolver passes -1 always. The catalogue
+  gives the property the chain criterion's 60 and names the other in its description. ST-5 reads both limits
+  through the typed Setting and settles the one default.

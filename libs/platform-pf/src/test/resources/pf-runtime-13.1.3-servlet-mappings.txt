@@ -1,0 +1,25 @@
+# Every <url-pattern> of a <servlet-mapping> in the stock pf-runtime.war's WEB-INF/web.xml, PingFederate 13.1.3
+# (image pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest, server/default/deploy/pf-runtime.war), read on
+# 2026-09-28. Filter mappings are left out: a filter over /* runs in front of every servlet and maps nothing.
+# HealthPathsTest holds the health servlet's paths clear of these. Refresh it when build/pf-version.env moves.
+*.cdc
+*.ciba
+*.oauth2
+*.openid
+*.ping
+*.saml1
+*.saml2
+*.ssaml1
+*.ssaml2
+*.wsf
+*.wst
+/.well-known/apple-app-site-association
+/.well-known/oauth-authorization-server
+/.well-known/openid-configuration
+/as/clients.oauth2/*
+/assets/*
+/error
+/ext/*
+/pf/JWKS
+/pf/id/verification.ping
+/pf/idprofile.ping

@@ -10,6 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.conformance.Requirement;
+import com.pingidentity.ps.oidf.signals.CaepRiscEvents;
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;

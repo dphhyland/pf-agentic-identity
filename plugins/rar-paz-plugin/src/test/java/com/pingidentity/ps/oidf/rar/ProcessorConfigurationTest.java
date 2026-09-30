@@ -297,16 +297,17 @@ class ProcessorConfigurationTest {
     void configureTrustsAnyCertificateOnlyInDevelopment() {
         AttestationAwareRarProcessor production = new AttestationAwareRarProcessor();
         production.configure(stored("PDP URL", PDP_URL, "Skip TLS verification (dev only)", "true"), "production");
-        assertFalse(((JdkHttpTransport) production.transport()).trustsAnyCertificate(), "production checks the certificate");
+        assertEquals(PdpTls.JVM_DEFAULT, production.pdpTransport().tls().mode(), "production checks the certificate");
 
         AttestationAwareRarProcessor development = new AttestationAwareRarProcessor();
         development.configure(stored("PDP URL", PDP_URL, "Skip TLS verification (dev only)", "true"), "development");
-        assertTrue(((JdkHttpTransport) development.transport()).trustsAnyCertificate(), "development may skip it");
+        assertEquals("insecure", development.pdpTransport().tls().mode(), "development may skip it");
 
         AttestationAwareRarProcessor off = new AttestationAwareRarProcessor();
         off.configure(stored("PDP URL", PDP_URL), "development");
-        assertFalse(((JdkHttpTransport) off.transport()).trustsAnyCertificate(), "the switch is off unless set");
+        assertEquals(PdpTls.JVM_DEFAULT, off.pdpTransport().tls().mode(), "the switch is off unless set");
         assertNull(new AttestationAwareRarProcessor().transport(), "nothing is built before configure");
+        assertNull(new AttestationAwareRarProcessor().pdpTransport(), "nothing is built before configure");
     }
 
     /**

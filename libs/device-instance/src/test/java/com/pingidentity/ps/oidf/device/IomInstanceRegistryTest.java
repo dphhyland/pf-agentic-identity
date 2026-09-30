@@ -7,9 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
+import com.pingidentity.ps.oidf.testkit.Migrations;
+import com.pingidentity.ps.oidf.testkit.PostgresDatabase;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
@@ -17,16 +16,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.postgresql.ds.PGSimpleDataSource;
-import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 /**
  * {@link IomInstanceRegistry} against a real PostgreSQL, running the model repo's own migrations
@@ -38,17 +32,9 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * {@code ANY(text[])}, plpgsql triggers, and compare-and-set semantics under READ COMMITTED. A suite
  * that ran against a database which cannot enforce the rules would prove nothing about the one that does.
  *
- * <p>Two ways to supply that Postgres, in order:
- * <ol>
- *   <li>{@code IDM_TEST_JDBC_URL} (with {@code IDM_TEST_JDBC_USER} / {@code _PASSWORD}) — any reachable
- *       throwaway database. Use this where the Docker API is not reachable from the build (a sandboxed
- *       shell whose socket serves the CLI but stubs {@code /info}, a remote engine, a shared CI service
- *       container).</li>
- *   <li>Testcontainers, otherwise — the zero-setup default.</li>
- * </ol>
- * If neither is available the suite is skipped, not failed, so a laptop without Docker still gets a
- * green build. <b>The schema is dropped and rebuilt</b> on the target, so point it only at a database
- * you are willing to lose.
+ * <p>The Postgres is a database of this class's own (libs/testkit: {@code OIDF_TEST_JDBC_URL}, else Testcontainers,
+ * else skipped - failed under {@code CI=true}), created before the class and dropped after it, so the suite
+ * shares nothing with the other classes that use the same server.
  */
 class IomInstanceRegistryTest extends InstanceRegistryContract {
 
@@ -58,57 +44,15 @@ class IomInstanceRegistryTest extends InstanceRegistryContract {
         "/idm/006-add-agent-instance-registry.sql",
     };
 
-    private static PostgreSQLContainer<?> container;
+    @RegisterExtension
+    static final PostgresDatabase POSTGRES = new PostgresDatabase();
+
     private static DataSource dataSource;
 
     @BeforeAll
     static void applyModelSchema() throws Exception {
-        dataSource = externalDataSource().orElseGet(IomInstanceRegistryTest::containerDataSource);
-        try (Connection c = dataSource.getConnection(); Statement s = c.createStatement()) {
-            // Rebuild from the migrations so a reused external database starts from a known schema.
-            s.execute("DROP SCHEMA IF EXISTS idm CASCADE");
-            for (String migration : MIGRATIONS) {
-                s.execute(read(migration));
-            }
-        }
-    }
-
-    @AfterAll
-    static void stopContainer() {
-        if (container != null) {
-            container.stop();
-        }
-    }
-
-    private static Optional<DataSource> externalDataSource() {
-        String url = System.getenv("IDM_TEST_JDBC_URL");
-        if (url == null || url.isBlank()) {
-            return Optional.empty();
-        }
-        PGSimpleDataSource ds = new PGSimpleDataSource();
-        ds.setUrl(url);
-        String user = System.getenv("IDM_TEST_JDBC_USER");
-        String password = System.getenv("IDM_TEST_JDBC_PASSWORD");
-        if (user != null && !user.isBlank()) {
-            ds.setUser(user);
-        }
-        if (password != null && !password.isBlank()) {
-            ds.setPassword(password);
-        }
-        return Optional.of(ds);
-    }
-
-    private static DataSource containerDataSource() {
-        Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(),
-                "no Postgres for the IOM registry suite: set IDM_TEST_JDBC_URL, or make the Docker API "
-                        + "reachable for Testcontainers");
-        container = new PostgreSQLContainer<>("postgres:16-alpine");
-        container.start();
-        PGSimpleDataSource ds = new PGSimpleDataSource();
-        ds.setUrl(container.getJdbcUrl());
-        ds.setUser(container.getUsername());
-        ds.setPassword(container.getPassword());
-        return ds;
+        dataSource = POSTGRES.dataSource();
+        Migrations.applyResources(dataSource, IomInstanceRegistryTest.class, MIGRATIONS);
     }
 
     @Override
@@ -257,15 +201,6 @@ class IomInstanceRegistryTest extends InstanceRegistryContract {
     private static void execRaw(String sql) throws Exception {
         try (Connection c = dataSource.getConnection(); Statement s = c.createStatement()) {
             s.execute(sql);
-        }
-    }
-
-    private static String read(String resource) throws IOException {
-        try (InputStream in = IomInstanceRegistryTest.class.getResourceAsStream(resource)) {
-            if (in == null) {
-                throw new IOException("missing test resource: " + resource);
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
     }
 }

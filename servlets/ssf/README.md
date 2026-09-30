@@ -8,6 +8,14 @@
 active JWKS key; `jwks_uri` is `<issuer>/pf/JWKS`) and on the `provided` PF SDK for grant revocation
 and PF-managed data sources. `com.pingidentity.ps.oidf.ssf` is the core; `…servlet.ssf` the PF-facing edge.
 
+Since 0.5.0 the PingFederate-free parts live in [`libs/shared-signals`](../../libs/shared-signals) (package
+`com.pingidentity.ps.oidf.signals`): `SecurityEventToken`, `SetMinter`, `SetVerifier`, `ReceivedSet`, `SubjectId`,
+`CaepRiscEvents` and the event URIs. This module adds what needs PingFederate or the network: `PfSetSigningKeys`
+(PingFederate's key, resolved on first use), `JwksHttpSource` (the receiver's JWKS fetch) and `SsfSubjects`, which
+keeps the subjects accepted from outside - stream subjects, the emit API, SCIM ids, an inbound `sub_id` - to the five
+formats it has always handled (`iss_sub`, `email`, `phone_number`, `opaque`, `account`) until plan item H-SSF-1
+(Phase 3) stores, matches and acts on the others.
+
 - **Transmitter** - `SetMinter`, stream management (`StreamManagementService`), poll (`SsfPollServlet`,
   RFC 8936) + push (`PushDeliveryService`, RFC 8935, background retry loop), event sourcing from PF's
   native security-audit log (`SsfAuditLogSource`, a log4j2 appender attached programmatically to PF's
@@ -68,8 +76,8 @@ external base receivers use).
 |---|---|
 | Transmitter | `signingAlgorithm` (RS256/PS256), `basePath` (`/ssf`), `setTtlSeconds` (7 days), `defaultEventTypes`, `defaultSubjects` (`NONE`; `ALL` = every enabled stream hears every subject without an add-subject, SSF §7.1.1, and is what [CAEP Interop](#caep-interop) needs), `verificationEventEnabled` (true), `pollMaxEvents` (100), `pushRetryMaxAttempts` (5), `pushRetryBackoffSeconds` (5) |
 | Store | `dataStoreId` (PF JDBC data store id) or `jdbcUrl`+`jdbcUsername`+`jdbcPassword`; `storeDialect` (`tables` \| `ldm`); blank = in-memory |
-| Receiver auth | `receiverScope` (`ssf.manage`), `provisionerScope` (unset - nobody may use SCIM; suggested `ssf.provision`, must differ from `receiverScope` or boot fails), `allowedAudiences` (`clientA=aud1,aud2;clientB=aud3` - the `aud` values a client may name on create besides its own id, see [What the transmitter signs](#what-the-transmitter-signs)), `unownedStreamOwner` (unset - see [Stream ownership](#stream-ownership)), `introspectionEndpoint` (`<issuer>/as/introspect.oauth2`), `introspectionClientId`/`introspectionClientSecret` (deployed as secrets), `introspectionInsecureTls` |
-| Receiver | `receiverExpectedIssuer` (turns the receiver on), `receiverJwksUrl`, `receiverAudience` and `receiverEndpointAuthToken` (**both required once the receiver is on** - missing either, the receiver does not start and an ERROR says which),  `receiverJwksCacheSeconds` (300), `receiverInsecureTls`, `receiverPollUrl`/`receiverPollToken`/`receiverPollIntervalSeconds` (10), `receiverActionsEnabled` (true) |
+| Receiver auth | `receiverScope` (`ssf.manage`), `provisionerScope` (unset - nobody may use SCIM; suggested `ssf.provision`, must differ from `receiverScope` or boot fails), `allowedAudiences` (`clientA=aud1,aud2;clientB=aud3` - the `aud` values a client may name on create besides its own id, see [What the transmitter signs](#what-the-transmitter-signs)), `unownedStreamOwner` (unset - see [Stream ownership](#stream-ownership)), `introspectionEndpoint` (`<issuer>/as/introspect.oauth2`), `introspectionClientId`/`introspectionClientSecret` (deployed as secrets), `introspectionInsecureTls` (false; `true` trusts any certificate chain on the introspection call through libs/platform's `InsecureTls`, which warns once - the host name is still checked) |
+| Receiver | `receiverExpectedIssuer` (turns the receiver on), `receiverJwksUrl`, `receiverAudience` and `receiverEndpointAuthToken` (**both required once the receiver is on** - missing either, the receiver does not start and an ERROR says which),  `receiverJwksCacheSeconds` (300), `receiverInsecureTls` (false; `true` trusts any certificate chain on the JWKS fetch, the poll and the stream calls through libs/platform's `InsecureTls`, which warns once - the host name is still checked), `receiverPollUrl`/`receiverPollToken`/`receiverPollIntervalSeconds` (10), `receiverActionsEnabled` (true) |
 | Sources | `auditEventsEnabled` (true), `auditEventMap` |
 | Kafka | `kafkaEnabled` (false), `kafkaBootstrapServers`, `kafkaTopic` (`sse-events`), `kafkaSecurityProtocol` (`PLAINTEXT`), `kafkaSaslMechanism`/`kafkaSaslUsername`/`kafkaSaslPassword` |
 
@@ -126,9 +134,15 @@ Phase 1 stopgap for the review's B5; the leased engine that replaces the loop is
 The selection and the loop are tested against the stores as they run. `SsfStoresOnPostgresTest` runs the
 `tables` and `ldm` stores' `dueForPush`, three ticks of the loop over each, and a burst of one second's SETs,
 against Postgres - the `ldm` store on the model repo's `0000` and `0001` migrations, vendored under
-`src/test/resources/idm` - and CI's `java` job runs it against its Postgres service. The `tables` store's
+`src/test/resources/idm` - and CI's `java` job runs it against its Postgres service. Since 0.5.0 the rest of
+the `SsfStore` contract runs there too: `SsfStoreContract` holds the in-memory store and, in
+`JdbcSsfStoreOnPostgresTest` and `LdmSsfStoreOnPostgresTest`, both durable stores to the same streams,
+owners, subjects and queue tests, each class in a database of its own (`libs/testkit`). The `ldm` store
+reads a stream's `updatedAt` back as the database's time of its last write (F-0150). The `tables` store's
 selection and the same three ticks were also run once on the HSQLDB 2.7.1 the PingFederate 13.1.3 image ships
-(2026-09-27).
+(2026-09-27); from 0.5.0 a `jdbc:hsqldb:` or `jdbc:h2:` `OIDF_SSF_JDBC_URL` is refused at start-up, an
+`OIDF_SSF_DATA_STORE_ID` naming an HSQLDB or H2 data store (PingFederate's bundled one included) is refused on
+its first connection, and PostgreSQL is the one database the stores are tested on.
 
 **What this does not fix** (S-10): fairness between enabled streams - a stream with more than 500 due SETs
 older than another's still fills the batch, and a receiver that answers slowly but successfully holds the

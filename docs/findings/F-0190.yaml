@@ -1,0 +1,26 @@
+id: F-0190
+title: No build records the commit it was built from in what it ships, so /agentic-identity/info reports the commit as null
+severity: low
+area: platform-pf, build
+source: design
+status: closed
+plan_items: [O-4, F-2, R-I3]
+prs: [53, 68]
+verification: >
+  Closed 2026-09-29 by package RI3 (PR #68). platform-pf's pom writes the Maven property oidf.build.commit
+  (default unknown) into its manifest as Build-Commit; Build's image job and the release's verify, install and deploy
+  pass -Doidf.build.commit=$GITHUB_SHA. BuildInfo.commit reads the manifest of the jar platform-pf's own
+  pom.properties is in, and reports null for unknown, blank or unreadable (BuildInfoTest). The image carries the same
+  commit as its org.opencontainers.image.revision label, and the image job checks both. On the rig built from this
+  branch the start-up banner printed the commit (2026-09-29).
+target_release: 0.6.0
+notes: >
+  Found by package O4 (2026-09-28). The info document and the health detail report this repository's version (from
+  platform-pf's own pom.properties, which Maven writes into every jar), PingFederate's (from pf-commons.jar's
+  pom.properties, the file PingFederate's own org.sourceid.common.VersionUtil reads) and the JVM's, but no build
+  writes the commit anywhere a running PingFederate can read it: the module poms set no manifest entry for it,
+  stage-modules.sh writes none into modules/MANIFEST, and the image carries no label with it. So `commit` is null.
+  Two builds of one SNAPSHOT version cannot be told apart from a running node. Who and when: F-2's start-up banner
+  (Phase 2, wave 4) prints the commit too and needs the same source, and R-I3 (Phase 3) adds the image's OCI labels;
+  one of them should have the build pass the commit in (a manifest entry from a -D property CI sets from
+  GITHUB_SHA) and BuildInfo read it.

@@ -17,6 +17,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -271,7 +272,7 @@ class LdmSsfStoreTest {
         assertTrue(store.peek("00000000-0000-0000-0000-000000000001", 1).isEmpty());
 
         verify(conn).prepareStatement(org.mockito.ArgumentMatchers.endsWith(" " + LdmSsfStore.ORDER_PEEK));
-        assertEquals("ORDER BY (attrs->>'issuedAt')::bigint, attrs->>'jti' LIMIT ?", LdmSsfStore.ORDER_PEEK);
-        assertTrue(LdmSsfStore.SELECT_DUE_FOR_PUSH.endsWith(" ORDER BY (p.attrs->>'issuedAt')::bigint, p.attrs->>'jti' LIMIT ?"));
+        assertEquals("ORDER BY (attrs->>'issuedAt')::bigint, attrs->>'jti' COLLATE \"C\" LIMIT ?", LdmSsfStore.ORDER_PEEK);
+        assertTrue(LdmSsfStore.SELECT_DUE_FOR_PUSH.endsWith(" ORDER BY (p.attrs->>'issuedAt')::bigint, p.attrs->>'jti' COLLATE \"C\" LIMIT ?"));
     }
 }

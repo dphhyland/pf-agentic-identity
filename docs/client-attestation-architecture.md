@@ -89,7 +89,7 @@ It presents only its evidence; the attester tries every attestation client's tru
 client whose bundle cryptographically verifies the evidence *and* whose bindings contain the resulting
 identity is the match. A `client_id` in the body is accepted and ignored. Two clients matching the same
 identity is a configuration fault and is rejected rather than resolved arbitrarily
-([`AttestationIssuanceServlet:569-641`](../servlets/attestation-issuer/src/main/java/com/pingidentity/ps/oidf/servlet/attestation/AttestationIssuanceServlet.java#L569)).
+([`AttestationIssuanceServlet:578-650`](../servlets/attestation-issuer/src/main/java/com/pingidentity/ps/oidf/servlet/attestation/AttestationIssuanceServlet.java#L578)).
 
 An `agent_id` anywhere in the request — top level or smuggled inside an `authorization_details` entry —
 is rejected outright, not ignored (`:699`, `:756`). It is the attester's to mint.
@@ -122,9 +122,10 @@ sequenceDiagram
 
 **Why a servlet Filter and not an SDK plugin.** PingFederate has no native support for
 `attest_jwt_client_auth` and no SDK extension point for client authentication. The filter is
-registered by web.xml surgery in the deploy image, and the assemble script asserts the mapping is
-present or fails the build
-([`assemble-pf-runtime-war.sh:136-140`](../build/pingfederate/assemble-pf-runtime-war.sh#L136)).
+registered in the deploy image's web.xml, as [`filters.xml`](../build/pingfederate/filters.xml) declares it, and
+the war assembler fails the build unless the mapping is present exactly once, over exactly its declared paths and
+after `OidfAutoRegistration`
+([`build/war-assembler`](../build/war-assembler/README.md#what-it-refuses)).
 
 **Why it is verified once.** The filter runs on the webapp classloader and the OGNL criterion on the
 engine classloader, and either can verify an attestation. Verifying spends the PoP `jti` and any
@@ -132,7 +133,7 @@ challenge, so a second verification of the same request would report a replay as
 classloaders share a Redis store. The filter therefore publishes what it verified as a server-side
 request attribute and the criterion reuses it; only a deployment without the filter has the criterion
 verify for itself
-([`ClientAttestationAuthFilter:58-63`](../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/ClientAttestationAuthFilter.java#L58),
+([`ClientAttestationAuthFilter:59-64`](../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/ClientAttestationAuthFilter.java#L59),
 [`ClientAttestationUtils:128-138`](../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/utils/ClientAttestationUtils.java#L128)).
 
 **Fail-closed, and the one way it is not.** An invalid attestation is rejected at the filter with the
@@ -268,7 +269,7 @@ and `workload.instance_attestation` are gone; see §6).
 
 One thing the code comments promise and the code does not deliver: step 6 reads "resolve the granted
 entitlement against the effective ceiling, then apply any selector-conditioned downscoping the policy
-requires" (`AttestationIssuanceServlet:217-218`). Only the first clause exists. The introspected
+requires" (`AttestationIssuanceServlet:226-227`). Only the first clause exists. The introspected
 selectors and the binding's metadata (`version`, region, whatever the operator declared) are merged
 into `workloadAttributes` and passed to the minter as `workload.attributes` — they are **never read by
 any ceiling computation**. The only narrowing that happens is the asserted-context intersection, and
@@ -526,7 +527,7 @@ which is why they survive a module count changing and the paragraph above them d
 | ABCA challenge endpoint | `AttestationChallengeServiceTest` (4) | Consumable once; unknown rejected; unique; expired rejected |
 | ABCA replay | `AttestationReplayCacheTest` (4), `RedisAttestationStoreTest` (11) | First-use/replay; `(jti, client)` pairs independent; blank `jti` rejected; bounded cache evicts but stays usable. Redis: same contract cross-instance, **wrong password fails closed**, **Redis down fails closed**, survives stale connections |
 | ABCA `agent_id` extension | `ClientAttestationTest` (3), `AttestationMinterTest` (5) | Null when absent, parsed when present, doesn't perturb other fields; omitted rather than emitted blank |
-| RFC 9449 DPoP | `DpopProofValidatorTest` (9) | Valid accepted; `htu` ignores query/fragment; wrong method/URI/`typ` rejected; missing `jti` rejected; stale rejected; tampered signature rejected; disallowed alg rejected |
+| RFC 9449 DPoP | `DpopProofValidatorTest` (11, in oidf-jose since 0.6.0) | Valid accepted; `htu` ignores query/fragment; wrong method/URI/`typ` rejected; `htm` compared exactly (F-0226); missing `jti` rejected; stale rejected; tampered signature rejected; disallowed alg rejected |
 | RFC 9396 containment | `AuthorizationDetailsGateTest` (20), `AsVectorRunnerTest` and `CasVectorRunnerTest` (the shared vectors through the token gate, the mint, the configuration and the asserted context), `RarModelVectorsTest` in `libs/rar-model`; `RarEntitlementTest` (8) for the unused old check | Grants within entitlement; denies region/action outside; denies when nothing attested but something requested; grants nothing when nothing requested; missing `type` invalid; array parsing |
 | RFC 9396 at issuance | `AttestationAwareRarProcessorTest` (21), `PrincipalPerFlowTest` (8), `ClientAssertedPrincipalTest` (9), `AttestationSubjectTest` (7), `ModelContainmentTest` (16), `ModelGateTest` (9), `RefreshVectorsTest` (149), `ShadedJarCheck` (2) | A non-PERMIT always throws; fail-open only for an unreachable PDP, and it strips the internal `_principal_sub` and `_agent_id` markers; PERMIT merges and strips; a PDP that answered badly throws with its text, the principal hashed and no cause; the principal per OAuth flow, and payments refused before the PDP without an authenticated one. Subject parses the PF hook attribute shape, `agent_id`, `iss` and `rar_models_fingerprint` when published. The containment model: a detail it cannot read is refused before the PDP, a PDP answer it does not find within the request is refused, a refresh must be strictly within its grant, an attestation context with no fingerprint or another one is refused, and the library's `contains` vectors run through PingFederate's parse and refresh loop; the shaded jar carries the model only under its relocated package |
 | RFC 8693 `act` | `ClientAttestationUtilsTest` (3) | Prefers `agent_id` as the acting party; falls back to `client_id` when null or blank |
@@ -665,7 +666,7 @@ the live list as the header instructs.
 ### Production hardening
 
 **Selector-conditioned downscoping does not exist.** The code comment at
-`AttestationIssuanceServlet:217-218` describes it, the `SpireSelectorIntrospector` javadoc gives an
+`AttestationIssuanceServlet:226-227` describes it, the `SpireSelectorIntrospector` javadoc gives an
 example of it ("only grant EMEA when `k8s:ns:demo` is among the selectors"), and the CAS spec §7 rule 4
 allows for it — but nothing implements it. Introspected selectors and binding metadata such as
 `version` are carried into `workload.attributes` and never touch the ceiling. This is the stage that

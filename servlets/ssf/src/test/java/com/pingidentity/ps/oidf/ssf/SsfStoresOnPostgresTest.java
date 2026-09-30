@@ -7,25 +7,19 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.conformance.Requirement;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
+import com.pingidentity.ps.oidf.testkit.Migrations;
+import com.pingidentity.ps.oidf.testkit.PostgresDatabase;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 import javax.sql.DataSource;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.postgresql.ds.PGSimpleDataSource;
-import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 /**
  * {@link JdbcSsfStore} (its own DDL) and {@link LdmSsfStore} (the model repo's migrations, vendored under
@@ -34,54 +28,24 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * since 0.4.0 is a join on the stream's state (the B5 stopgap, S10-0), and a join that only a mock has
  * seen is a claim, not a result (U-0078).
  *
- * <p>The Postgres comes from {@code IDM_TEST_JDBC_URL} (with {@code IDM_TEST_JDBC_USER} and
- * {@code _PASSWORD}), as for device-instance's registry suite, or else from Testcontainers; with neither
- * the class is skipped, not failed. On the database the variable names, the class creates a database of its
- * own and drops it afterwards, so it shares nothing with the other suites that use the same server. Where
- * the user may not create databases it falls back to the named one, and drops and rebuilds the SSF tables
- * and the {@code idm} schema there - point it only at a database you are willing to lose.
+ * <p>The Postgres is a database of this class's own (libs/testkit: {@code OIDF_TEST_JDBC_URL}, CI's service
+ * container, else Testcontainers, else skipped - failed under {@code CI=true}), created before the class and dropped
+ * after it. The stores' whole contract runs in {@code JdbcSsfStoreOnPostgresTest} and {@code LdmSsfStoreOnPostgresTest};
+ * this class is the push selection and the loop over both.
  */
 class SsfStoresOnPostgresTest {
 
-    private static final String[] MIGRATIONS = {
-        "/idm/0000-base-schema.sql",
-        "/idm/0001-add-shared-signals-ssf.sql",
-    };
+    @RegisterExtension
+    static final PostgresDatabase POSTGRES = new PostgresDatabase();
 
-    private static PostgreSQLContainer<?> container;
-    private static DataSource admin;
-    private static String ownDatabase;
     private static DataSource db;
 
     @BeforeAll
     static void database() throws Exception {
-        Optional<PGSimpleDataSource> external = externalDataSource();
-        if (external.isPresent()) {
-            admin = external.get();
-            db = ownDatabaseOr(external.get());
-        } else {
-            db = containerDataSource();
-        }
-        try (Connection c = db.getConnection(); Statement s = c.createStatement()) {
-            s.execute("DROP TABLE IF EXISTS ssf_pending_sets, ssf_stream_subjects, ssf_streams");
-            s.execute("DROP SCHEMA IF EXISTS idm CASCADE");
-            for (String migration : MIGRATIONS) {
-                s.execute(read(migration));
-            }
-        }
+        db = POSTGRES.dataSource();
+        Migrations.applyResources(db, SsfStoresOnPostgresTest.class,
+                "/idm/0000-base-schema.sql", "/idm/0001-add-shared-signals-ssf.sql");
         new JdbcSsfStore(db).ensureSchema();
-    }
-
-    @AfterAll
-    static void dropDatabase() throws SQLException {
-        if (ownDatabase != null) {
-            try (Connection c = admin.getConnection(); Statement s = c.createStatement()) {
-                s.execute("DROP DATABASE IF EXISTS " + ownDatabase + " WITH (FORCE)");
-            }
-        }
-        if (container != null) {
-            container.stop();
-        }
     }
 
     @BeforeEach
@@ -89,64 +53,6 @@ class SsfStoresOnPostgresTest {
         try (Connection c = db.getConnection(); Statement s = c.createStatement()) {
             s.execute("TRUNCATE ssf_pending_sets, ssf_stream_subjects, ssf_streams");
             s.execute("TRUNCATE idm.entry CASCADE");
-        }
-    }
-
-    private static Optional<PGSimpleDataSource> externalDataSource() {
-        String url = System.getenv("IDM_TEST_JDBC_URL");
-        if (url == null || url.isBlank()) {
-            return Optional.empty();
-        }
-        return Optional.of(dataSource(url));
-    }
-
-    private static PGSimpleDataSource dataSource(String url) {
-        PGSimpleDataSource ds = new PGSimpleDataSource();
-        ds.setUrl(url);
-        String user = System.getenv("IDM_TEST_JDBC_USER");
-        String password = System.getenv("IDM_TEST_JDBC_PASSWORD");
-        if (user != null && !user.isBlank()) {
-            ds.setUser(user);
-        }
-        if (password != null && !password.isBlank()) {
-            ds.setPassword(password);
-        }
-        return ds;
-    }
-
-    /** A database of this class's own on the named server, or the named database if that is refused. */
-    private static DataSource ownDatabaseOr(PGSimpleDataSource named) {
-        String name = "ssf_store_test_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
-        try (Connection c = named.getConnection(); Statement s = c.createStatement()) {
-            s.execute("CREATE DATABASE " + name);
-        } catch (SQLException refused) {
-            return named;
-        }
-        ownDatabase = name;
-        PGSimpleDataSource own = dataSource(System.getenv("IDM_TEST_JDBC_URL"));
-        own.setDatabaseName(name);
-        return own;
-    }
-
-    private static DataSource containerDataSource() {
-        Assumptions.assumeTrue(DockerClientFactory.instance().isDockerAvailable(),
-                "no Postgres for the SSF store suite: set IDM_TEST_JDBC_URL, or make the Docker API reachable "
-                        + "for Testcontainers");
-        container = new PostgreSQLContainer<>("postgres:16-alpine");
-        container.start();
-        PGSimpleDataSource ds = new PGSimpleDataSource();
-        ds.setUrl(container.getJdbcUrl());
-        ds.setUser(container.getUsername());
-        ds.setPassword(container.getPassword());
-        return ds;
-    }
-
-    private static String read(String resource) throws IOException {
-        try (InputStream in = SsfStoresOnPostgresTest.class.getResourceAsStream(resource)) {
-            if (in == null) {
-                throw new IOException("missing test resource " + resource);
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
     }
 

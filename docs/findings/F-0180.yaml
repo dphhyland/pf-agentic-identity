@@ -1,0 +1,20 @@
+id: F-0180
+title: A Redis URL's userinfo is decoded twice, so a '+' in the password is a space
+severity: low
+area: platform, client-attestation
+source: design
+status: open
+plan_items: [C-2]
+prs: [54]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by C2 (2026-09-28) while moving MiniRedisClient to platform.redis. 0.4.0 took the userinfo from
+  URI.getUserInfo, which decodes the percent escapes, and then ran each part through URLDecoder, which is form
+  decoding: it turns '+' into a space and decodes a second time. So redis://:a+b@host sends AUTH "a b", and
+  %2525 reaches Redis as '%'. A password with a literal '+' has never worked; one that needed a '%' escaped
+  twice works only because of the bug. C2 keeps the decoding exactly (RedisConfigTest pins both cases) because
+  the package was to change nothing a deployment sees, and fixes one thing around it: URLDecoder's own message
+  for a bad escape quoted two characters of the password, and RedisUrl.parse now refuses it with a message that
+  quotes nothing. Decoding once (URI's own escapes only) is the fix; it changes the meaning of a password that
+  relied on the double decoding, so it is a Before-you-deploy item in the release that takes it.

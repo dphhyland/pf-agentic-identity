@@ -5,7 +5,7 @@ package com.pingidentity.ps.oidf.servlet.ssf;
 
 import com.pingidentity.ps.oidf.ssf.AuthContext;
 import com.pingidentity.ps.oidf.ssf.EmitRequest;
-import com.pingidentity.ps.oidf.ssf.SetMinter;
+import com.pingidentity.ps.oidf.signals.SetMinter;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.SsfEmitService;
 import com.pingidentity.ps.oidf.ssf.SsfEventEmitter;

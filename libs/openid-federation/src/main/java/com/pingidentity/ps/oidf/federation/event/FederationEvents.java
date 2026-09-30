@@ -1,26 +1,30 @@
 /*
- * The process-wide event sink and the event codes.
+ * The event codes of the federation subsystem, and a façade over platform's event registry.
  */
 package com.pingidentity.ps.oidf.federation.event;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import com.pingidentity.ps.oidf.platform.events.EventSink;
+import com.pingidentity.ps.oidf.platform.events.Events;
+import com.pingidentity.ps.oidf.platform.events.LoggingSink;
 
 /**
- * Holds the one {@link FederationEventSink} for this classloader and names the event codes.
+ * Names the federation event codes, and hands events to this loader's sink - {@link Events} in
+ * {@code platform.events}, where the registry now lives (plan item O-1).
  *
- * <p>Same contract as {@code AuthoritySupport}: the first {@link #configure} wins and a later one is
- * ignored, because the servlets, the filters and the OGNL helpers all reach for the sink
- * and the order they initialise in is not under anyone's control. Until something configures one, events
- * go to a {@link LoggingEventSink}. The engine classloader (OGNL issuance criteria) and the webapp
- * classloader each hold their own copy of this class, and each configures its own sink.
+ * <p>Every code here is declared, with its fields and their PII classes, in
+ * {@code META-INF/oidf-events/federation.json}; {@code EventsCataloguedTest} in pf-integration holds the two
+ * together. {@link #ATTESTATION_VERIFIED} and {@link #ATTESTATION_REFUSED} are declared and never emitted (O-2,
+ * Phase 3), and the catalogue marks them, and the other codes nothing emits yet, {@code declaredOnly}.
+ *
+ * <p>Same contract as before: the first {@link #configure} wins and a later one is ignored, and until something
+ * configures one, events go to a {@link LoggingEventSink}. The engine classloader (OGNL issuance criteria) and the
+ * webapp classloader each hold their own copy of platform, and each configures its own sink.
+ *
+ * @deprecated Use {@link Events}; plan item O-2 (Phase 3) moves the emitters and the codes, and removes this façade.
  */
+@Deprecated(since = "0.5.0", forRemoval = true)
+@SuppressWarnings("removal")
 public final class FederationEvents {
-    private static final Log LOGGER = LogFactory.getLog(FederationEvents.class);
-    private static final Object LOCK = new Object();
-    private static volatile FederationEventSink sink;
-    private static volatile boolean configured;
-
     // ---- codes: the contract a log consumer branches on -------------------------------------------
     public static final String CHAIN_VALIDATED = "federation.chain.validated";
     public static final String CHAIN_REFUSED = "federation.chain.refused";
@@ -68,46 +72,33 @@ public final class FederationEvents {
 
     /** Installs the sink for this classloader. The first call wins; later calls are ignored (a different sink at DEBUG). */
     public static void configure(FederationEventSink newSink) {
-        synchronized (LOCK) {
-            if (configured) {
-                if (newSink != sink) {
-                    LOGGER.debug("FederationEvents sink already configured; ignoring a second configuration");
-                }
-                return;
-            }
-            sink = newSink;
-            configured = true;
-        }
+        Events.configure(newSink == null ? null : new FacadeSink(newSink));
     }
 
-    /** True once {@link #configure} has installed a sink. */
+    /** True once {@link #configure} (or platform's {@link Events#configure}) has installed a sink. */
     public static boolean isConfigured() {
-        return configured;
+        return Events.isConfigured();
     }
 
-    /** The sink events currently go to. */
+    /**
+     * The sink events currently go to: the one {@link #configure} installed, a {@link LoggingEventSink} over
+     * platform's default {@link LoggingSink}, or platform's sink seen through this interface.
+     */
     public static FederationEventSink sink() {
-        FederationEventSink local = sink;
-        if (local == null) {
-            synchronized (LOCK) {
-                if (sink == null) {
-                    sink = new LoggingEventSink();
-                }
-                local = sink;
-            }
+        EventSink current = Events.sink();
+        if (current instanceof FacadeSink facade) {
+            return facade.delegate();
         }
-        return local;
+        if (current instanceof LoggingSink logging) {
+            return new LoggingEventSink(logging);
+        }
+        return event -> current.emit(event.toEvent());
     }
 
     /** Hands {@code event} to the sink; never throws. */
     public static void emit(FederationEvent event) {
-        if (event == null) {
-            return;
-        }
-        try {
-            sink().emit(event);
-        } catch (RuntimeException ignored) {
-            // A failing sink never fails the request the event describes.
+        if (event != null) {
+            Events.emit(event.toEvent());
         }
     }
 
@@ -118,9 +109,6 @@ public final class FederationEvents {
 
     /** Tests only: forget the configured sink so the next {@link #configure} wins. */
     public static void reset() {
-        synchronized (LOCK) {
-            sink = null;
-            configured = false;
-        }
+        Events.reset();
     }
 }

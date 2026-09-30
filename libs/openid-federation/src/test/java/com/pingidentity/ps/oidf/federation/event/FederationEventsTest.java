@@ -9,15 +9,26 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.federation.testkit.EventCapture;
+import com.pingidentity.ps.oidf.platform.events.Event;
+import com.pingidentity.ps.oidf.platform.events.EventCatalogue;
+import com.pingidentity.ps.oidf.platform.events.EventCatalogues;
+import com.pingidentity.ps.oidf.platform.events.Events;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeSet;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
  * The event API: codes and categories, the builder's privacy rule, the sink holder's first-wins
- * contract, and the line format - above all that no token, newline or oversized value reaches a log.
+ * contract, and the line format - above all that no token, newline or oversized value reaches a log. Since O-1
+ * these classes are façades over platform.events; the last tests hold the façade to platform's registry and to
+ * the federation catalogue.
  */
+@SuppressWarnings("removal")
 class FederationEventsTest {
 
     @AfterEach
@@ -163,5 +174,75 @@ class FederationEventsTest {
         String jwe = "eyJhbGciOiJSU0EtT0FFUCJ9.a2V5.aXY.Y2lwaGVy.dGFn";
         assertEquals(LogSafe.jwtDigest(jwe), LogSafe.value(jwe));
         assertEquals(Map.of(), FederationEvent.builder("a.b.c").build().fields());
+    }
+
+    // ---- the façade over platform.events -----------------------------------------------------------
+
+    @Test
+    void theFaçadeConvertsBothWaysWithoutLoss() {
+        FederationEvent event = FederationEvents.event(FederationEvents.REGISTRATION_REFUSED).failure("no_policy")
+                .subject("s").partner("p").role("OP").description("d").field("endpoint", "registration").requestJti("j")
+                .audit().category("c").build();
+
+        Event platform = event.toEvent();
+
+        assertEquals(event, FederationEvent.from(platform));
+        assertEquals(Event.Outcome.FAILURE, platform.outcome());
+        assertEquals("federation", platform.component());
+        assertEquals("federation", new FederationEvent("a.b", null, null, null, null, null, null, null, null, false, null)
+                .component());
+        assertEquals("registration", FederationEvent.categoryOf("federation.registration.created"));
+        assertEquals(FederationEvent.NEVER_BESIDE_AGENT_ID, Event.NEVER_BESIDE_AGENT_ID);
+        assertFalse(FederationEvents.event("a.b").failure("r").success().build().isFailure());
+    }
+
+    @Test
+    void theSinkIsTheOneConfiguredOrALoggingSinkOrPlatformsSeenThroughTheFaçade() {
+        assertInstanceOf(LoggingEventSink.class, FederationEvents.sink());
+        FederationEvents.reset();
+
+        List<Event> seen = new ArrayList<>();
+        Events.configure(seen::add);
+        assertTrue(FederationEvents.isConfigured());
+        FederationEvents.sink().emit(FederationEvents.event(FederationEvents.CHAIN_VALIDATED).subject("s").build());
+        FederationEvents.event(FederationEvents.CHAIN_VALIDATED).emit();
+        assertEquals(2, seen.size());
+        assertEquals("s", seen.get(0).subject());
+
+        FederationEvents.reset();
+        FederationEvents.configure(null);
+        assertInstanceOf(LoggingEventSink.class, FederationEvents.sink(), "a null sink leaves the logging sink");
+        new LoggingEventSink().emit(FederationEvents.event(FederationEvents.CHAIN_VALIDATED).build());
+    }
+
+    @Test
+    void aFieldTheCatalogueDoesNotDeclareNeverReachesASink() {
+        try (EventCapture capture = EventCapture.install()) {
+            FederationEvents.event(FederationEvents.CHAIN_VALIDATED).field("endpoint", "token").field("statement", "raw")
+                    .emit();
+            assertEquals(Map.of("endpoint", "token"), capture.only(FederationEvents.CHAIN_VALIDATED).fields());
+        }
+    }
+
+    /** Every code FederationEvents names is in the federation catalogue, and the catalogue names no other. */
+    @Test
+    void theFederationCatalogueDeclaresEveryCodeAndOnlyThose() throws IllegalAccessException {
+        EventCatalogues catalogues = EventCatalogues.current();
+        assertEquals(List.of(), catalogues.problems());
+        EventCatalogue federation = catalogues.component("federation").orElseThrow();
+        assertEquals("OpenID Federation", federation.auditProtocol());
+        assertEquals("com.pingidentity.ps.oidf.federation.event", federation.logger());
+        assertEquals(LoggingEventSink.LOGGER_PREFIX, federation.logger() + ".");
+
+        TreeSet<String> codes = new TreeSet<>();
+        for (Field field : FederationEvents.class.getFields()) {
+            if (Modifier.isStatic(field.getModifiers()) && field.getType() == String.class) {
+                codes.add((String) field.get(null));
+            }
+        }
+        assertEquals(codes, new TreeSet<>(federation.codes().keySet()));
+        assertTrue(federation.code(FederationEvents.ATTESTATION_VERIFIED).orElseThrow().declaredOnly());
+        assertTrue(federation.code(FederationEvents.ATTESTATION_REFUSED).orElseThrow().declaredOnly());
+        assertEquals("federation", FederationEvents.event(FederationEvents.ATTESTATION_VERIFIED).build().component());
     }
 }

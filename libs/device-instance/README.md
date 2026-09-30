@@ -90,17 +90,11 @@ mvn -pl libs/device-instance -am package     # or `mvn package` at the repo root
 `IomInstanceRegistryTest` runs the full `InstanceRegistryContract` against a **real Postgres**, plus the
 cases only a real one can prove: an 8-thread race where exactly one App Attest assertion may advance the
 counter, the trigger refusing a revoked→active update and a ledger DELETE, and the `v_agent_instance`
-resolution. It takes its database from `IDM_TEST_JDBC_URL` (+ `IDM_TEST_JDBC_USER` / `_PASSWORD`) when
-set — any throwaway Postgres, for environments where the Docker API is not reachable from the build —
-and otherwise starts one with Testcontainers. Skipped, not failed, when neither is available. **It drops
-and rebuilds the `idm` schema**, so never point it at a database you care about.
-
-```sh
-# against a throwaway you already have
-docker run -d --rm --name idm-test -e POSTGRES_PASSWORD=t -e POSTGRES_DB=idm -p 55432:5432 postgres:16-alpine
-IDM_TEST_JDBC_URL=jdbc:postgresql://localhost:55432/idm IDM_TEST_JDBC_USER=postgres IDM_TEST_JDBC_PASSWORD=t \
-  mvn -pl libs/device-instance test
-```
+resolution. It runs in a database of its own that `libs/testkit` creates on the server
+`OIDF_TEST_JDBC_URL` names (else in a Testcontainers container) and drops afterwards, so it touches no
+other database on that server; [CONTRIBUTING.md](../../CONTRIBUTING.md#tests-that-need-postgres) has the
+recipe. Skipped when there is neither, and failed instead under `CI=true`. `IDM_TEST_JDBC_*` still work
+in 0.5.x, with a warning.
 
 The three migrations under `src/test/resources/idm/` are **copies** from
 `~/Source/idp-scim-service/migrations` — refresh them when the model changes; each carries an

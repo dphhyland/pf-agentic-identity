@@ -23,11 +23,12 @@
  *       and DPoP modes, and that a tampered DPoP key is rejected. Proves the
  *       deployed verification logic end-to-end.
  *
- * Classpath: jose4j (always) + client-attestation (for `selfverify`, resolved via reflection so this
+ * Classpath: jose4j and platform (always) + client-attestation (for `selfverify`, resolved via reflection so this
  * file compiles even without it on the classpath). See services/harness/README.md.
  */
 package com.pingidentity.ps.oidf.harness;
 
+import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -35,12 +36,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 import java.util.List;
 import java.util.Map;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 
 import org.jose4j.jwk.EcJwkGenerator;
 import org.jose4j.jwk.JsonWebKey;
@@ -65,14 +62,19 @@ public final class AttestationFlowHarness {
 
     // Workload identity the attester vouches for (carried as the attestation's "workload" claim).
     static final String SOFTWARE_ID = "pf-oidf-attestation-harness";
+    /** The switch that turns the trust-all on. */
+    static final String INSECURE_TLS = "OIDF_HARNESS_INSECURE_TLS";
+    /** What InsecureTls records the JVM-wide host name switch under: the harness sets it on every run. */
+    static final String HOSTNAME_CHECK_OFF = "AttestationFlowHarness.main (every run)";
     static final String SOFTWARE_VERSION = "0.0.1-SNAPSHOT";
     private static final String INSTANCE_ID = java.util.UUID.randomUUID().toString();
     private static volatile Map<String, Object> WORKLOAD;
 
     public static void main(String[] args) throws Exception {
-        // PingFederate serves a self-signed cert (CN=localhost) behind the TCP proxy;
-        // accept it for this dev/test harness (chain + hostname).
-        System.setProperty("jdk.internal.httpclient.disableHostnameVerification", "true");
+        // PingFederate serves a self-signed cert (CN=localhost) behind the TCP proxy; this dev/test harness turns
+        // the JDK client's host name check off for the whole run, as it always has (F-0162). The chain is checked
+        // unless OIDF_HARNESS_INSECURE_TLS=true. Through platform's InsecureTls, the one place allowed to.
+        InsecureTls.disableJdkHostnameVerification(HOSTNAME_CHECK_OFF, true);
         String mode = args.length > 0 ? args[0] : "selfverify";
         switch (mode) {
             case "live" -> live(args);
@@ -507,18 +509,15 @@ public final class AttestationFlowHarness {
      * a self-signed local PF - loudly, and never by default: live mode's documented use is a real
      * deployment, where a silent MITM would hand an attacker the client secret and the attestation.
      */
-    static HttpClient httpClient() throws Exception {
-        if (!Boolean.parseBoolean(System.getenv("OIDF_HARNESS_INSECURE_TLS"))) {
-            return HttpClient.newHttpClient();
+    static HttpClient httpClient() {
+        return httpClient(Boolean.parseBoolean(System.getenv(INSECURE_TLS)));
+    }
+
+    /** The same, told the switch: the trust-all is platform's {@link InsecureTls}. */
+    static HttpClient httpClient(boolean insecureTls) {
+        if (insecureTls) {
+            System.err.println("WARN: " + INSECURE_TLS + "=true - TLS certificate verification is OFF for this run");
         }
-        System.err.println("WARN: OIDF_HARNESS_INSECURE_TLS=true - TLS certificate verification is OFF for this run");
-        TrustManager[] trustAll = {new X509TrustManager() {
-            public void checkClientTrusted(X509Certificate[] c, String a) {}
-            public void checkServerTrusted(X509Certificate[] c, String a) {}
-            public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-        }};
-        SSLContext ssl = SSLContext.getInstance("TLS");
-        ssl.init(null, trustAll, new SecureRandom());
-        return HttpClient.newBuilder().sslContext(ssl).build();
+        return InsecureTls.trustAnyCertificate(HttpClient.newBuilder(), INSECURE_TLS, insecureTls).build();
     }
 }

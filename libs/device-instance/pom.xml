@@ -6,7 +6,7 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>device-instance</artifactId>
-    <version>0.5.0-SNAPSHOT</version>
+    <version>0.6.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>device-instance</name>
@@ -25,13 +25,16 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.5.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.6.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -41,16 +44,15 @@
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>
         <!-- The JDBC driver is provided: the registry is written against java.sql, and the deployment
-             supplies the driver. Tests need it at runtime to reach the Testcontainers Postgres. -->
+             supplies the driver. The tests reach their Postgres with it. -->
         <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>provided</scope></dependency>
 
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
-        <!-- A real Postgres, not H2: the registry's invariants live in JSONB operators, partial unique
-             indexes on expressions, ANY(text[]) and plpgsql triggers — none of which H2 has. The
-             contract suite is meaningless against a database that cannot enforce the rules. -->
-        <dependency><groupId>org.testcontainers</groupId><artifactId>postgresql</artifactId><scope>test</scope></dependency>
-        <dependency><groupId>org.testcontainers</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+        <!-- A real Postgres, a database per test class (libs/testkit): the registry's invariants live in JSONB
+             operators, partial unique indexes on expressions, ANY(text[]) and plpgsql triggers. The contract
+             suite is meaningless against a database that cannot enforce the rules. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>testkit</artifactId><scope>test</scope></dependency>
     </dependencies>
 
     <build>
@@ -67,7 +69,7 @@
 
               Gated per METHOD, not per class, so the paths that need infrastructure stay
               honestly out of scope: every IomInstanceRegistry member talks to a real Postgres
-              through Testcontainers and is skipped wherever Docker is absent, and the
+              through libs/testkit and is skipped wherever none is reachable, and the
               InMemory registry's duplicate/unknown-id rejections and the minter's malformed-JWK
               path have no test yet. Those are named in the coverage backlog rather than
               gated at a limit nobody meets.

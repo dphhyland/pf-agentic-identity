@@ -8,7 +8,7 @@
          au.com.idpartners:gm-api: it joined the lockstep at 0.2.0, from a standalone 1.0.0. -->
     <groupId>au.com.idpartners</groupId>
     <artifactId>gm-api</artifactId>
-    <version>0.5.0-SNAPSHOT</version>
+    <version>0.6.0-SNAPSHOT</version>
     <packaging>war</packaging>
 
     <name>Grant Evaluation API (PingFederate servlet)</name>
@@ -21,13 +21,16 @@
         <maven.compiler.release>17</maven.compiler.release>
         <!-- The war ships as a release asset, not a Maven artifact. -->
         <maven.deploy.skip>true</maven.deploy.skip>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.5.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.6.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -45,6 +48,12 @@
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><scope>provided</scope></dependency>
         <!-- TypeReference is jackson-core's, imported directly. -->
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-core</artifactId><scope>provided</scope></dependency>
+        <!-- platform-pf, and platform through it (plan item F-2): bundled in WEB-INF/lib, the one exception to
+             "all provided". They are this repository's own jars, not PingFederate's, and this war needs its own
+             copy - its own lifecycle, components and metrics - for the lifecycle listener and the health servlet
+             to report this war and close only what it opened (docs/development/classloaders.md, rule 1).
+             platform-pf's own PingFederate dependencies stay provided and do not come with it. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform-pf</artifactId></dependency>
         <!-- No commons-lang3 or commons-logging: nothing here, main or test, reaches either (the
              local.pingfederate era declared both; the war compiles and its tests pass without them). -->
 

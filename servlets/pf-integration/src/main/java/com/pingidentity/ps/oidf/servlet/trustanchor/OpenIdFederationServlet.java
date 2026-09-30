@@ -10,6 +10,7 @@ import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfJwksSigningKeyProvider;
 import com.pingidentity.ps.oidf.pf.PfProviderMetadata;
 import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.Arrays;
@@ -24,7 +25,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 import com.pingidentity.ps.oidf.clientattestation.AttestationReplayCache;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
 import com.pingidentity.ps.oidf.clientattestation.StoreNamespace;
@@ -42,6 +42,9 @@ import com.pingidentity.ps.oidf.federation.ValidatorOptions;
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
 import com.pingidentity.ps.oidf.keyhistory.KeyHistory;
 import com.pingidentity.ps.oidf.keyhistory.KeyHistorySupport;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
+import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
 
@@ -60,6 +63,8 @@ public class OpenIdFederationServlet
 extends RequestScopedServlet {
     private static final long serialVersionUID = 1L;
     private FederationService federationService;
+    /** This servlet's part of FEDERATION, from init; null when a test's constructor made it and init never ran. */
+    private transient volatile ComponentParts.Part part;
     private FederationConfiguration federationConfiguration;
     private final Function<HttpServletRequest, String> issuerResolver;
     /** PingFederate's own discovery documents, which this entity's openid_provider and AS metadata start from. */
@@ -77,13 +82,13 @@ extends RequestScopedServlet {
             "/federation/historical_keys", "federation_historical_keys_endpoint");
 
     public OpenIdFederationServlet() {
-        this.issuerResolver = req -> OAuthIssuerUtils.getInstance().getIssuerValue(req);
+        this.issuerResolver = req -> PfInternals.issuer(req);
         this.providerMetadata = new PfProviderMetadata();
     }
 
     /**
      * Test seam: a ready service and configuration, and an issuer resolver, so the servlet runs without a
-     * booted PingFederate ({@link OAuthIssuerUtils} and PF's signing keys need one).
+     * booted PingFederate ({@link PfInternals#issuer} and PF's signing keys need one).
      */
     OpenIdFederationServlet(FederationService service, FederationConfiguration configuration,
                             Function<HttpServletRequest, String> issuerResolver) {
@@ -101,8 +106,20 @@ extends RequestScopedServlet {
 
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
+        // A test's constructor supplies the service; a retry after a failure builds it again, whatever the last attempt set.
+        boolean injected = this.federationService != null;
+        ComponentParts.Part part = Startup.begin(Startup.FEDERATION, "OpenIdFederationServlet");
+        this.part = part;
+        part.start(() -> this.init(config, part, injected));
+    }
+
+    /**
+     * The start function: what {@code init} did before S-9, run by {@link ComponentParts.Part#start} at deploy and again
+     * by each supervisor retry after a dependency failure. What it throws is the part's state, never the container's.
+     */
+    private void init(ServletConfig config, ComponentParts.Part part, boolean injected) throws ServletException {
         PfAuditEventSink.install();
-        if (this.federationService != null) {
+        if (injected) {
             return;
         }
         try {
@@ -144,9 +161,11 @@ extends RequestScopedServlet {
             // Hosting is configured now, not on HostedEntityServlet's first request, when the environment names an authority:
             // fetches about hosted entities are answered from the first request on.
             try {
-                HostedEntityServlet.configureAuthority(null);
+                if (Startup.mayStart(Startup.HOSTING)) {
+                    HostedEntityServlet.configureAuthority(null);
+                }
             } catch (RuntimeException e) {
-                log.error("Hosting could not be configured at start-up; HostedEntityServlet tries again on its first request", e);
+                log.error("Hosting could not be configured at start-up; HostedEntityServlet tries again at its own start and reports HOSTING's state", e);
             }
             service.subordinateConstraints(runtime.subordinateConstraints());
             FederationRuntimeConfig.TrustMarkIssuingSettings marks = runtime.trustMarkIssuing();
@@ -224,6 +243,14 @@ extends RequestScopedServlet {
             default:
                 return false;
         }
+    }
+
+    @Override
+    protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        if (ComponentGate.servlet(this.part, resp)) {
+            return;
+        }
+        super.service(req, resp);
     }
 
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {

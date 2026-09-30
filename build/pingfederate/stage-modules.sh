@@ -26,6 +26,11 @@
 # servlets fail at first use the same way, even when receiverInstanceRegistry is off. It is a pure
 # library (no App Attest, no HTTP, no PingFederate SDK), unlike app-attest, which stays out: App Attest
 # verification lives in services/device-enrolment, not in the AS.
+# shared-signals rides along because servlets/ssf is built on it (plan item X-A14): the SET model, minting,
+# verification and subjects live there, so without it the SSF servlets fail with NoClassDefFoundError.
+# rs-validation rides along because platform-pf's OperatorAuthenticator verifies operator access tokens and
+# their DPoP proofs through it (plan item S8a); platform-pf declares it optional, so without it the operator
+# APIs fail at first use with NoClassDefFoundError. Its libraries (jose4j, jackson) are on PF's classpath.
 set -euo pipefail
 PROFILE=production
 while [[ $# -gt 0 ]]; do
@@ -59,11 +64,13 @@ ENTRIES=(
   "libs libs/platform/target/platform-$VERSION.jar"
   "libs libs/platform-pf/target/platform-pf-$VERSION.jar"
   "libs libs/oidf-jose/target/oidf-jose-$VERSION.jar"
+  "libs libs/rs-validation/target/rs-validation-$VERSION.jar"
   "libs libs/rar-model/target/rar-model-$VERSION.jar"
   "libs libs/client-attestation/target/client-attestation-$VERSION.jar"
   "libs libs/openid-federation/target/openid-federation-$VERSION.jar"
   "libs libs/agent-registry/target/agent-registry-$VERSION.jar"
   "libs libs/device-instance/target/device-instance-$VERSION.jar"
+  "libs libs/shared-signals/target/shared-signals-$VERSION.jar"
 )
 if [[ "$PROFILE" == conformance ]]; then
   # The CIBA simulator: an OOBAuthPlugin plus its decision servlet in one jar. The Dockerfile puts every
@@ -116,3 +123,13 @@ fi
 
 echo "staged ${#ENTRIES[@]} jars ($PROFILE profile) into $DEST:"
 cat "$DEST/MANIFEST"
+
+# The war assembler assemble-pf-runtime-war.sh runs (build/war-assembler), into assembler/ beside modules/ -
+# so a context composed from STAGE_DEST's parent carries it too. It is a build tool, not a module, so it is
+# not in ENTRIES or the MANIFEST: it never goes into the war or server/default/deploy.
+ASSEMBLER_JAR="$ROOT/build/war-assembler/target/war-assembler-$VERSION.jar"
+ASSEMBLER_DEST="$(dirname "$DEST")/assembler"
+[[ -f "$ASSEMBLER_JAR" ]] || { echo "ERROR: build/war-assembler/target/war-assembler-$VERSION.jar not built - run 'mvn -q -DskipTests package' first" >&2; exit 1; }
+mkdir -p "$ASSEMBLER_DEST"
+cp "$ASSEMBLER_JAR" "$ASSEMBLER_DEST/war-assembler.jar"
+echo "staged the war assembler into $ASSEMBLER_DEST/war-assembler.jar"
