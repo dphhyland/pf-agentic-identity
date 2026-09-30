@@ -169,4 +169,16 @@ class RegistrationCoordinatorTest {
     void theDeadlineIsReadFromTheRegistrationCatalogue() {
         assertEquals(RegistrationCoordinator.DEFAULT_DEADLINE, RegistrationCoordinator.configuredDeadline());
     }
+
+    @Test
+    void aDeadlineOutsideItsRangeIsRefusedNamingTheSetting() {
+        System.setProperty("oidf.registration.deadline.seconds", "1");
+        try {
+            RuntimeException e = assertThrows(com.pingidentity.ps.oidf.platform.settings.SettingRefused.class,
+                    RegistrationCoordinator::configuredDeadline);
+            assertTrue(e.getMessage().contains(RegistrationCoordinator.DEADLINE_SETTING), e.getMessage());
+        } finally {
+            System.clearProperty("oidf.registration.deadline.seconds");
+        }
+    }
 }

@@ -156,4 +156,22 @@ class OpenIdRegistrationBodyCapTest {
         verify(resp).setStatus(503);
         verify(resp).setHeader("Retry-After", "2");
     }
+
+    @Test
+    void aCapOutsideItsRangeFailsTheRequestNamingTheSetting() throws Exception {
+        System.setProperty("oidf.registration.max.body.bytes", "4095");
+        try {
+            OpenIdRegistrationServlet servlet = new OpenIdRegistrationServlet(mock(RegistrationService.class), req -> OP);
+            HttpServletResponse resp = mock(HttpServletResponse.class);
+            when(resp.getWriter()).thenReturn(new PrintWriter(new StringWriter()));
+
+            servlet.doPost(post(new CountingBody(10), 10), resp);
+
+            verify(resp).setStatus(500);
+            assertThrows(com.pingidentity.ps.oidf.platform.settings.SettingRefused.class,
+                    () -> servlet.readRequestBody(post(new CountingBody(10), 10)));
+        } finally {
+            System.clearProperty("oidf.registration.max.body.bytes");
+        }
+    }
 }
