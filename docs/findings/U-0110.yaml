@@ -2,9 +2,9 @@ id: U-0110
 title: The issuance criterion's containment check on PingFederate's engine classloader, on a booted server
 area: pf-integration
 source: pr-review
-status: open
+status: closed
 plan_items: [S1b, S-9]
-prs: [37]
+prs: [37, 86]
 recorded_in: docs/releases/unreleased/S1B.md, Notes; servlets/pf-integration/README.md, The attestation's authorization_details
 verify_by: >
   A rig with the attestation filter passing through (OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false) and
@@ -14,7 +14,20 @@ verify_by: >
   engine classloader's "RAR containment models loaded: fingerprint=..." line (once) and "Attestation-based client
   authentication failed [invalid_authorization_details] ...". Then set OIDF_RAR_MODELS to a truncated document and
   expect every attested token refused with "the RAR containment models could not be loaded" in the log.
-verification: ''
+verification: >
+  Verified 2026-09-30 on the rig (slot 1, PingFederate 13.1.3.0, origin/main cf5b8bce, development profile, the
+  attestation filter off by OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false, -Doidf.mock.attesters naming one ES256 attester)
+  with validateClientAttestation(#this) put on the client-credentials mapping (client_credentials|conformanceJwt)
+  through the admin API for the test, and a secret-authenticated probe client; the rig was taken down after. An
+  attested request (DPoP combined mode) whose oidf_requested_access was within the attestation's sales_agent ceiling
+  got a DPoP token; one over it got 400 invalid_grant with the criterion's Error Result, and server.log said
+  "Attestation-based client authentication failed [invalid_authorization_details]: authorization_details exceeds what
+  the client attestation allows". The engine classloader logged "RAR containment models loaded: fingerprint=bbedb1a7...
+  types=[sales_agent, payment_initiation, account_information]" once, on the first criterion call (the webapp's copy
+  logged its own at start-up). Restarted with OIDF_RAR_MODELS set to a truncated document, every attested token was
+  refused and the engine logged "RAR containment models could not be loaded ... OIDF_RAR_MODELS: not a JSON object" and
+  "Attestation-based client authentication refused: the RAR containment models could not be loaded". From 0.6.0 (PR #86)
+  the criterion answers false while ATTESTATION_AUTH is off, so this filter-less path needs the component on.
 notes: >
   2026-09-27, PR #37: the filter path was run on a booted PingFederate 13.1.3 (the rig, torn down after) and the
   rar-model jar was seen in both server/default/deploy and pf-runtime.war. The criterion path ran only in unit

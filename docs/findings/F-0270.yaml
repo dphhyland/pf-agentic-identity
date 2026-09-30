@@ -3,10 +3,17 @@ title: While FAPI is failed every request to the endpoints its filter covers ans
 severity: medium
 area: platform-pf, pf-integration
 source: design
-status: open
+status: closed
 plan_items: [S9b]
-prs: [72]
-verification: ''
+prs: [72, 86]
+verification: >
+  2026-09-30, PR #86 (package S9B): a failed FAPI's gate reads the client list as the start reads it (the system
+  property oidf.fapi2.clients, then OIDF_FAPI2_CLIENTS) and answers 503 only to a request from a client it names - or
+  to every request when the list names every client, when the request's assertion cannot be read or is repeated, or
+  when the list itself cannot be read; every other request goes on (Fapi2ProfileFilter.fromAListedClient,
+  fapi2/SurfaceGateTest). On the rig (slot 1, PingFederate 13.1.3.0, development profile, OIDF_FAPI_ENABLED=maybe so
+  FAPI is FAILED_CONFIG with the rig's list readable) conformance-ssf-emitter was issued a token (200) while
+  conformance-fapi2-client1 answered 503 "FAPI is not available" (conformance/fail-soft-matrix.sh fapi).
 target_release: 0.6.0
 notes: >
   Found by package S9A (2026-09-30). ComponentGate lets a failed filter pass on the traffic its component does not

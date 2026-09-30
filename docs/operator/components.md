@@ -265,4 +265,76 @@ while one whose `client_id` is an https URL answered 503 `{"error":"temporarily_
 "AUTO_REGISTRATION is not available"}`. `FEDERATION` was `FAILED_CONFIG` too, from explicit registration (the
 trust controller names no pinned anchor keys), and `OpenIdFederationServlet` stayed `READY`. Left unset in
 production, the rig's `OIDF_FAPI2_CLIENTS` makes `FAPI` `FAILED_CONFIG` and every token request answers 503
-(the same boot with only the two switches unset): the FAPI floor is every request ([F-0270](../findings/F-0270.yaml)).
+(the same boot with only the two switches unset): S9a's FAPI floor was every request ([F-0270](../findings/F-0270.yaml));
+from S9b a failed FAPI closes only the clients its list names (below).
+
+**Each surface's rule, on the rig** (2026-09-30, this repository at 428acf93, slot 1, PingFederate 13.1.3.0 on java
+21.0.12.1, development profile). `conformance/fail-soft-matrix.sh` recreated the container once per case with the
+case's variables added to the rig's, and printed:
+
+```
+case                check                                                      expected                           got                                          result
+baseline            PingFederate's own token endpoint                          200 a token                        200 a token                                  ok
+baseline            /.well-known/openid-federation (FEDERATION off)            404 not_found                      404 not_found                                ok
+baseline            a federation client at the token endpoint                  401 invalid_client                 401 invalid_client                           ok
+baseline            attestation headers at the token endpoint                  401 invalid_client                 401 invalid_client                           ok
+baseline            ready (disabled components never count)                    200                                200                                          ok
+federation          PingFederate's own token endpoint                          200 a token                        200 a token                                  ok
+federation          /.well-known/openid-federation                             503 temporarily_unavailable        503 temporarily_unavailable                  ok
+federation          /federation/fetch                                          503 temporarily_unavailable        503 temporarily_unavailable                  ok
+federation          ready                                                      503                                503                                          ok
+bootstrap-anchor    PingFederate's own token endpoint                          200 a token                        200 a token                                  ok
+bootstrap-anchor    /.well-known/openid-federation (the keys to pin)           200                                200 eyJhbGciOiJSUzI1NiIsInR5cCI6Im           ok
+bootstrap-anchor    /federation/register (explicit registration)               503 temporarily_unavailable        503 temporarily_unavailable                  ok
+bootstrap-anchor    ready (FEDERATION DEGRADED)                                200                                200                                          ok
+auto-registration   PingFederate's own token endpoint                          200 a token                        200 a token                                  ok
+auto-registration   a federation client at the token endpoint                  503 temporarily_unavailable        503 temporarily_unavailable                  ok
+auto-registration   a federation client at PAR                                 503 temporarily_unavailable        503 temporarily_unavailable                  ok
+auto-registration   ready                                                      503                                503                                          ok
+attestation         PingFederate's own token endpoint                          200 a token                        200 a token                                  ok
+attestation         attestation headers at the token endpoint                  503 temporarily_unavailable        503 temporarily_unavailable                  ok
+attestation         ready                                                      503                                503                                          ok
+attestation-issuer  PingFederate's own token endpoint                          200 a token                        200 a token                                  ok
+attestation-issuer  /federation/attestation                                    503 temporarily_unavailable        503 temporarily_unavailable                  ok
+attestation-issuer  ready                                                      503                                503                                          ok
+hosting             PingFederate's own token endpoint                          200 a token                        200 a token                                  ok
+hosting             /federation/agents/probe-1                                 503 temporarily_unavailable        503 temporarily_unavailable                  ok
+hosting             ready                                                      503                                503                                          ok
+ssf                 PingFederate's own token endpoint                          200 a token                        200 a token                                  ok
+ssf                 /.well-known/ssf-configuration                             503 temporarily_unavailable        503 temporarily_unavailable                  ok
+ssf                 /ssf/poll                                                  503 temporarily_unavailable        503 temporarily_unavailable                  ok
+ssf                 the logout (always goes on; not the gate's 503)            not 503                            not 503                                      ok
+ssf                 ready                                                      503                                503                                          ok
+ssf-receiver        PingFederate's own token endpoint                          200 a token                        200 a token                                  ok
+ssf-receiver        /ssf/receiver/events                                       503 temporarily_unavailable        503 temporarily_unavailable                  ok
+ssf-receiver        ready                                                      503                                503                                          ok
+operator-api        PingFederate's own token endpoint                          200 a token                        200 a token                                  ok
+operator-api        /federation/admin/entities                                 503 temporarily_unavailable        503 temporarily_unavailable                  ok
+operator-api        ready                                                      503                                503                                          ok
+fapi                PingFederate's own token endpoint (a client not listed)    200 a token                        200 a token                                  ok
+fapi                a listed FAPI client at the token endpoint                 503 temporarily_unavailable        503 temporarily_unavailable                  ok
+fapi                ready                                                      503                                503                                          ok
+dependency          PingFederate's own token endpoint                          200 a token                        200 a token                                  ok
+dependency          ready while the page is missing (never served: no grace)   503                                503                                          ok
+dependency          ready once the page is there, no restart (20s)             200                                200                                          ok
+dependency          the supervisor's retries in server.log                     retried                            retried                                      ok
+0 row(s) failed
+```
+
+The dependency case is the supervisor's retry in a running PingFederate: `FrontChannelAutoRegistrationFilter` was
+`FAILED_DEPENDENCY` at 10:21:34 ("OIDF_FEDERATION_ERROR_PAGE names /tmp/fail-soft-matrix-error-page.html, which cannot
+be read"), was retried at 10:21:36, 10:21:39 and 10:21:41, the file was written, and the attempt at 10:21:53 moved
+`AUTO_REGISTRATION` to `READY`, with no restart and no attempt after it. Before the file was written ready was 503: a
+component that never served gets no grace.
+
+The criteria on the engine's classloader, the same day: with the rig as `vars.env` has it, a secret-authenticated
+probe client and `validateClientAttestation(#this)` on the client-credentials mapping, a token request answered 400
+`{"error_description":"s9b_attestation_refused","error":"invalid_grant"}` and server.log said "OGNL criterion
+validateClientAttestation answers false: ATTESTATION_AUTH is DISABLED (OIDF_ATTESTATION_AUTH_ENABLED=false) (logged
+once per component; later refusals at DEBUG)"; `federationPolicy(#this)` the same with "FEDERATION is DISABLED". The
+mapping was the running rig's, set through the admin API and gone with the container.
+
+Before this change, on the same rig at origin/main cf5b8bce: a criterion that returns `false` (`1 == 2`) and one that
+throws both denied the token with 400 `invalid_grant` and the criterion's Error Result - PingFederate's code, not
+`access_denied`; and `validateClientAttestation`'s own containment check held on the engine's classloader
+([U-0110](../findings/U-0110.yaml)).

@@ -76,8 +76,9 @@
    attestation authentication switched off, a token or PAR request carrying `OAuth-Client-Attestation` answers 401
    `invalid_client` ("this server does not accept client attestations"); with automatic registration switched off, a
    request from a client registered through the federation, or naming an unknown Entity Identifier, answers 401
-   `invalid_client`. Until 0.6.0 both passed to PingFederate, which authenticated the client by whatever else it
-   sent. Why: nothing verifies the attestation, or keeps the federation client's registration current and enforces
+   `invalid_client`; and a client whose `attestation_required` is `true` is refused 401 without an attestation, as it
+   is while the feature is on. Until 0.6.0 all three passed to PingFederate, which authenticated the client by
+   whatever else it sent. Why: nothing verifies the attestation, or keeps the federation client's registration current and enforces
    its expiry, while the feature is off. What to change: switch the feature on for the clients that use it, or move
    those clients to another authentication method. How to tell: the 401 body names the feature. No
    development-profile escape is needed: the rule is the same in both profiles.
@@ -95,9 +96,12 @@ token, one over it got 400 with "authorization_details exceeds what the client a
 engine's models loaded once on the first criterion call, and with a truncated `OIDF_RAR_MODELS` every attested token
 was refused with "the RAR containment models could not be loaded".
 
-**Verified after, on the rig** (2026-09-30, this branch): `conformance/fail-soft-matrix.sh`, one boot per component
-with its failure injected; its output is in
-[components.md](../../operator/components.md#verified-on-the-rig). The 15 s grace for a dependency blip was not seen
+**Verified after, on the rig** (2026-09-30, the branch at 428acf93, PingFederate 13.1.3.0 on java 21.0.12.1):
+`conformance/fail-soft-matrix.sh`, one boot per component with its failure injected, a bootstrap trust anchor and a
+`FAILED_DEPENDENCY` retried to `READY` without a restart - 44 rows, none failed; its output is in
+[components.md](../../operator/components.md#verified-on-the-rig). With federation and attestation switched off,
+`validateClientAttestation` and `federationPolicy` on the client-credentials mapping answered `false` on the engine's
+classloader (400 `invalid_grant`, and "OGNL criterion ... answers false: ATTESTATION_AUTH is DISABLED" in server.log). The 15 s grace for a dependency blip was not seen
 there: nothing moves a serving part to `FAILED_DEPENDENCY` at run time today but the SSF transmitter's store probe, and
 the matrix did not drop a database under a serving node (U-0355). Unit tests hold it with a hand-moved clock.
 
