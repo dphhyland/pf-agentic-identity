@@ -1068,6 +1068,64 @@ tokens alike (the rig, 2026-09-29; [U-0030](../../docs/findings/U-0030.yaml)). r
 ([docs/operator/operator-authentication.md](../../docs/operator/operator-authentication.md)). The package is
 JDK-only, like the rest of platform; JSON goes through platform.json.
 
+<!-- net (H-ATT-3, HATT2): add this package's section below this line -->
+## net
+
+`TrustedProxies` is the one rule for forwarding headers (plan item H-ATT-3, findings F-0061 and F-0116).
+`OIDF_TRUSTED_PROXIES` lists the proxies, as CIDR ranges or single addresses (`10.0.0.0/8 2001:db8::/32`), whose
+forwarding headers are believed; it is unset by default, and then no forwarding header is believed from anyone. The
+catalogue is `trusted-proxies` ([docs/configuration/trusted-proxies.md](../../docs/configuration/trusted-proxies.md)).
+
+```java
+TrustedProxies proxies = TrustedProxies.current();
+String client = proxies.clientAddress(request.getRemoteAddr(), name -> Collections.list(request.getHeaders(name)));
+TrustedProxies.Origin origin = proxies.origin(request.getRemoteAddr(), headers);  // scheme, host, port, or nulls
+```
+
+- **Who is believed.** A request whose remote address is not listed is taken at its word: its client address is
+  its remote address, and its scheme and host are its own. From a listed proxy the client address is the right-most
+  hop of the forwarding chain that is not itself listed, and a hop that is not an IP address (`unknown`, an
+  obfuscated identifier, a host name) ends the walk at the hop to its right. RFC 7239 section 8.1: "the header field
+  value can be modified by any node along the path", so only what a trusted proxy appended is trusted.
+- **Which headers.** `OIDF_TRUSTED_PROXIES_HEADERS` is `x-forwarded` (the default: `X-Forwarded-For`, `-Proto`,
+  `-Host`, `-Port`) or `forwarded` (RFC 7239's `Forwarded`, section 4). Only one family is read: a proxy that writes
+  one passes the other through from the client unchanged. A scheme is believed only as `http` or `https`, a host
+  only as a host name or address with an optional port, a port only as 1 to 65535; the rest is dropped. A header
+  with a value per hop is read at the client's hop, else its right-most value.
+- **Addresses are parsed here, not by the resolver**, so no header causes a DNS lookup, and returned canonically
+  (`::ffff:192.0.2.1`, `192.0.2.1:4711` and `192.0.2.1` are one client), so a caller cannot vary a rate-limit key by
+  spelling. An IPv4 octet with a leading zero is not an address.
+- **Users.** Both attestation challenge endpoints and the attester's issuance endpoint count callers by
+  `clientAddress`; platform-pf's `OperatorAuthenticator` counts failed authentications by it; the attester's
+  configuration document builds its URLs from `origin`. `current()` never throws: a value it cannot read trusts no
+  proxy and is logged at ERROR once. The surfaces that depend on it call `check()` at start-up, which throws a
+  `SettingRefused` naming the setting, so they are `FAILED_CONFIG` rather than running with the wrong addresses.
+
+### PingFederate's own proxy settings
+
+PingFederate 13.1.3 has no list of trusted proxies. Its incoming proxy settings (admin API
+`/incomingProxySettings`: `forwardedIpAddressHeaderName` and `forwardedIpAddressHeaderIndex`, `forwardedHostHeaderName`
+and `forwardedHostHeaderIndex`, `proxyTerminatesHttpsConns`) are applied by
+`com.pingidentity.appserver.jetty.server.customizer.ForwardedRequestCustomizer`, which `etc/jetty-runtime.xml` adds to
+the runtime connector. Read with `javap` from the pinned image's `pf-appserver-ext.jar` on 2026-09-30: it takes the
+named header's `FIRST` or `LAST` value as the client address and host from every sender, and when no header is named
+(the default: the fields are unset in `LocalSettings`) it changes nothing. `bin/run.properties` has no inbound
+proxy property; its "HTTP Forward Proxy Settings" are for outbound traffic. So this class cannot defer to
+PingFederate. Two configurations work:
+
+1. PingFederate's client IP header unset (the default), and `OIDF_TRUSTED_PROXIES` naming your proxies. Then
+   `getRemoteAddr()` is the proxy's address and this class walks the chain. PingFederate's own audit log shows the
+   proxy's address.
+2. PingFederate's client IP header set, with index `LAST`, and every request reaching PingFederate through a proxy
+   that appends to that header (the network must make that so: PingFederate believes the header from anyone). Then
+   `getRemoteAddr()` is already the client's address, and `OIDF_TRUSTED_PROXIES` may stay unset. The attester's
+   advertised URLs then come from the request's own scheme and host, which the customiser rewrites from the
+   forwarded host header and `proxyTerminatesHttpsConns` (read from the bytecode, not exercised on a rig).
+
+Setting both is safe only with index `LAST`: the address PingFederate chose is then the client's or one of your
+proxies', and this class walks on from it. With `FIRST`, PingFederate has already taken the client's own claim as the
+remote address, and nothing here can undo that.
+
 
 ## Build
 

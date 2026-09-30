@@ -231,12 +231,14 @@ node keeps its own. For the limits that only makes each node's limit its own, so
 without Redis. For replay it means a proof accepted by one node can be replayed to another within its lifetime,
 so production allows it only with the accepted risk `in-memory-state` (`OIDF_ACCEPTED_RISKS`).
 
-**Which address counts.** The failed-authentication limit counts the address the servlet container reports
-(`getRemoteAddr()`), never `X-Forwarded-For`. Behind a load balancer that does not preserve the client's address,
-every caller shares one counter, and ten failures from anyone lock out everyone for the rest of the minute
-([F-0275](../findings/F-0275.yaml)). The trusted-proxy rule (plan item H-ATT-3, `platform.net.TrustedProxies`)
-arrives later in Phase 3 and moves these limits onto it; until then, configure PingFederate's own proxy settings so
-the container reports the client's address, or raise `OIDF_OPERATOR_AUTH_FAILURES_PER_MINUTE`.
+**Which address counts.** The failed-authentication limit counts the client address platform's trusted-proxy rule
+gives (plan item H-ATT-3, `platform.net.TrustedProxies`, from 0.6.0): the address the servlet container reports
+(`getRemoteAddr()`), or, when that is a proxy `OIDF_TRUSTED_PROXIES` lists, the right-most `X-Forwarded-For` (or
+RFC 7239 `Forwarded`) hop it does not list. With the list unset no forwarding header is believed, and behind a load
+balancer every caller shares the proxy's counter, so ten failures from anyone lock out everyone for the rest of the
+minute ([F-0275](../findings/F-0275.yaml)): name your proxies in `OIDF_TRUSTED_PROXIES`
+([trusted-proxies](../configuration/trusted-proxies.md)). The platform README's "net" section says how that sits
+with PingFederate's own incoming proxy settings.
 
 ## Audit
 

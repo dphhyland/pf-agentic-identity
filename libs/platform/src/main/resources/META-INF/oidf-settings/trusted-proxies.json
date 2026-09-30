@@ -1,0 +1,44 @@
+{
+  "format": 1,
+  "component": "trusted-proxies",
+  "module": "libs/platform",
+  "package": "com.pingidentity.ps.oidf.platform.net",
+  "families": ["OIDF_TRUSTED_"],
+  "components": ["ATTESTATION_AUTH", "ATTESTATION_ISSUER", "OPERATOR_API"],
+  "settings": [
+    {
+      "name": "OIDF_TRUSTED_PROXIES",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "The proxies whose forwarding headers are believed, as CIDR ranges or single addresses, space- or comma-separated (10.0.0.0/8, 2001:db8::/32, 192.0.2.7); unset, no forwarding header is believed from anyone. From a listed proxy the client address is the right-most forwarding hop that is not listed, and the scheme and host are what that proxy says: the challenge endpoints' and the attester issuance endpoint's per-caller limits, the operator APIs' failed-authentication limit and the attester configuration's advertised URLs use them",
+      "when_wrong": {"effect": "doesnt-start", "detail": "An entry that is not an IPv4 or IPv6 address or CIDR range, or a list of nothing: both challenge endpoints and the attester's issuance and configuration servlets are FAILED_CONFIG at deploy, naming the setting, and answer 503; the operator APIs ignore every forwarding header and log the reason at ERROR. A /0 range believes every sender and is logged at WARN"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.trusted.proxies"},
+        {"from": "env", "name": "OIDF_TRUSTED_PROXIES"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_TRUSTED_PROXIES_HEADERS",
+      "kind": "env",
+      "type": "choice",
+      "default": "x-forwarded",
+      "choices": ["x-forwarded", "forwarded"],
+      "description": "Which forwarding headers a listed proxy writes: x-forwarded (X-Forwarded-For, -Proto, -Host and -Port) or forwarded (RFC 7239 Forwarded); only that family is read, since a proxy that writes one passes the other through from the client",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not x-forwarded or forwarded, in any case: as OIDF_TRUSTED_PROXIES. The wrong family leaves the client's own header in place, so the client address and advertised URLs are the client's to choose"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.trusted.proxies.headers"},
+        {"from": "env", "name": "OIDF_TRUSTED_PROXIES_HEADERS"}
+      ],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

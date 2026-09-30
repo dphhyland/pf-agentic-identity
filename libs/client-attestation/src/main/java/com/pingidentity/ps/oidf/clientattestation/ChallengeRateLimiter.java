@@ -73,7 +73,8 @@ public final class ChallengeRateLimiter {
     /**
      * Records a request from {@code caller} and reports whether it is within the cap.
      *
-     * @param caller  an opaque key — the remote address. A blank or null caller is treated as one
+     * @param caller  an opaque key — the client address platform's {@code TrustedProxies} gives: the remote address,
+     *                or behind a trusted proxy the right-most forwarding hop it does not trust. A blank or null caller is treated as one
      *                shared bucket rather than waved through: an unattributable request is exactly the
      *                one not to exempt.
      * @param nowMillis current time; injected so the window boundary is testable without sleeping

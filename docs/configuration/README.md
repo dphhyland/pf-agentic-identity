@@ -22,6 +22,7 @@ written by hand is this page, outside its generated list.
 | [components](components.md) | `libs/platform` | `com.pingidentity.ps.oidf.platform.component` | 9 |
 | [deployment-profile](deployment-profile.md) | `libs/platform` | `com.pingidentity.ps.oidf.platform.profile` | 3 |
 | [platform-redis](platform-redis.md) | `libs/platform` | `com.pingidentity.ps.oidf.platform.redis` | 9 |
+| [trusted-proxies](trusted-proxies.md) | `libs/platform` | `com.pingidentity.ps.oidf.platform.net` | 2 |
 | [rar-models](rar-models.md) | `libs/rar-model` | `com.pingidentity.ps.oidf.rar.model` | 2 |
 | [outbound-fetch](outbound-fetch.md) | `libs/oidf-jose` | `com.pingidentity.ps.oidf.jose` | 4 |
 | [attestation-challenge](attestation-challenge.md) | `libs/client-attestation` | `com.pingidentity.ps.oidf.clientattestation.servlet` | 6 |

@@ -11,6 +11,7 @@ import com.pingidentity.ps.oidf.platform.http.AddressPolicy;
 import com.pingidentity.ps.oidf.platform.http.OutboundHttp;
 import com.pingidentity.ps.oidf.platform.http.TlsTrust;
 import com.pingidentity.ps.oidf.platform.log.PlatformLog;
+import com.pingidentity.ps.oidf.platform.net.TrustedProxies;
 import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import com.pingidentity.ps.oidf.platform.profile.AcceptedRisks;
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
@@ -63,8 +64,9 @@ import java.util.regex.Pattern;
  *
  * <p>Each request, in order:
  * <ol>
- *   <li><b>The failed-authentication limit.</b> A client address - the container's remote address, never
- *       {@code X-Forwarded-For} - that has failed authentication {@code OIDF_OPERATOR_AUTH_FAILURES_PER_MINUTE} times
+ *   <li><b>The failed-authentication limit.</b> A client address - the container's remote address, or behind a proxy
+ *       {@code OIDF_TRUSTED_PROXIES} lists the right-most forwarding hop it does not list (platform's
+ *       {@code TrustedProxies}, H-ATT-3) - that has failed authentication {@code OIDF_OPERATOR_AUTH_FAILURES_PER_MINUTE} times
  *       (10) in the current minute is answered 429 with {@code Retry-After}, before its token is looked at, so a
  *       caller cannot keep guessing. Every 400 and 401 below counts one failure.</li>
  *   <li><b>The token.</b> Exactly one {@code Authorization} header, {@code DPoP} or {@code Bearer}, with a token68
@@ -345,7 +347,7 @@ public final class OperatorAuthenticator {
      */
     public Decision authenticate(HttpServletRequest request, OperatorRoute route) {
         Objects.requireNonNull(route, "route");
-        String address = request.getRemoteAddr();
+        String address = TrustedProxies.current().clientAddress(request.getRemoteAddr(), name -> request.getHeaders(name) == null ? null : java.util.Collections.list(request.getHeaders(name)));
         String label = claimedLabel(request.getHeader("X-Federation-Actor"));
         Refused refusal;
         String actor = null;
