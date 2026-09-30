@@ -100,17 +100,12 @@ class AttestationPolicyResolverTest {
             assertEquals(property, e.property());
             assertEquals(CLIENT, e.clientId());
             assertFalse(e.getMessage().contains("301"), "the value is never in the message: " + e.getMessage());
-            // 0 and less read as "no limit" in the verifier: the loosest value of all, refused as out of range.
+            // 0 and less would be "no limit", the loosest value of all: refused as out of range (the server's own
+            // ages are positive too - ClientAttestationConfig refuses anything else).
             assertEquals("unparsable", refused(Map.of(property, "0")).problem());
             assertEquals("unparsable", refused(Map.of(property, "-1")).problem());
             assertEquals("unparsable", refused(Map.of(property, "5m")).problem());
         }
-    }
-
-    @Test
-    void aServerWithNoProofAgeLimitTakesAnyLimit() throws Exception {
-        ClientAttestationConfig unlimited = ClientAttestationConfig.builder().popMaxAgeSeconds(0L).build();
-        assertEquals(900L, parse(Map.of(ClientAttestationPolicy.POP_MAX_AGE, "900")).apply(unlimited, Set.of()).popMaxAgeSeconds());
     }
 
     @Test

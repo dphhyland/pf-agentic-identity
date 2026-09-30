@@ -58,8 +58,9 @@ is correct**: the OAuth attestation draft has no issuance-side proof concept at 
 the client already holds an attestation. This is a local extension covering how a caller proves
 possession of the key it is asking to have attested.
 
-Claims: `aud` (required, the attester issuer), `jti` (required), `iat` (optional, max age 300 s,
-skew 60 s), `challenge` (optional — note the claim name is `challenge`, not `nonce`).
+Claims: `aud` (required, the attester issuer), `jti` (required), `iat` and `exp` (both required since 0.6.0,
+`exp` after `iat` by at most 300 s, accepted from `iat` - 60 s to `exp` + 60 s, and the `jti` remembered until
+`exp` + 60 s: CAS §4.3, plan item S4c), `challenge` (optional — note the claim name is `challenge`, not `nonce`).
 
 ## DPoP proof
 

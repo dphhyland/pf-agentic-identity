@@ -179,15 +179,15 @@ public final class ClientAttestationPolicy {
     }
 
     /**
-     * The server's value, or the client's when it is set, which may only be smaller. A server with no proof age limit
-     * (0 or less, which {@code ClientAttestationVerifier} reads as none) takes any limit; a skew of 0 is a skew.
+     * The server's value, or the client's when it is set, which may only be smaller. Every server proof age is positive
+     * ({@code ClientAttestationConfig} refuses 0 or less, so a proof always has one replay window), and a skew of 0 is
+     * a skew, so there is no "no limit" to take any value.
      */
     private long notLonger(String property, Long client, long global) throws AttestationPolicyException {
         if (client == null) {
             return global;
         }
-        boolean limited = CLOCK_SKEW.equals(property) || global > 0L;
-        if (limited && client > global) {
+        if (client > global) {
             throw this.error(property, "loosens", "would loosen the server's " + global + " s");
         }
         return client;

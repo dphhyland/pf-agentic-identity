@@ -1,0 +1,18 @@
+id: U-0315
+title: Every client that asks a deployed attester for an attestation will send exp in its instance-key proof
+area: attestation-issuer
+source: design
+status: open
+plan_items: [S4c]
+prs: [74]
+recorded_in: docs/releases/unreleased/S4CP.md, Notes, Who sends a proof without exp
+verify_by: >
+  Before a deployment moves to 0.6.0, list the workloads that call its POST /federation/attestation (the
+  attester's server.log names each client_id it issues for) and check that each one's proof carries exp at most
+  300 s after iat: a release of client-attestation-sdk-polyglot that sends it, or the workload's own code.
+verification: ''
+notes: >
+  From 0.6.0 the attester refuses an instance-key proof without exp. A grep of this machine's repositories on
+  2026-09-30 found every client-attestation-sdk-polyglot language (at 1862a59) and several demo agents in
+  pf-agentic-identity-domain-authority and pf-oidf-modules sending aud, jti and iat without exp; clients elsewhere
+  cannot be listed from here, and a deployment that upgrades before they change refuses every issuance to them.

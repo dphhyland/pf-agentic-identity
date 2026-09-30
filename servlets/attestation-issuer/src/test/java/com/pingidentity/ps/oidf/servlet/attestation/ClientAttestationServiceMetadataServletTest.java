@@ -49,7 +49,7 @@ class ClientAttestationServiceMetadataServletTest {
         assertEquals(List.of("RS256", "PS256", "ES256"), m.get("attestation_signing_alg_values_supported"));
         assertEquals(List.of("client_id", "instance_key", "instance_attestation", "proof"),
                 m.get("request_parameters_required"));
-        assertEquals(List.of("aud", "jti"), m.get("proof_claims_required"));
+        assertEquals(List.of("aud", "jti", "iat", "exp"), m.get("proof_claims_required"));
         assertEquals(List.of("iss", "sub", "iat", "exp", "cnf", "workload"), m.get("attestation_claims_issued"));
         assertEquals(List.of("authorization_details"), m.get("attestation_claims_optional"));
         assertNull(m.get("custom_claims_required"));
@@ -65,7 +65,7 @@ class ClientAttestationServiceMetadataServletTest {
     void challengeRequiredAddsChallengeToProofClaims() throws Exception {
         Map<String, Object> m = initialized(Map.of("challengeRequired", "true")).metadata(ISSUER);
         assertEquals(true, m.get("challenge_required"));
-        assertEquals(List.of("aud", "jti", "challenge"), m.get("proof_claims_required"));
+        assertEquals(List.of("aud", "jti", "iat", "exp", "challenge"), m.get("proof_claims_required"));
     }
 
     @Test

@@ -354,6 +354,7 @@ class CasVectorRunnerTest {
         proof.setAudience(ISSUER);
         proof.setJwtId(UUID.randomUUID().toString());
         proof.setIssuedAtToNow();
+        proof.setExpirationTime(NumericDate.fromSeconds(proof.getIssuedAt().getValue() + 120L));
         req.proof = signCompact(instanceKey, InstanceKeyProofValidator.TYP, proof);
         req.requestedDetails = details;
         req.assertedContext = asserted;

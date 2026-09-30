@@ -4,7 +4,6 @@
 package com.pingidentity.ps.oidf.clientattestation;
 
 import java.security.Key;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -322,7 +321,7 @@ public final class ClientAttestationVerifier {
         this.enforceChallenge(challenge);
 
         String jti = pop.getJwtId();
-        this.enforceNoReplay(attestation.clientId(), jti, this.config.popMaxAgeSeconds());
+        this.enforceNoReplay(attestation.clientId(), jti, iat, this.config.popMaxAgeSeconds());
 
         LOGGER.debug((Object) ("attestation PoP verified for client_id=" + attestation.clientId()));
         return new ClientAttestationResult(attestation.clientId(), attestation.cnfJwk(),
@@ -382,8 +381,11 @@ public final class ClientAttestationVerifier {
         }
 
         Jwks.assertSameKey(attestation.cnfJwk(), proof.jwk());
+        // The validator judged the proof's age by the system clock; the retention below is judged by this config's
+        // clock, and the two must agree on the window, so the age is held to that clock as well.
+        this.assertFresh(proof.iatEpochSeconds(), this.config.dpopMaxAgeSeconds(), "DPoP");
         this.enforceChallenge(proof.nonce());
-        this.enforceNoReplay(attestation.clientId(), proof.jti(), this.config.dpopMaxAgeSeconds());
+        this.enforceNoReplay(attestation.clientId(), proof.jti(), proof.iatEpochSeconds(), this.config.dpopMaxAgeSeconds());
 
         LOGGER.debug((Object) ("attestation DPoP (combined) verified for client_id=" + attestation.clientId()));
         return new ClientAttestationResult(attestation.clientId(), attestation.cnfJwk(),
@@ -391,14 +393,24 @@ public final class ClientAttestationVerifier {
                 java.util.List.of(), java.util.List.of(), attestation.workload(), attestation.agentId());
     }
 
+    /**
+     * Refuses a proof whose {@code iat} is more than the clock skew ahead of this server, or more than
+     * {@code maxAgeSeconds} plus the skew behind it. The limit is always applied: the config holds every max age
+     * positive (plan item S4c), because the replay retention below is derived from this window and a proof with no
+     * window has no retention that covers it.
+     */
     private void assertFresh(long iat, long maxAgeSeconds, String label) throws ClientAttestationException {
-        long now = Instant.now().getEpochSecond();
+        long now = this.nowEpochSeconds();
         if (iat - now > this.config.allowedClockSkewSeconds()) {
             throw ClientAttestationException.invalidClient(label + " 'iat' is in the future");
         }
-        if (maxAgeSeconds > 0L && now - iat > maxAgeSeconds + this.config.allowedClockSkewSeconds()) {
+        if (now - iat > maxAgeSeconds + this.config.allowedClockSkewSeconds()) {
             throw ClientAttestationException.invalidClient(label + " is stale (older than " + maxAgeSeconds + "s)");
         }
+    }
+
+    private long nowEpochSeconds() {
+        return this.config.clock().millis() / 1000L;
     }
 
     /** Applies challenge policy: required-but-missing or invalid challenge yields {@code use_attestation_challenge}. */
@@ -425,15 +437,49 @@ public final class ClientAttestationVerifier {
         }
     }
 
-    private void enforceNoReplay(String clientId, String jti, long maxAgeSeconds) throws ClientAttestationException {
-        long ttl = maxAgeSeconds + this.config.allowedClockSkewSeconds();
-        switch (this.replayCache.record(clientId, jti, ttl)) {
+    /**
+     * Records the proof's {@code jti} until the proof can no longer be accepted (plan item S4c, F-0036).
+     *
+     * <p>A PoP or DPoP proof is accepted while {@code now - iat <= maxAge + skew} on this server's clock, and another
+     * node's clock may be up to the skew behind it, so the {@code jti} is remembered until
+     * {@code iat + maxAge + 2 x skew}: a proof accepted at the edge of its window stays remembered until no node can
+     * accept it. The retention is never shorter than the one used before S4c ({@code maxAge + skew} from now), so a
+     * proof whose {@code iat} is behind the clock loses nothing. That floor also means the retention is never past
+     * on this server's clock; a store whose clock disagrees answers {@code STALE} without recording anything, and
+     * the proof is refused as stale.
+     */
+    private void enforceNoReplay(String clientId, String jti, long iat, long maxAgeSeconds)
+            throws ClientAttestationException {
+        long retainUntil = retentionFor(iat, maxAgeSeconds, this.config.allowedClockSkewSeconds(), this.nowEpochSeconds());
+        switch (this.replayCache.recordUntil(clientId, jti, retainUntil)) {
             case FIRST_USE:
                 return;
             case STORE_UNAVAILABLE:
                 throw ClientAttestationException.temporarilyUnavailable("The attestation replay store is unavailable");
+            case STALE:
+                throw ClientAttestationException.invalidClient("Proof is stale");
             default:
                 throw ClientAttestationException.invalidClient("Replay detected for proof jti");
+        }
+    }
+
+    /**
+     * The last second a PoP or DPoP proof's {@code jti} is remembered: {@code max(iat + maxAge + 2 x skew,
+     * now + maxAge + skew)}, saturating rather than overflowing for an {@code iat} no proof that passed
+     * {@link #assertFresh} can carry.
+     */
+    static long retentionFor(long iat, long maxAgeSeconds, long skewSeconds, long now) {
+        long fromWindow = saturatingAdd(iat, saturatingAdd(maxAgeSeconds, 2L * skewSeconds));
+        long fromNow = saturatingAdd(now, saturatingAdd(maxAgeSeconds, skewSeconds));
+        return Math.max(fromWindow, fromNow);
+    }
+
+    /** {@code a + b} for a {@code b} that is never negative here (an age and skews), held at the maximum. */
+    private static long saturatingAdd(long a, long b) {
+        try {
+            return Math.addExact(a, b);
+        } catch (ArithmeticException e) {
+            return Long.MAX_VALUE;
         }
     }
 
