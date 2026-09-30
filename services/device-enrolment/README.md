@@ -127,20 +127,40 @@ and the agent stops until the human is back in front of the phone.
 
 ## Configuration (all environment variables, read in `Main`)
 
+Every variable is read through the `device-enrolment` settings catalogue
+([docs/configuration/device-enrolment.md](../../docs/configuration/device-enrolment.md)), strictly from 0.6.0: a
+switch is `true` or `false` in any case, a number a whole number in its range, a choice one of its choices, and
+anything else stops the service naming the variable (`device-enrolment did not start: ...`, exit status 1). Under
+`OIDF_DEPLOYMENT_PROFILE=development` a value only the old reader took - `yes`, `no`, `1`, `0`, `on`, `off` for a
+switch, a padded number - is read as that reader read it (a switch as `false`), with a warning naming the strict
+spelling.
+
+Before anything is wired, `Main` holds the settings to the production profile - `OIDF_DEPLOYMENT_PROFILE` unset or
+anything but `development` - and, as one component with no PingFederate to keep serving, refuses to start on any
+violation, with exit status 1 and every violation on stderr at once:
+
+- `REQUIRE_COMPLIANT_DEVICE=false` and `APPLE_ALLOW_DEVELOPMENT=true` (plan item PR-3), `PF_AUTHORITY_INSECURE_TLS=true`
+  and `PF_AUTHORITY_ADMIN_TOKEN` set - forbidden in production;
+- any of those four set to a value that does not parse, since the profile cannot tell what it asks for;
+- `REGISTRY=memory` without `in-memory-state` in `OIDF_ACCEPTED_RISKS`.
+
+Under development each is a warning at start. `IDM_DATABASE_URL` names PostgreSQL or nothing: a `jdbc:` URL for
+another database is refused in every profile, naming only its scheme.
+
 | Variable | Notes |
 |---|---|
 | `PORT` | default 8080 |
 | `ENROLMENT_ISSUER` | this service's entity id — the attestation `iss` and the key-proof `aud` |
 | `IDM_DATABASE_URL` | the Identity Object Model directory (Postgres) the registry lives in, the one the SCIM users live in; a JDBC URL or a `postgresql://` DSN (secret). Absent, the service refuses to start, and a `DATABASE_URL` left from before the move to the model is refused with a message naming the rename. Not read with `REGISTRY=memory` |
-| `REGISTRY` | `iom` (default), or `memory` for a registry that lives in the process and is lost on restart - development only, with a warning at start |
+| `REGISTRY` | `iom` (default), or `memory` for a registry that lives in the process and is lost on restart - with a warning at start, and in production only with `in-memory-state` accepted |
 | `ENROLMENT_SIGNING_JWK` | the attester's private JWK (secret). Production should use a vault-backed `JwsSigner`; the seam exists |
 | `APPLE_TEAM_ID` / `APPLE_BUNDLE_ID` | the App ID an attestation must be bound to |
-| `APPLE_ALLOW_DEVELOPMENT` | default `false` |
+| `APPLE_ALLOW_DEVELOPMENT` | default `false`; `true` is forbidden in production |
 | `APPLE_MACOS_REQUIRE_KEY_POLICY` | default `true`: a Mac's attestation must show Full Security and SIP |
 | `APPLE_REQUIRE_RENEWAL_ASSERTION` | default `true`: an App Attest enrolment renews with `app_attest_assertion` |
 | `CONNECTOR_BUILDS` | comma-separated base64url SHA-256 hashes of the connector builds to accept; the helper commits its build through App Attest (`evidence.connector_build`). Empty accepts any build and records it |
 | `UV_MAX_AGE_SECONDS` | the time-box, default 300 — must match the `instance-registry-datasource` UV field |
-| `REQUIRE_COMPLIANT_DEVICE` | default `true` |
+| `REQUIRE_COMPLIANT_DEVICE` | default `true`; `false` is forbidden in production |
 | `PINGONE_ISSUER` / `PINGONE_CLIENT_ID` | the IdP; both required or user authentication is refused |
 | `PINGONE_ACR_AAL2` | comma-separated sign-on policy names whose `acr` genuinely means AAL2; anything else is AAL1 and refused for binding |
 | `OIDF_ATTESTATION_SUB` / `OIDF_AGENT_CLIENT_ID` | the staged Phase 2.5 `sub` flip: `client_id` mints `sub` = the registered client; `agent_id` carries the instance id either way. See [docs/claim-dictionary.md](../../docs/claim-dictionary.md) |
