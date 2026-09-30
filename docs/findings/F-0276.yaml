@@ -1,0 +1,20 @@
+id: F-0276
+title: The operator authenticator does not ask for DPoP nonces, so a proof's freshness rests on its iat and jti
+severity: low
+area: platform-pf, rs-validation
+source: design
+status: open
+plan_items: [S8a, S8b]
+prs: [71]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found while building S8A (2026-09-30). RFC 9449 section 8 lets a resource server supply a nonce the next proof
+  must carry, which limits a proof to a window the server chose, not the client's clock. rs-validation's
+  DelegatedTokenValidator supports that (DpopNonces), but OperatorAuthenticator does not switch it on: a proof is
+  accepted within rs-validation's iat window (300 s, with 60 s of skew) and its jti is refused a second time, in
+  Redis across nodes or in one JVM under the in-memory-state accepted risk. A proof stolen in transit to the same
+  URL and method within the window, and not yet used, would pass; the token itself is still bound to the key, so
+  the thief needs the proof for the exact request. Turning nonces on means a 401 use_dpop_nonce round trip for
+  every operator client's first request and a nonce shared across nodes; S8b, which puts the surfaces on the
+  authenticator, or a later hardening item decides it.

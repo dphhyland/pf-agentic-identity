@@ -186,7 +186,7 @@ public final class ResourceServerFilter implements Filter {
             }
             out.add(dpop.toString());
         }
-        if (this.validator.acceptsMtls()) {
+        if (this.validator.acceptsBearer()) {
             // RFC 6750 §3: the Bearer scheme "MUST be followed by one or more auth-param values".
             StringBuilder bearer = new StringBuilder("Bearer realm=\"").append(description(this.realm)).append('"');
             if (error != null && used != DelegatedTokenValidator.Scheme.DPOP) {

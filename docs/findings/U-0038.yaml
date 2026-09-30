@@ -2,10 +2,18 @@ id: U-0038
 title: RFC 7662 cnf
 area: platform
 source: design
-status: open
+status: closed
 plan_items: [S8a]
-prs: []
+prs: [71]
 recorded_in: the plan, To verify before relying on it, verbatim from the primary source, OAuth
 verify_by: Quote the section verbatim from the primary source before the code or the docs assert it.
-verification: ''
+verification: >
+  2026-09-29, from the RFC text (rfc-editor.org plain text of RFC 7662 and RFC 9449): RFC 7662 defines no cnf.
+  Its section 2.2 lists active, scope, client_id, username, token_type, exp, iat, nbf, sub, aud, iss and jti, and
+  says "Specific implementations MAY extend this structure with their own service-specific response names as
+  top-level members of this JSON object." RFC 9449 section 6.2 is that extension for DPoP: the key's hash "is
+  conveyed using the same cnf content with jkt member structure as the JWK Thumbprint confirmation method,
+  described in Section 6.1, as a top-level member of the introspection response JSON", and "If the token_type
+  member is included in the introspection response, it MUST contain the value DPoP." TokenIntrospector's
+  javadoc and docs/operator/operator-authentication.md quote both.
 notes: ''

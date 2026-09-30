@@ -1,4 +1,4 @@
-package com.pingidentity.ps.oidf.clientattestation;
+package com.pingidentity.ps.oidf.jose.dpop;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;

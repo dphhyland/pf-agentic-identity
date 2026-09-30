@@ -28,6 +28,9 @@
 # verification lives in services/device-enrolment, not in the AS.
 # shared-signals rides along because servlets/ssf is built on it (plan item X-A14): the SET model, minting,
 # verification and subjects live there, so without it the SSF servlets fail with NoClassDefFoundError.
+# rs-validation rides along because platform-pf's OperatorAuthenticator verifies operator access tokens and
+# their DPoP proofs through it (plan item S8a); platform-pf declares it optional, so without it the operator
+# APIs fail at first use with NoClassDefFoundError. Its libraries (jose4j, jackson) are on PF's classpath.
 set -euo pipefail
 PROFILE=production
 while [[ $# -gt 0 ]]; do
@@ -61,6 +64,7 @@ ENTRIES=(
   "libs libs/platform/target/platform-$VERSION.jar"
   "libs libs/platform-pf/target/platform-pf-$VERSION.jar"
   "libs libs/oidf-jose/target/oidf-jose-$VERSION.jar"
+  "libs libs/rs-validation/target/rs-validation-$VERSION.jar"
   "libs libs/rar-model/target/rar-model-$VERSION.jar"
   "libs libs/client-attestation/target/client-attestation-$VERSION.jar"
   "libs libs/openid-federation/target/openid-federation-$VERSION.jar"
