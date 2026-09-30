@@ -29,7 +29,9 @@
    a module left out has its rules left out without a word. Why: from 0.6.0 an unset `OIDF_DEPLOYMENT_PROFILE` is
    production, and production refuses components for settings this release checks; the jar shows each refusal before
    the node starts. How to tell: exit 1, and each `REFUSED:` line names the setting, the fix and the components it
-   refuses; exit 0 means nothing would be refused; exit 2 means the file could not be read, naming the line. What to
+   refuses; exit 0 means nothing the start-up sweep judges would be refused - a setting the server refuses only when it
+   reads it (a removed name, a value that does not parse where the profile governs nothing, a name set beside its
+   `_FILE` variant) is not judged, so check those by hand (F-0427); exit 2 means the file could not be read, naming the line. What to
    change: fix each `REFUSED:` line, accept its risk in `OIDF_ACCEPTED_RISKS` (try it first with
    `--accepted-risks`), or switch the component off with `OIDF_<COMPONENT>_ENABLED=false`. In a Docker env file,
    write values without quotes, or run the file through the `sed` line in the guide: Docker passes quotes to the
@@ -46,6 +48,11 @@
   It holds every catalogue of the release, where each process loads its own: `OIDF_CIBA_SIM_ENABLED=true` is refused
   here though a production image stages no simulator, and a device-enrolment name in PingFederate's file draws no
   warning (F-0425, low, open for 0.7.0).
+- F-0427 (medium, open for 0.7.0): the jar, like PR5's `Preflight`, runs the profile audit and not the refusals a
+  server makes when a component reads a setting. A removed name still set (`OIDF_BRIDGE_PRIVATE_JWK`), a value the
+  strict parser refuses on a setting the profile does not govern (`OIDF_AUTO_REGISTRATION_FRONT_CHANNEL=yes`,
+  `OIDF_REGISTRATION_MAX_TTL_SECONDS=abc`) and a secret set beside its `_FILE` variant all exit 0 here and are refused
+  on the component's first read (checked 2026-10-01). The fix is in PR5's `ProfileAudit`, which ST7 was not to change.
 - F-0426 (low, open for 0.7.0): PR5's reader removes one pair of quotes around a value, and `docker run --env-file`
   does not (Docker 29.4.1, checked 2026-10-01), so `OIDF_FETCH_ALLOW_HTTP="false"` in a Docker env file is clean here
   and refused by the server. The guide's `sed` line makes the preflight see what Docker passes.

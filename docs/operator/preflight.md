@@ -6,8 +6,10 @@ production, and production refuses components ([deployment-profile.md](deploymen
 against every environment, on the release you are moving to.
 
 It is the start-up sweep PingFederate runs (plan item PR-5's `Preflight`) packed with platform's classes and every
-module's settings catalogue, so it judges a file exactly as that release's server would, and it needs nothing but
-Java 17 or later. `java -jar oidf-preflight.jar --list` prints the catalogues it holds.
+module's settings catalogue, so it judges a file's governed values, required settings, unknown names and component
+switches as that release's sweep would, and it needs nothing but Java 17 or later. It does not make the refusals a
+server makes only when a component reads a setting - a removed name, a value that does not parse, a name set beside
+its `_FILE` variant ("What it cannot check" below). `java -jar oidf-preflight.jar --list` prints the catalogues it holds.
 
 ## Get it
 
@@ -91,20 +93,24 @@ the preflight both as one `JAVA_OPTS` line, with the JVM options your deployment
 {
   cat prod.env
   printf 'JAVA_OPTS="%s %s"\n' "$JAVA_OPTS" \
-    "$(grep -E '^[[:space:]]*(oidf|jdk)\.' run.properties | sed -E 's/[[:space:]]*=[[:space:]]*/=/; s/^[[:space:]]*/-D/' | tr '\n' ' ')"
+    "$(grep -E '^[[:space:]]*(oidf|jdk)\.' run.properties \
+       | sed -E 's/^[[:space:]]*([^=:[:space:]]+)[[:space:]]*[=:]?[[:space:]]*/-D\1=/' | tr '\n' ' ')"
 } > prod.preflight.env
 ```
 
-The words are split at whitespace, so a property whose value holds a space is read only up to it; and a `${VAR}` in
-`run.properties` is read as written, so resolve it first. A second `JAVA_OPTS` line replaces the first, so leave any in `prod.env` out. (Checked 2026-10-01 on a sample
-`run.properties`: an `oidf.mock.attesters` line and an empty `jdk.internal.httpclient.disableHostnameVerification=`
-line each refused.)
+The `sed` takes the three separators `java.util.Properties` reads - `key=value`, `key: value` and `key value` - and
+writes each as `-Dkey=value`. It does not follow a line that ends in `\` onto the next, or undo a `\` escape: join and
+unescape those lines first. The words are split at whitespace, so a property whose value holds a space is read only up
+to it; and a `${VAR}` in `run.properties` is read as written, so resolve it first. A second `JAVA_OPTS` line replaces
+the first, so leave any in `prod.env` out. (Checked 2026-10-01 on a sample `run.properties` with macOS's `sed`: an
+`oidf.mock.attesters: a,b` line and an empty `jdk.internal.httpclient.disableHostnameVerification=` line each
+refused.)
 
 ## Exit status
 
 | Status | Meaning |
 |---|---|
-| `0` | Nothing would be refused. The output may still list violations that refuse nothing here (a component switched off, a required setting for a component not switched on, anything under development) and warnings. With `--list`, every catalogue loaded. |
+| `0` | Nothing the start-up sweep judges would be refused. A setting refused only when it is read is not judged: a removed name, a value that does not parse where the profile governs nothing, a name set beside its `_FILE` variant or a superseded name ("What it cannot check"). The output may still list violations that refuse nothing here (a component switched off, a required setting for a component not switched on, anything under development) and warnings. With `--list`, every catalogue loaded. |
 | `1` | At least one component would be refused: each `REFUSED:` line names one. Fix each, accept its risk, or switch its component off. With `--list`, a catalogue in the jar could not be loaded, which means the jar is damaged: download it again. |
 | `2` | The arguments or the file could not be read: the usage line, or `Preflight: FILE cannot be read (...)`, or `Preflight: FILE: line N is not NAME=value`, on standard error. Nothing was judged. |
 
@@ -147,9 +153,11 @@ Line by line, one of each kind:
 | `warning: OIDF_NOT_A_FAMILY` | An `OIDF_*` name under no family | Check the spelling; nothing is refused |
 | `warning: OIDF_ACCEPTED_RISKS names 'no-such-risk'` | An accepted-risks entry that is not accepted (unknown, expired, undated where a date is needed, repeated) | Correct the entry; the risk it meant is not accepted until then |
 
-Two other labels appear: `not refused (development):` for every violation when the profile is development, where
-only a switch that does not parse refuses its component, and `not refused (names no component):` for a violation of a
-setting that belongs to no component. The last line is either the count of refusing lines (exit 1) or
+Three other labels appear: `not refused (not switched on):` for a required setting left unset whose component is not
+switched on (the clean fixture prints two, `OIDF_OPERATOR_AUDIENCE` and `OIDF_OPERATOR_BASE_URL`),
+`not refused (development):` for every violation when the profile is development, where only a switch that does not
+parse refuses its component, and `not refused (names no component):` for a violation of a setting that belongs to no
+component. The last line is either the count of refusing lines (exit 1) or
 `clean under the ... profile: nothing would be refused`, with the number of violations listed that refuse nothing
 there (exit 0).
 
@@ -168,6 +176,20 @@ knows, and a clean result says nothing about these:
   licence. A servlet's `init-param`, a plugin's field and a client's extended property are refused when their reader
   reads them ([deployment-profile.md](deployment-profile.md), "At read"), not by the start-up sweep or by this.
 - **Certificates and keys.** Expiry, the trust chain, whether a signing key the settings name exists.
+- **Refusals made when a setting is read.** A server refuses these on a component's first read of its settings
+  (`Settings.resolve`), not in the start-up sweep, so the jar does not see them ([F-0427](../findings/F-0427.yaml)):
+  - a removed name still set, under either profile: `OIDF_BRIDGE_PRIVATE_JWK`, removed in 0.1.2 for
+    `OIDF_BRIDGE_SIGNING_KEYS`;
+  - a value that does not parse as its setting's type where the profile governs nothing:
+    `OIDF_AUTO_REGISTRATION_FRONT_CHANNEL=yes`, `OIDF_REGISTRATION_MAX_TTL_SECONDS=abc`. This is the strict parsing
+    0.6.0 brings in; development softens it only for a boolean spelled `yes`, `no`, `1`, `0`, `on` or `off`, read as
+    false as the reader before 0.6.0 read it;
+  - a secret set both directly and by its `_FILE` variant (`OIDF_REDIS_SENTINEL_PASSWORD` beside
+    `OIDF_REDIS_SENTINEL_PASSWORD_FILE`), or a setting and its superseded name set to different values.
+
+  A production file with `OIDF_AUTO_REGISTRATION_ENABLED=true` and the first three examples exits 0 here (checked
+  2026-10-01). Check such names and values by hand against the configuration reference
+  ([docs/configuration](../configuration/README.md)) and the release's "Before you deploy" items.
 - **Refusals made in code.** A store that keeps its state in memory needs the `in-memory-state` risk in production;
   which store a process builds is decided when it starts, and the start-up audit lists those refusals under
   `code refusals`.

@@ -222,8 +222,8 @@
 
             <!--
               Coverage gate on the jar's own class, 100% line + branch per METHOD: which options it takes, what the listing
-              prints and when it fails, and the check with the accepted-risks option in place of the file's list. main() and
-              the manifest read are plumbing and stay out.
+              prints and when it fails, the check with the accepted-risks option in place of the file's list, and the manifest
+              read that heads the listing. main() is plumbing and stays out.
             -->
             <plugin>
                 <groupId>org.jacoco</groupId>
@@ -251,6 +251,7 @@
                                         <include>com.pingidentity.ps.oidf.platform.settings.PreflightJar.run(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.settings.PreflightJar.list(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.settings.PreflightJar.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.PreflightJar.about(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

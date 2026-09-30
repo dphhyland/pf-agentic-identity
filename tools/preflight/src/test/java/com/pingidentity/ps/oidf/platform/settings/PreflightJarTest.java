@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintStream;
 import java.net.URISyntaxException;
 import java.net.URL;
@@ -16,6 +17,10 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.jar.Attributes;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -237,5 +242,54 @@ class PreflightJarTest {
         assertEquals("oidf-preflight (version unknown: not run from its jar)", PreflightJar.about(PreflightJar.class));
         // A class the JDK loads has no code source at all.
         assertEquals("oidf-preflight (version unknown: not run from its jar)", PreflightJar.about(String.class));
+    }
+
+    @Test
+    void aboutReadsTheVersionAndCommitFromItsJarsManifest() throws Exception {
+        Manifest manifest = new Manifest();
+        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        manifest.getMainAttributes().put(Attributes.Name.IMPLEMENTATION_VERSION, "9.9.9");
+        manifest.getMainAttributes().putValue("Build-Commit", "abc1234");
+        Path jar = markerJar("with-manifest.jar", manifest);
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {jar.toUri().toURL()}, null)) {
+            assertEquals("oidf-preflight 9.9.9, commit abc1234", PreflightJar.about(loader.loadClass(Marker.class.getName())));
+        }
+    }
+
+    @Test
+    void aboutSaysSoWhenItsJarHasNoManifestOrCannotBeRead() throws Exception {
+        Path bare = markerJar("no-manifest.jar", null);
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {bare.toUri().toURL()}, null)) {
+            assertEquals("oidf-preflight (version unknown: not run from its jar)",
+                    PreflightJar.about(loader.loadClass(Marker.class.getName())));
+        }
+        Path damaged = markerJar("damaged.jar", new Manifest());
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {damaged.toUri().toURL()}, null)) {
+            Class<?> marker = loader.loadClass(Marker.class.getName());
+            Files.write(damaged, new byte[] {1, 2, 3});
+            assertEquals("oidf-preflight (version unknown: not run from its jar)", PreflightJar.about(marker));
+        }
+    }
+
+    /** A class with nothing to link, for a jar of its own. */
+    static final class Marker {
+    }
+
+    /** A jar in the temp directory holding {@link Marker}, with {@code manifest} when it is not null. */
+    private Path markerJar(String name, Manifest manifest) throws IOException {
+        String entry = Marker.class.getName().replace('.', '/') + ".class";
+        byte[] bytes;
+        try (InputStream in = LOADER.getResourceAsStream(entry)) {
+            bytes = in.readAllBytes();
+        }
+        Path jar = dir.resolve(name);
+        try (JarOutputStream out = manifest == null
+                ? new JarOutputStream(Files.newOutputStream(jar))
+                : new JarOutputStream(Files.newOutputStream(jar), manifest)) {
+            out.putNextEntry(new JarEntry(entry));
+            out.write(bytes);
+            out.closeEntry();
+        }
+        return jar;
     }
 }
