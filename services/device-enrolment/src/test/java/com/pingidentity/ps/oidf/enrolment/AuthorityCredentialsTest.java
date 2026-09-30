@@ -278,9 +278,10 @@ class AuthorityCredentialsTest {
         assertEquals("https://pf.example", AuthorityCredentials.ClientCredentials.htu(URI.create("https://pf.example")));
     }
 
-    /** A JDK client for the settings tests, which never send. */
+    /** A client for the settings tests, which never send. */
     private static final class HttpClientHolder {
-        final java.net.http.HttpClient http = java.net.http.HttpClient.newHttpClient();
+        final com.pingidentity.ps.oidf.platform.http.OutboundHttp http = com.pingidentity.ps.oidf.platform.http.OutboundHttp
+                .builder(com.pingidentity.ps.oidf.platform.http.AddressPolicy.strict()).build();
     }
 
     @Test
