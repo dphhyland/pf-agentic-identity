@@ -48,7 +48,8 @@
         <dependency><groupId>org.apache.commons</groupId><artifactId>commons-lang3</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><scope>provided</scope></dependency>
-        <!-- The platform library (plan items F-1, PR-1), for the deployment profile. Shaded and relocated below,
+        <!-- The platform library (plan items F-1, PR-1), for the deployment profile and the strict reads of the
+             ciba-simulator catalogue (plan item ST-5). Shaded and relocated below,
              as the RAR plugin does Jackson, so the copy in this jar - loose in deploy/ and merged into
              pf-runtime.war - never meets the one staged beside the servlets. -->
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId></dependency>
@@ -117,7 +118,7 @@
                                         <include>com.pingidentity.ps.oidf.cibasim.SimOobAuthenticator.finished(*</include>
                                         <include>com.pingidentity.ps.oidf.cibasim.CibaSimDecisionServlet.handle(*</include>
                                         <include>com.pingidentity.ps.oidf.cibasim.SimulatorGate.refusal(*</include>
-                                        <include>com.pingidentity.ps.oidf.cibasim.SimulatorGate.enabled(*</include>
+                                        <include>com.pingidentity.ps.oidf.cibasim.SimulatorGate.settings(*</include>
                                         <include>com.pingidentity.ps.oidf.cibasim.SimulatorGate.isProduction(*</include>
                                         <include>com.pingidentity.ps.oidf.cibasim.SimulatorGate.directoryRefusal(*</include>
                                     </includes>

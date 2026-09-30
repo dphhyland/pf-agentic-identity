@@ -53,7 +53,10 @@ public class CibaSimDecisionServlet extends HttpServlet {
     void handle(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String refusal = SimulatorGate.refusal(this.env);
         if (refusal != null) {
-            LOGGER.warn((Object) ("CIBA simulator: decision endpoint refused - " + refusal));
+            if (!SimulatorGate.isProduction(this.env)) {
+                // In production the gate has logged its one ERROR; every request would say the same.
+                LOGGER.warn((Object) ("CIBA simulator: decision endpoint refused - " + refusal));
+            }
             write(resp, 404, "{\"error\":\"not_found\"}");
             return;
         }

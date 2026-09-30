@@ -71,4 +71,13 @@ class ShadedJarCheck {
             }
         }
     }
+
+    @Test
+    void theRelocatedSettingsReadTheCatalogueInTheJar() throws Exception {
+        try (URLClassLoader loader = new URLClassLoader(new URL[] {JAR.toUri().toURL()}, ClassLoader.getPlatformClassLoader())) {
+            Class<?> catalogue = loader.loadClass(RELOCATED.replace('/', '.') + "settings.Catalogue");
+            Object loaded = catalogue.getMethod("load", ClassLoader.class, String.class).invoke(null, loader, SimulatorGate.CATALOGUE);
+            assertEquals(SimulatorGate.CATALOGUE, catalogue.getMethod("component").invoke(loaded));
+        }
+    }
 }

@@ -132,7 +132,7 @@ class CibaSimDecisionServletTest {
     @Test
     void theContainerConstructorReadsTheProcessEnvironment() {
         // Nothing in this JVM's environment switches it on, so the servlet PingFederate would construct refuses.
-        assertEquals(SimulatorGate.enabled(System::getenv), false);
+        assertEquals(false, SimulatorGate.refusal(System::getenv) == null);
         new CibaSimDecisionServlet();
     }
 }
