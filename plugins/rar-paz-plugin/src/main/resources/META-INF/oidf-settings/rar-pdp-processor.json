@@ -316,6 +316,19 @@
       "sources": [],
       "aliases": [],
       "file": false
+    },
+    {
+      "name": "Types allowed on the JWT-bearer grant",
+      "kind": "plugin-field",
+      "type": "words",
+      "default": null,
+      "description": "Detail types a JWT-bearer token request (RFC 7523) may carry; comma- or space-separated, blank means none, and a type not listed is refused by validate with invalid_authorization_details. PingFederate never calls enrich on that grant, so a listed type passes validate's model check and is issued without a PDP decision. Never a type in Types requiring an authenticated principal (plugin com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor, shown as \"Attestation-aware RAR to PingAuthorize\")",
+      "when_wrong": {"effect": "per-request", "detail": "Naming a type in Types requiring an authenticated principal: refused on save, and at configure after an archive import. A type named here is issued on the JWT-bearer grant without a PDP decision"},
+      "profile": "any",
+      "security": true,
+      "sources": [],
+      "aliases": [],
+      "file": false
     }
   ],
   "removed": []

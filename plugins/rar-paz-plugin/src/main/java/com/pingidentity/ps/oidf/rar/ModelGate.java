@@ -16,7 +16,8 @@ import java.util.logging.Logger;
  * This plugin's one door to {@code libs/rar-model} (plan S-1, package S1c). It holds the model set, strips the
  * repository's two bookkeeping markers before anything is asked, and asks the model the plugin's three questions:
  * <ul>
- *   <li>is a requested detail one the model can read ({@link #check}), before any PDP call;</li>
+ *   <li>is a requested detail one the model can read ({@link #check}), before any PDP call, and
+ *       ({@link #conformance}) where the detail arrives, in {@code validate};</li>
  *   <li>is what the PDP granted within what was requested ({@link #within}, requested as the ceiling): the PDP
  *       may narrow, never widen;</li>
  *   <li>is a refresh's detail within the detail already granted ({@link #within}, the grant as the ceiling):
@@ -187,6 +188,21 @@ final class ModelGate {
             throw new RarModelException(RarModelException.Reason.MODEL_INVALID, loadFailure);
         }
         models.validate(listOf(detail), "requested");
+    }
+
+    /**
+     * Why one requested detail, markers already stripped, does not conform to its type's model and the size limits, or
+     * {@code null} when it does: {@link #check} as an answer rather than a throw, for {@code validate}, which refuses a
+     * detail where it arrives (RFC 9396 section 5) and must never throw. The message names the field the model refused,
+     * never a value.
+     */
+    Verdict conformance(Map<String, Object> detail) {
+        try {
+            check(detail);
+            return null;
+        } catch (RarModelException e) {
+            return Verdict.refused(e.reason(), e.getMessage());
+        }
     }
 
     /**
