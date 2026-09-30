@@ -4,7 +4,7 @@ area: pf-integration
 source: design
 status: open
 plan_items: [S4c]
-prs: []
+prs: [76]
 recorded_in: servlets/pf-integration/README.md, Each client's attestation policy; docs/releases/unreleased/S4C.md, Notes
 verify_by: >
   On the rig: add a second JWT access token manager with "Use Centralized Signing Key" false and its own signing

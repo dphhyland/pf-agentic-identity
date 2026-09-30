@@ -5,7 +5,7 @@ area: pf-integration, rar-paz-plugin
 source: design
 status: closed
 plan_items: [S4c]
-prs: []
+prs: [76]
 verification: >
   Closed by S4C on 2026-09-30. For a token exchange, the filter and the criterion verify the subject_token as one
   PingFederate signed - its signature against JwksEndpointKeyAccessor.getSigningJsonWebKeySet() (pingfederate-sdk

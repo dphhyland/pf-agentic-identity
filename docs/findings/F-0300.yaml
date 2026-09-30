@@ -5,7 +5,7 @@ area: pf-integration
 source: design
 status: open
 plan_items: [S4c]
-prs: []
+prs: [76]
 verification: ''
 target_release: 0.7.0
 notes: >

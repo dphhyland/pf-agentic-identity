@@ -5,7 +5,7 @@ area: pf-integration
 source: review-2026-09-26
 status: closed
 plan_items: [S-4, S4a, S4b, S4c, S4d]
-prs: []
+prs: [76]
 verification: >
   Closed by S4C on 2026-09-30. AttestationPolicyResolver gives ClientAttestationAuthFilter and the OGNL criterion
   one policy per client: the server's, tightened by the client's attestation_* extended properties, which are read
