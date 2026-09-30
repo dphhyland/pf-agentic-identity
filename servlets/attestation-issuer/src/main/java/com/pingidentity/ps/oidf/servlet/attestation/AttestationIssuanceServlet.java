@@ -24,6 +24,7 @@ import com.pingidentity.ps.oidf.pf.FederationWalletProviderKeyResolver;
 import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidator;
 import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators;
 import com.pingidentity.ps.oidf.issuer.InstanceIdentity;
+import com.pingidentity.ps.oidf.issuer.ChainClientResolver;
 import com.pingidentity.ps.oidf.issuer.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.clientattestation.StaticAttesterKeyResolver;
@@ -36,8 +37,16 @@ import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
 import com.pingidentity.ps.oidf.clientattestation.AttestationRarModels;
 import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.lifecycle.Lifecycle;
+import com.pingidentity.ps.oidf.platform.net.TrustedProxies;
+import com.pingidentity.ps.oidf.platform.pf.auth.InMemoryWindowCounter;
+import com.pingidentity.ps.oidf.platform.pf.auth.RedisWindowCounter;
+import com.pingidentity.ps.oidf.platform.pf.auth.WindowCounter;
 import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.platform.pf.settings.InitParams;
+import com.pingidentity.ps.oidf.platform.redis.RedisClient;
+import com.pingidentity.ps.oidf.platform.redis.RedisConfig;
+import com.pingidentity.ps.oidf.platform.redis.WindowCount;
 import com.pingidentity.ps.oidf.platform.settings.Catalogue;
 import com.pingidentity.ps.oidf.platform.settings.Secret;
 import com.pingidentity.ps.oidf.platform.settings.Settings;
@@ -57,13 +66,18 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
@@ -91,7 +105,16 @@ import org.jose4j.jwk.JsonWebKeySet;
  * path, which this servlet does not touch.
  *
  * <p>Response: {@code 200 {"attestation":"<jwt>","expires_in":N}} ({@code Cache-Control: no-store}); on
- * failure a JSON body {@code {"error":..,"error_description":..}} with a stable code and 4xx/5xx status.
+ * failure a JSON body {@code {"error":..,"error_description":..}} with a CAS §4.6 code and 4xx/5xx status, and an
+ * {@value #CORRELATION_HEADER} header naming the log line that has the detail.
+ *
+ * <p>Before anything is read (plan item H-ATT-2, F-0060): the caller's client address - platform's
+ * {@link TrustedProxies} - is counted, and past {@value #RATE_SETTING} requests in its minute it is answered 429
+ * {@code temporarily_unavailable} with {@code Retry-After}; then the body is read, at most {@value #MAX_BODY_SETTING}
+ * bytes of it, and a larger one is answered 413 {@code invalid_request} with no more read. Every failure, an
+ * unexpected one included, is answered with a §4.6 error; a 5xx or {@code invalid_client} carries a fixed description
+ * and the correlation id, never the exception's text, since that can name an internal URL, a vault or PingFederate's
+ * own configuration. Methods other than POST are answered 405 {@code invalid_request}.
  */
 // loadOnStartup: ATTESTATION_ISSUER's part registers at deploy, not on the first request (finding F-0193); its init
 // never throws.
@@ -126,6 +149,27 @@ public class AttestationIssuanceServlet extends HttpServlet {
      */
     public static final String EVIDENCE_CONFLICT_EVENT = "attestation.evidence.conflict";
 
+    /** The largest body read, in bytes. */
+    static final String MAX_BODY_SETTING = "OIDF_ATTESTER_MAX_BODY_BYTES";
+    /** Issuance requests per client address per minute. */
+    static final String RATE_SETTING = "OIDF_ATTESTER_ISSUANCE_REQUESTS_PER_MINUTE";
+    /** How often the client index is rebuilt ({@link ClientBindingIndex}). */
+    static final String CLIENT_INDEX_REFRESH_SETTING = "OIDF_ATTESTER_CLIENT_INDEX_REFRESH_SECONDS";
+    /** The catalogue defaults, for a servlet a test made without {@code init}. */
+    static final int DEFAULT_MAX_BODY_BYTES = 32 * 1024;
+    static final int DEFAULT_REQUESTS_PER_MINUTE = 60;
+    /** Where the per-address counts are kept in Redis. */
+    static final String RATE_NAMESPACE = "oidf:cas:limit:issue";
+    /** The response header that carries a failure's correlation id; the log line with the detail carries it too. */
+    static final String CORRELATION_HEADER = "X-Correlation-Id";
+
+    private static final Duration MINUTE = Duration.ofMinutes(1);
+
+    private volatile int maxBodyBytes = DEFAULT_MAX_BODY_BYTES;
+    private volatile int requestsPerMinute = DEFAULT_REQUESTS_PER_MINUTE;
+    /** The per-address counter: injected, else Redis's or this node's, made on the first request. */
+    private transient volatile WindowCounter rateCounter;
+
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
@@ -157,6 +201,12 @@ public class AttestationIssuanceServlet extends HttpServlet {
         settings.jsonObject("OIDF_WALLET_PROVIDER_JWKS");
         settings.jsonObject("OIDF_ENTRA_AGENT_DIRECTORY");
         settings.url("OIDF_ATTESTER_SPIRE_ENTRIES_URL");
+        // The request path's limits (H-ATT-2) and the client index's schedule, and the trusted-proxy rule the
+        // per-address count depends on (H-ATT-3): a value that cannot be read is FAILED_CONFIG, naming it.
+        int maxBodyBytes = settings.integer(MAX_BODY_SETTING);
+        int requestsPerMinute = settings.integer(RATE_SETTING);
+        settings.duration(CLIENT_INDEX_REFRESH_SETTING);
+        TrustedProxies.check();
         // OpenBao: this servlet's two init-params together, else OIDF_OPENBAO_URL and OIDF_OPENBAO_TOKEN and their
         // superseded names, read now for the same reason.
         AttesterSigningKey signingKey = baoUrl != null && baoToken != null ? new AttesterSigningKey(baoUrl, baoToken.reveal())
@@ -177,6 +227,8 @@ public class AttestationIssuanceServlet extends HttpServlet {
         }
         this.challengeRequired = challengeRequired;
         this.customClaimsRequired = customClaimsRequired;
+        this.maxBodyBytes = maxBodyBytes;
+        this.requestsPerMinute = requestsPerMinute;
         if (this.attesterSigningKey == null) {
             this.attesterSigningKey = signingKey;
         }
@@ -206,6 +258,11 @@ public class AttestationIssuanceServlet extends HttpServlet {
         return Settings.of(SETTINGS).with(InitParams.sources(config)).bool("challengeRequired");
     }
 
+    /** {@code OIDF_ATTESTER_CORS_ORIGINS} as written, strictly, for the attester's configuration servlet; null when unset. */
+    static Set<String> corsOrigins(ServletConfig config) {
+        return Settings.of(SETTINGS).with(InitParams.sources(config)).words(AttesterConfigurationServlet.CORS_SETTING);
+    }
+
     /** A {@code words} setting as the claim list it is, in the order written; empty when unset. */
     static List<String> claims(Settings settings, String name) {
         Set<String> words = settings.words(name);
@@ -217,24 +274,155 @@ public class AttestationIssuanceServlet extends HttpServlet {
         if (ComponentGate.oauthEndpoint(this.part, resp)) {
             return;
         }
-        super.service(req, resp);
+        if (!"POST".equals(req.getMethod())) {
+            resp.setHeader("Allow", "POST");
+            fail(resp, new IssuanceException("invalid_request", 405, "this endpoint takes POST, not " + req.getMethod()),
+                    null);
+            return;
+        }
+        this.doPost(req, resp);
     }
 
+    /**
+     * The request path: the per-address limit, the capped body, the issuance; and every failure, an unexpected one
+     * included, answered as a CAS §4.6 error by {@link #fail}.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         resp.setContentType("application/json");
         resp.setHeader("Cache-Control", "no-store");
         resp.setHeader("Pragma", "no-cache");
         try {
-            IssuanceRequest request = parseRequest(req);
+            this.admit(req, resp);
+            IssuanceRequest request = parseRequest(this.readBody(req));
             Map<String, Object> body = issue(request);
             write(resp, 200, body);
         } catch (IssuanceException e) {
-            if (e.status() >= 500) {
-                LOGGER.warn((Object) ("Attestation issuance failed: " + e.error() + " - " + e.getMessage()), e);
-            }
-            write(resp, e.status(), error(e.error(), e.getMessage()));
+            fail(resp, e, null);
+        } catch (RuntimeException e) {
+            fail(resp, IssuanceException.serverError("unexpected " + e), e);
         }
+    }
+
+    /**
+     * Counts one request against the caller's client address, and refuses it past {@value #RATE_SETTING} in the
+     * address's minute: 429 {@code temporarily_unavailable} with {@code Retry-After}. A counter that cannot be written
+     * refuses the request 503, as the challenge and replay stores do, rather than letting it through uncounted.
+     */
+    void admit(HttpServletRequest req, HttpServletResponse resp) throws IssuanceException {
+        String address = TrustedProxies.current().clientAddress(req.getRemoteAddr(), name -> headerValues(req, name));
+        String key = address == null || address.isBlank() ? "-" : address;
+        WindowCount count;
+        try {
+            count = this.rateCounter().hit(key, MINUTE);
+        } catch (IOException | RuntimeException e) {
+            throw IssuanceException.temporarilyUnavailable("the issuance rate-limit counter could not be written: " + e);
+        }
+        if (count.count() > this.requestsPerMinute) {
+            long retryAfter = Math.max(1L, (count.remaining().toMillis() + 999L) / 1000L);
+            resp.setHeader("Retry-After", String.valueOf(retryAfter));
+            throw new IssuanceException("temporarily_unavailable", 429, "this address has made more than "
+                    + this.requestsPerMinute + " issuance requests this minute; retry in " + retryAfter + " s");
+        }
+    }
+
+    /** The per-address counter: injected, else in Redis when a URL is set, else this node's (decision 9: no risk). */
+    WindowCounter rateCounter() {
+        WindowCounter local = this.rateCounter;
+        return local != null ? local : this.makeRateCounter();
+    }
+
+    private synchronized WindowCounter makeRateCounter() {
+        if (this.rateCounter == null) {
+            this.rateCounter = defaultRateCounter();
+        }
+        return this.rateCounter;
+    }
+
+    /** Redis's counter when {@code OIDF_REDIS_URL} names one, else this node's; a Redis client made here is closed at shutdown. */
+    static WindowCounter defaultRateCounter() {
+        if (!RedisConfig.isConfigured()) {
+            return new InMemoryWindowCounter(Clock.systemUTC());
+        }
+        RedisClient redis = new RedisClient(RedisConfig.current());
+        Lifecycle.current().register("attester issuance rate limit Redis client", redis);
+        return new RedisWindowCounter(redis, RATE_NAMESPACE);
+    }
+
+    void setRateCounter(WindowCounter counter) {
+        this.rateCounter = counter;
+    }
+
+    void setMaxBodyBytes(int maxBodyBytes) {
+        this.maxBodyBytes = maxBodyBytes;
+    }
+
+    void setRequestsPerMinute(int requestsPerMinute) {
+        this.requestsPerMinute = requestsPerMinute;
+    }
+
+    /**
+     * The body, at most {@value #MAX_BODY_SETTING} bytes of it: one declared larger is refused before any of it is read,
+     * and one found larger once the cap is reached - chunked, or with a length that understated it - with nothing more
+     * read. PingFederate's {@code pf.runtime.http.maxRequestBodySize} bounds form parameters, not a stream read.
+     */
+    byte[] readBody(HttpServletRequest req) throws IssuanceException {
+        int cap = this.maxBodyBytes;
+        if (req.getContentLengthLong() > cap) {
+            throw tooLarge(cap);
+        }
+        byte[] body;
+        try {
+            body = req.getInputStream().readNBytes(cap + 1);
+        } catch (IOException e) {
+            throw IssuanceException.invalidRequest("the request body could not be read");
+        }
+        if (body.length > cap) {
+            throw tooLarge(cap);
+        }
+        return body;
+    }
+
+    private static IssuanceException tooLarge(int cap) {
+        return new IssuanceException("invalid_request", 413, "the request body is larger than " + cap
+                + " bytes, the most this endpoint reads");
+    }
+
+    /**
+     * Answers {@code e} as a CAS §4.6 error with a fresh correlation id in {@value #CORRELATION_HEADER}. A 5xx or an
+     * {@code invalid_client} - the attester's own state or configuration, which can name an internal URL, a vault or a
+     * client's settings - gets a fixed description naming the id, and the detail goes to the log at WARN under the same
+     * id, with {@code cause}'s stack when there is one; any other 4xx describes the request, and says so.
+     */
+    static void fail(HttpServletResponse resp, IssuanceException e, Throwable cause) throws IOException {
+        String id = UUID.randomUUID().toString();
+        resp.setHeader(CORRELATION_HEADER, id);
+        String description = e.getMessage();
+        if (e.status() >= 500 || "invalid_client".equals(e.error())) {
+            description = genericDescription(e.error(), id);
+            LOGGER.warn((Object) ("Attestation issuance failed [" + id + "]: " + e.error() + " - " + e.getMessage()), cause);
+        } else {
+            LOGGER.debug((Object) ("Attestation issuance refused [" + id + "]: " + e.error() + " - " + e.getMessage()));
+        }
+        write(resp, e.status(), error(e.error(), description));
+    }
+
+    /** The fixed description of a failure whose detail stays in the log. */
+    static String genericDescription(String error, String id) {
+        switch (error) {
+            case "temporarily_unavailable":
+                return "the attester cannot check this request now; retry later (correlation id " + id + ")";
+            case "invalid_client":
+                return "the attester cannot issue for this client; its operator can find why under correlation id " + id;
+            default:
+                return "the attester could not complete this request; its operator can find why under correlation id " + id;
+        }
+    }
+
+    /** Every value of a request header, for {@link TrustedProxies}; {@code null} when the container gives none. */
+    static List<String> headerValues(HttpServletRequest req, String name) {
+        Enumeration<String> values = req.getHeaders(name);
+        return values == null ? null : Collections.list(values);
     }
 
     /**
@@ -825,9 +1013,49 @@ public class AttestationIssuanceServlet extends HttpServlet {
      * error and is rejected rather than resolved arbitrarily.
      */
     private Match resolveByEvidence(String evidence, String declaredFormat) throws IssuanceException {
+        Attempt first = this.matchEvidence(evidence, declaredFormat);
+        if (first.match != null) {
+            return first.match;
+        }
+        // Evidence no indexed client accepts: the index may predate the client, so it is read again - at most once in
+        // ClientBindingIndex.MISS_REFRESH_INTERVAL, whoever asks - and the evidence matched once more.
+        if (!refreshAfterMiss(clientResolver())) {
+            throw first.miss;
+        }
+        Attempt second = this.matchEvidence(evidence, declaredFormat);
+        if (second.match != null) {
+            return second.match;
+        }
+        throw second.miss;
+    }
+
+    /** Asks {@code resolver}, or each plugin of a chain, to read its clients again after a miss; whether any did. */
+    static boolean refreshAfterMiss(IssuanceClientResolver resolver) {
+        if (resolver instanceof ChainClientResolver) {
+            boolean any = false;
+            for (IssuanceClientResolver plugin : ((ChainClientResolver) resolver).plugins()) {
+                any |= plugin.refreshAfterMiss();
+            }
+            return any;
+        }
+        return resolver.refreshAfterMiss();
+    }
+
+    /** One look for the client the evidence is bound to: a match, or the miss to answer when none is found. */
+    private static final class Attempt {
+        final Match match;
+        final IssuanceException miss;
+
+        Attempt(Match match, IssuanceException miss) {
+            this.match = match;
+            this.miss = miss;
+        }
+    }
+
+    private Attempt matchEvidence(String evidence, String declaredFormat) throws IssuanceException {
         List<AttesterClient> clients = clientResolver().attestationClients();
         if (clients.isEmpty()) {
-            throw IssuanceException.invalidClient("no attestation clients are configured");
+            return new Attempt(null, IssuanceException.invalidClient("no attestation clients are configured"));
         }
         InstanceAttestationValidators registry = instanceValidators();
         Match match = null;
@@ -880,22 +1108,23 @@ public class AttestationIssuanceServlet extends HttpServlet {
             match = new Match(candidate.clientId(), config, instance, binding);
         }
         if (match != null) {
-            return match;
+            return new Attempt(match, null);
         }
         if (anyValidated) {
             // A SPIFFE identity keeps the long-standing, documented error code; other formats get the
             // format-neutral one.
             String message = "evidence identity is not registered with any client";
-            throw SpiffeInstanceAttestationValidator.FORMAT.equals(validatedFormat)
+            return new Attempt(null, SpiffeInstanceAttestationValidator.FORMAT.equals(validatedFormat)
                     ? IssuanceException.spiffeIdNotAuthorized(message)
-                    : IssuanceException.instanceNotAuthorized(message);
+                    : IssuanceException.instanceNotAuthorized(message));
         }
         if (deferredServerError != null) {
+            // An attester-side fault (a trust bundle that could not be fetched), not a client the index lacks.
             throw deferredServerError;
         }
-        throw IssuanceException.invalidSvid("no attester client accepts this evidence"
+        return new Attempt(null, IssuanceException.invalidSvid("no attester client accepts this evidence"
                 + (declaredFormat != null ? " for format '" + declaredFormat + "'" : "")
-                + " (looks like format '" + InstanceAttestationValidators.sniff(evidence) + "')");
+                + " (looks like format '" + InstanceAttestationValidators.sniff(evidence) + "')"));
     }
 
     IssuanceClientResolver clientResolver() {
@@ -948,10 +1177,9 @@ public class AttestationIssuanceServlet extends HttpServlet {
 
     // ---- request parsing --------------------------------------------------------------------------
 
-    private static IssuanceRequest parseRequest(HttpServletRequest req) throws IssuanceException {
+    private static IssuanceRequest parseRequest(byte[] raw) throws IssuanceException {
         Map<String, Object> json;
         try {
-            byte[] raw = req.getInputStream().readAllBytes();
             json = JsonUtil.parseJson(new String(raw, StandardCharsets.UTF_8));
         } catch (Exception e) {
             throw IssuanceException.invalidRequest("request body is not valid JSON");

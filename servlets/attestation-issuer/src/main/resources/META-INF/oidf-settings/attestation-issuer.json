@@ -249,6 +249,76 @@
       ],
       "aliases": [],
       "file": false
+    },
+    {
+      "name": "OIDF_ATTESTER_MAX_BODY_BYTES",
+      "kind": "env",
+      "type": "int",
+      "min": 4096,
+      "max": 262144,
+      "default": 32768,
+      "description": "The largest request body POST /federation/attestation reads, in bytes (32 KiB by default, 4-256 KiB); a body declared or found larger is answered 413 invalid_request with no more of it read",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number from 4096 to 262144: the issuance servlet's part is FAILED_CONFIG at deploy, naming the setting, and the endpoint answers 503"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.attester.max.body.bytes"},
+        {"from": "env", "name": "OIDF_ATTESTER_MAX_BODY_BYTES"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_ATTESTER_ISSUANCE_REQUESTS_PER_MINUTE",
+      "kind": "env",
+      "type": "int",
+      "min": 1,
+      "max": 100000,
+      "default": 60,
+      "description": "How many issuance requests one client address may make in a minute before POST /federation/attestation answers 429 temporarily_unavailable with Retry-After; counted in Redis (oidf:cas:limit:issue) when OIDF_REDIS_URL is set, else by each node for itself. The client address is the remote address, or behind a proxy OIDF_TRUSTED_PROXIES lists, the forwarding hop it does not list",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number from 1 to 100000: the issuance servlet's part is FAILED_CONFIG at deploy, naming the setting, and the endpoint answers 503. Behind a proxy that is not listed, every caller shares the proxy's allowance"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.attester.issuance.requests.per.minute"},
+        {"from": "env", "name": "OIDF_ATTESTER_ISSUANCE_REQUESTS_PER_MINUTE"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_ATTESTER_CLIENT_INDEX_REFRESH_SECONDS",
+      "kind": "env",
+      "type": "seconds",
+      "min": 5,
+      "max": 3600,
+      "default": 30,
+      "description": "How often, in seconds, the attester rebuilds its index of PingFederate's attestation clients (every client read once, on a background thread); evidence no indexed client accepts rebuilds it at once, at most once every 5 s. A client added, changed, disabled or deleted in PingFederate is seen at issuance within this time",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number of seconds from 5 to 3600: the issuance servlet's part is FAILED_CONFIG at deploy, naming the setting, and the endpoint answers 503"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.attester.client.index.refresh.seconds"},
+        {"from": "env", "name": "OIDF_ATTESTER_CLIENT_INDEX_REFRESH_SECONDS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_ATTESTER_CORS_ORIGINS",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "The browser origins, such as https://console.example, allowed to read the attester configuration documents (/.well-known/client-attester and /federation/attester-configuration) with GET, space- or comma-separated; unset, no origin is, since workloads and SDKs fetch them from servers. An origin listed gets Access-Control-Allow-Origin naming it and Vary: Origin",
+      "when_wrong": {"effect": "doesnt-start", "detail": "A list of nothing, such as ', ,', or an entry that is not scheme://host[:port] with no path: the configuration servlet's part is FAILED_CONFIG at deploy, naming the setting, and its documents answer 503. An origin left out is refused by the browser, not by the server"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.attester.cors.origins"},
+        {"from": "env", "name": "OIDF_ATTESTER_CORS_ORIGINS"}
+      ],
+      "aliases": [],
+      "file": false
     }
   ],
   "removed": []

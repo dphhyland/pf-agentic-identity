@@ -16,8 +16,10 @@ import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
 import com.pingidentity.ps.oidf.issuer.SpiffeBinding;
 import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.net.TrustedProxies;
 import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
+import com.pingidentity.ps.oidf.platform.settings.SettingRefused;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -25,8 +27,10 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
@@ -52,10 +56,17 @@ import org.jose4j.json.JsonUtil;
  * domain, and the RAR <em>type names</em> it may request. The full entitlement ceiling, the instance
  * bindings, and the signing configuration are deliberately not exposed.
  *
- * <p>The advertised endpoint URLs are derived from the request, honouring
- * {@code X-Forwarded-Proto}/{@code X-Forwarded-Host}/{@code X-Forwarded-Port} so the document is correct
- * behind a TLS-terminating proxy. The {@code challengeRequired} init-param mirrors the issuance servlet's
- * and must be configured to the same value.
+ * <p>The advertised endpoint URLs are derived from the request: its own scheme and host, or behind a proxy
+ * {@code OIDF_TRUSTED_PROXIES} lists, what that proxy says in {@code X-Forwarded-Proto}/{@code -Host}/{@code -Port} (or
+ * RFC 7239 {@code Forwarded}) - platform's {@link TrustedProxies} (plan item H-ATT-3, F-0061). From any other sender
+ * those headers are ignored, so a caller cannot make the document name a host of its choosing. The
+ * {@code challengeRequired} init-param mirrors the issuance servlet's and must be configured to the same value.
+ *
+ * <p>CORS (H-ATT-3): {@code Access-Control-Allow-Origin} is sent only to an origin {@value #CORS_SETTING} lists, with
+ * {@code Vary: Origin}, for {@code GET}; by default none is. Workloads and SDKs fetch these documents from servers,
+ * which CORS does not restrict, so the default costs them nothing. What it stops is a web page reading the documents
+ * through a visitor's browser - the browser can reach an attester the page's author cannot, inside a private network,
+ * and the per-client view names a client's issuer, trust domain and RAR types.
  */
 // loadOnStartup: its part of ATTESTATION_ISSUER registers at deploy, not on the first request (finding F-0193); its init
 // never throws.
@@ -75,8 +86,16 @@ public class AttesterConfigurationServlet extends HttpServlet {
     /** The client-authentication method the advertised token endpoint accepts. */
     static final List<String> TOKEN_ENDPOINT_AUTH_METHODS = List.of("attest_jwt_client_auth");
 
+    /** The browser origins allowed to read the documents. */
+    static final String CORS_SETTING = "OIDF_ATTESTER_CORS_ORIGINS";
+
+    /** An origin as a browser serialises it: scheme, host and an optional port, no path. */
+    private static final Pattern ORIGIN = Pattern.compile("https?://([a-z0-9]([a-z0-9.-]{0,252})?|\\[[0-9a-f:.]{2,45}\\])(:[0-9]{1,5})?");
+
     private volatile IssuanceClientResolver clientResolver;
     private boolean challengeRequired;
+    /** The origins, in lower case, allowed to read the documents from a browser; none by default. */
+    private volatile Set<String> corsOrigins = Set.of();
 
     /** This servlet's part of ATTESTATION_ISSUER, from init; null when a test's constructor made it and init never ran. */
     private transient volatile ComponentParts.Part part;
@@ -91,7 +110,38 @@ public class AttesterConfigurationServlet extends HttpServlet {
         super.init(config);
         ComponentParts.Part begun = Startup.begin(Startup.ATTESTATION_ISSUER, "AttesterConfigurationServlet");
         this.part = begun;
-        begun.start(() -> this.challengeRequired = AttestationIssuanceServlet.challengeRequired(config));
+        begun.start(() -> {
+            boolean challengeRequired = AttestationIssuanceServlet.challengeRequired(config);
+            Set<String> origins = corsOrigins(AttestationIssuanceServlet.corsOrigins(config));
+            TrustedProxies.check();
+            this.challengeRequired = challengeRequired;
+            this.corsOrigins = origins;
+        });
+    }
+
+    /**
+     * {@value #CORS_SETTING}'s origins, in lower case; empty when unset.
+     *
+     * @throws SettingRefused naming the setting, for an entry that is not {@code scheme://host[:port]}
+     */
+    static Set<String> corsOrigins(Set<String> configured) {
+        if (configured == null) {
+            return Set.of();
+        }
+        Set<String> out = new LinkedHashSet<>();
+        for (String origin : configured) {
+            String lower = origin.toLowerCase(Locale.ROOT);
+            if (!ORIGIN.matcher(lower).matches()) {
+                throw new SettingRefused(CORS_SETTING, CORS_SETTING + ": '" + origin
+                        + "' is not an origin, http(s)://host[:port] with no path; '*' is not allowed");
+            }
+            out.add(lower);
+        }
+        return Set.copyOf(out);
+    }
+
+    void setCorsOrigins(Set<String> origins) {
+        this.corsOrigins = corsOrigins(origins);
     }
 
     @Override
@@ -104,7 +154,7 @@ public class AttesterConfigurationServlet extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        applyCors(resp);
+        applyCors(req, resp, this.corsOrigins);
         resp.setContentType("application/json");
         Map<String, Object> doc = metadata(baseUrl(req), this.challengeRequired, AgentRegistrySupport.isConfigured());
 
@@ -158,7 +208,8 @@ public class AttesterConfigurationServlet extends HttpServlet {
 
     @Override
     protected void doOptions(HttpServletRequest req, HttpServletResponse resp) {
-        applyCors(resp);
+        applyCors(req, resp, this.corsOrigins);
+        resp.setHeader("Allow", "GET, OPTIONS");
         resp.setStatus(204);
     }
 
@@ -252,15 +303,16 @@ public class AttesterConfigurationServlet extends HttpServlet {
      * {@code X-Forwarded-*} headers over the connection's own coordinates.
      */
     static String baseUrl(HttpServletRequest req) {
-        String proto = firstForwardedValue(req.getHeader("X-Forwarded-Proto"));
-        String host = firstForwardedValue(req.getHeader("X-Forwarded-Host"));
-        String scheme = proto != null ? proto : req.getScheme();
+        TrustedProxies.Origin origin = TrustedProxies.current().origin(req.getRemoteAddr(),
+                name -> AttestationIssuanceServlet.headerValues(req, name));
+        String host = origin.host();
+        String scheme = origin.scheme() != null ? origin.scheme() : req.getScheme();
         StringBuilder base = new StringBuilder(scheme).append("://");
         if (host != null) {
             base.append(host);
             // A forwarded host may already carry a port; only append X-Forwarded-Port if it does not.
-            String port = firstForwardedValue(req.getHeader("X-Forwarded-Port"));
-            if (port != null && !host.contains(":") && !isDefaultPort(scheme, port)) {
+            Integer port = origin.port();
+            if (port != null && !hasPort(host) && !isDefaultPort(scheme, String.valueOf(port))) {
                 base.append(':').append(port);
             }
         } else {
@@ -282,15 +334,9 @@ public class AttesterConfigurationServlet extends HttpServlet {
                 || ("http".equalsIgnoreCase(scheme) && "80".equals(port));
     }
 
-    /** Forwarded headers may be comma-joined lists (one hop per proxy); the first value is the client edge. */
-    private static String firstForwardedValue(String header) {
-        if (header == null || header.isBlank()) {
-            return null;
-        }
-        int comma = header.indexOf(',');
-        String value = comma < 0 ? header : header.substring(0, comma);
-        String t = value.trim();
-        return t.isEmpty() ? null : t;
+    /** Whether a host, a name or {@code [IPv6]}, carries a {@code :port}. */
+    static boolean hasPort(String host) {
+        return host.startsWith("[") ? host.contains("]:") : host.contains(":");
     }
 
     private static List<String> sortedAlgorithms(Set<String> algorithms) {
@@ -348,10 +394,20 @@ public class AttesterConfigurationServlet extends HttpServlet {
         return AttesterResolvers.fromEnvironment();
     }
 
-    private static void applyCors(HttpServletResponse resp) {
-        resp.setHeader("Access-Control-Allow-Origin", "*");
-        resp.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-        resp.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    /**
+     * CORS for a listed origin only: {@code Access-Control-Allow-Origin} naming it and {@code GET} as the one method.
+     * {@code Vary: Origin} whenever any origin is listed, since the answer then depends on the request's.
+     */
+    static void applyCors(HttpServletRequest req, HttpServletResponse resp, Set<String> allowed) {
+        if (allowed.isEmpty()) {
+            return;
+        }
+        resp.addHeader("Vary", "Origin");
+        String origin = req.getHeader("Origin");
+        if (origin != null && allowed.contains(origin.toLowerCase(Locale.ROOT))) {
+            resp.setHeader("Access-Control-Allow-Origin", origin);
+            resp.setHeader("Access-Control-Allow-Methods", "GET");
+        }
     }
 
     private static void write(HttpServletResponse resp, int status, Map<String, Object> body) throws IOException {

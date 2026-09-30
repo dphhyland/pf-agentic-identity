@@ -112,6 +112,57 @@ class AttestationIssuanceServletTest {
         assertRoundTrips(attestation);
     }
 
+    /**
+     * H-ATT-2: a client the index did not have when evidence arrived is found by reading the clients again once, and
+     * a miss that reading again does not fix is answered as before.
+     */
+    @Test
+    void aClientTheIndexLackedIsFoundOnAMissAndAPersistentMissIsRefused() throws Exception {
+        AttestationIssuanceConfig config = config();
+        boolean[] added = {false};
+        int[] reads = {0};
+        servlet.setClientResolver(new IssuanceClientResolver() {
+            @Override
+            public AttestationIssuanceConfig resolve(String clientId) {
+                return config;
+            }
+
+            @Override
+            public List<com.pingidentity.ps.oidf.issuer.AttesterClient> attestationClients() {
+                reads[0]++;
+                return added[0] ? List.of(new com.pingidentity.ps.oidf.issuer.AttesterClient(CLIENT_ID, config)) : List.of();
+            }
+
+            @Override
+            public boolean refreshAfterMiss() {
+                added[0] = true;
+                return true;
+            }
+        });
+        assertNotNull(servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of())).get("attestation"));
+        assertEquals(2, reads[0], "one look, a miss, one more look");
+
+        servlet.setClientResolver(new IssuanceClientResolver() {
+            @Override
+            public AttestationIssuanceConfig resolve(String clientId) {
+                return config;
+            }
+
+            @Override
+            public List<com.pingidentity.ps.oidf.issuer.AttesterClient> attestationClients() {
+                return List.of(new com.pingidentity.ps.oidf.issuer.AttesterClient(CLIENT_ID, config));
+            }
+
+            @Override
+            public boolean refreshAfterMiss() {
+                return true;
+            }
+        });
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request("spiffe://banking.demo/stranger", ISSUER, newProof(null), List.of())));
+        assertEquals("spiffe_id_not_authorized", e.error());
+    }
+
     @Test
     void unknownSpiffeIdIsRejected() throws Exception {
         AttestationIssuanceServlet.IssuanceRequest req =
