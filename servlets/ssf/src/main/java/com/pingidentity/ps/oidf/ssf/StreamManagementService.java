@@ -4,14 +4,20 @@
 package com.pingidentity.ps.oidf.ssf;
 
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
+import com.pingidentity.ps.oidf.platform.events.Events;
+import com.pingidentity.ps.oidf.platform.events.LogSafe;
 import com.pingidentity.ps.oidf.signals.SecurityEventToken;
 import com.pingidentity.ps.oidf.signals.SetMinter;
 import com.pingidentity.ps.oidf.signals.SubjectId;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.jose4j.lang.JoseException;
 
 /**
@@ -26,6 +32,8 @@ import org.jose4j.lang.JoseException;
  * {@code stream_id} or {@code reason} beside it, both of which arrive in the request.
  */
 public final class StreamManagementService {
+
+    private static final Log LOGGER = LogFactory.getLog(StreamManagementService.class);
 
     /**
      * A requested stream/subject/event that does not exist — servlets map to 404. A stream that belongs to
@@ -297,13 +305,55 @@ public final class StreamManagementService {
 
     // ─────────────────────────────── poll delivery (RFC 8936) ───────────────────────────────
 
+    /** One RFC 8936 §2.2 poll request, as the poll endpoint read it. */
+    public record PollRequest(List<String> acks, Map<String, Map<String, Object>> setErrs, Integer maxEvents,
+            boolean returnImmediately) {
+    }
+
     /**
-     * Poll for pending SETs and ack previously-received ones (RFC 8936). Acked jtis are deleted first, then up
-     * to {@code maxEvents} pending SETs are returned as {@code {jti: jws}}. {@code returnImmediately} is honoured
-     * trivially here (this store never long-polls). Returns {@code {sets, moreAvailable}}.
+     * A poll's answer: the RFC 8936 §2.3 body, and how long the endpoint may hold a long poll for more - the
+     * configured wait when nothing was returned, SETs were asked for and the stream is enabled, otherwise zero.
+     */
+    public record Polled(Map<String, Object> body, Duration hold) {
+    }
+
+    /** The RFC 8935 §2.4 error codes a {@code setErrs} entry is counted under; any other counts as {@code other}. */
+    static final Set<String> SET_ERROR_CODES = Set.of("invalid_request", "invalid_key", "invalid_issuer",
+            "invalid_audience", "authentication_failed", "access_denied");
+
+    static final String POLL_EVENTS = "ssf-poll";
+    static final String SET_ERROR = "ssf.poll.set_error";
+
+    /**
+     * {@link #poll(String, PollRequest, AuthContext)} for a request with no {@code setErrs}; its body.
+     */
+    public Map<String, Object> poll(String streamId, List<String> acks, Integer maxEvents, boolean returnImmediately,
+            AuthContext caller) {
+        return poll(streamId, new PollRequest(acks, Map.of(), maxEvents, returnImmediately), caller).body();
+    }
+
+    /**
+     * Poll for pending SETs and ack previously-received ones (RFC 8936, plan item H-SSF-2). Acked jtis are deleted
+     * first, then up to the request's {@code maxEvents} pending SETs are returned as {@code {jti: jws}}, with
+     * {@code moreAvailable}.
      *
-     * <p>A {@code maxEvents} of 0 is an acknowledge-only request (RFC 8936 §2.2) and returns no SETs; only
-     * an absent or negative value falls back to the configured cap.
+     * <p>{@code maxEvents} is capped at {@code OIDF_SSF_POLL_MAX_EVENTS_CAP}: RFC 8936 §2.2 has the transmitter
+     * "SHOULD NOT send more SETs than the specified maximum" and lets it choose which to return first, and
+     * {@code moreAvailable} says there are more. Absent (RFC 8936: "no limit is placed") or negative, it is
+     * {@code OIDF_SSF_POLL_MAX_EVENTS}, capped the same way. A {@code maxEvents} of 0 is an acknowledge-only request
+     * (RFC 8936 §2.2) and returns no SETs.
+     *
+     * <p>{@code setErrs} (RFC 8936 §2.2: "A JSON object with one or more members whose keys are the "jti" values of
+     * invalid SETs received") is recorded per SET: logged with the receiver's {@code err} and {@code description},
+     * counted as an {@value #SET_ERROR} event under the error code, and the SET released as the receiver reported it
+     * - removed from the stream's queue like an acknowledged one, since redelivering a SET its receiver cannot
+     * validate cannot succeed. The store keeps no record of a SET once released; the dead-letter record is S-10's.
+     *
+     * <p>A stream that is not enabled returns no SETs. SSF 1.0 §8.1.2.1: for {@code paused}, "The Transmitter MUST NOT
+     * transmit events over the stream. The Transmitter SHOULD hold any events it would have transmitted while paused,
+     * and SHOULD transmit them when the stream's status becomes "enabled""; for {@code disabled}, "The Transmitter
+     * MUST NOT transmit events over the stream and will not hold any events for later transmission". The poll still
+     * acknowledges: a receiver that paused its stream can release what it was already given.
      *
      * <p>SETs past {@code setTtlSeconds} are evicted before the queue is read, so none is handed over because
      * the background loop had not reached it yet - or was not running. Evicted rather than skipped: dropping
@@ -314,25 +364,57 @@ public final class StreamManagementService {
      * SETs. Acknowledging is deleting: another receiver's poll would not just read this one's events, it
      * would consume them, and the receiver they were meant for would never learn they had existed.
      */
-    public Map<String, Object> poll(String streamId, List<String> acks, Integer maxEvents, boolean returnImmediately,
-            AuthContext caller) {
-        requireStream(streamId, caller);
-        if (acks != null && !acks.isEmpty()) {
-            this.store.ack(streamId, acks);
+    public Polled poll(String streamId, PollRequest request, AuthContext caller) {
+        Stream stream = requireStream(streamId, caller);
+        if (request.acks() != null && !request.acks().isEmpty()) {
+            this.store.ack(streamId, request.acks());
         }
-        int cap = maxEvents != null && maxEvents >= 0 ? maxEvents : this.config.pollMaxEvents();
+        if (request.setErrs() != null && !request.setErrs().isEmpty()) {
+            recordSetErrors(streamId, request.setErrs());
+        }
+        LinkedHashMap<String, Object> sets = new LinkedHashMap<>();
+        LinkedHashMap<String, Object> out = new LinkedHashMap<>();
+        out.put("sets", sets);
+        if (stream.status() != StreamStatus.ENABLED) {
+            out.put("moreAvailable", false);
+            return new Polled(out, Duration.ZERO);
+        }
+        int asked = request.maxEvents() != null && request.maxEvents() >= 0 ? request.maxEvents()
+                : this.config.pollMaxEvents() > 0 ? this.config.pollMaxEvents() : 100;
+        int cap = Math.min(asked, this.config.pollMaxEventsCap());
         this.store.evictExpired(SetMinter.nowSeconds());
         List<PendingSet> pending = this.store.peek(streamId, cap + 1);
         boolean more = pending.size() > cap;
-        LinkedHashMap<String, Object> sets = new LinkedHashMap<>();
         int n = Math.min(cap, pending.size());
         for (int i = 0; i < n; i++) {
             sets.put(pending.get(i).jti(), pending.get(i).setJws());
         }
-        LinkedHashMap<String, Object> out = new LinkedHashMap<>();
-        out.put("sets", sets);
         out.put("moreAvailable", more);
-        return out;
+        return new Polled(out, n == 0 && cap > 0 ? Duration.ofSeconds(this.config.pollLongPollWaitSeconds()) : Duration.ZERO);
+    }
+
+    /** Whether the stream has a SET waiting that has not expired: the long poll's cheap check between polls. */
+    public boolean hasPending(String streamId) {
+        long now = SetMinter.nowSeconds();
+        for (PendingSet p : this.store.peek(streamId, 1)) {
+            if (p.expiresAt() == 0 || p.expiresAt() > now) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void recordSetErrors(String streamId, Map<String, Map<String, Object>> setErrs) {
+        for (Map.Entry<String, Map<String, Object>> e : setErrs.entrySet()) {
+            Object err = e.getValue().get("err");
+            String code = err instanceof String && SET_ERROR_CODES.contains(err) ? (String) err : "other";
+            Object description = e.getValue().get("description");
+            LOGGER.warn((Object) ("SSF poll: the receiver of stream " + streamId + " reported SET " + LogSafe.value(e.getKey())
+                    + " invalid (" + code + (description instanceof String ? ": " + LogSafe.value((String) description) : "")
+                    + "); released"));
+            Events.event(POLL_EVENTS, SET_ERROR).failure(code).emit();
+        }
+        this.store.ack(streamId, setErrs.keySet());
     }
 
     // ─────────────────────────────── helpers ───────────────────────────────

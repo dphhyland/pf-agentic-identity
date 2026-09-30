@@ -1,0 +1,52 @@
+{
+  "component": "ssf-receiver",
+  "module": "servlets/ssf",
+  "description": "The Shared Signals receiver of inbound SETs, pushed to /ssf/receiver/events or polled from a transmitter: a SET it refused, one it discarded, and a subject its handlers could not map to anyone here. The SET, its jti and its subject are never event fields.",
+  "logger": "com.pingidentity.ps.oidf.ssf.receiver.event",
+  "auditProtocol": "Shared Signals",
+  "fields": {
+    "handler": {
+      "pii": "OPERATIONAL",
+      "description": "Which handler could not map the subject: grants (the PingFederate grant revocation) or instance_registry (the agent instance registry)."
+    },
+    "format": {
+      "pii": "OPERATIONAL",
+      "description": "The subject's format (iss_sub, email, complex, aliases and so on), or none."
+    }
+  },
+  "events": {
+    "ssf.receiver.set_refused": {
+      "description": "A SET was refused with an RFC 8935 error, the reason: invalid_request (unparseable, or carrying exp or sub, which SSF 1.0 forbids), invalid_key, invalid_issuer or invalid_audience. A push is answered 400; a polled SET is reported in setErrs.",
+      "audit": false,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [],
+      "declaredOnly": false
+    },
+    "ssf.receiver.set_discarded": {
+      "description": "A SET was accepted and not acted on: its complex subject carries a member the transmitter declared critical that the handlers do not act on (SSF 1.0 §3.6); reason critical_subject_member.",
+      "audit": false,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [],
+      "declaredOnly": false
+    },
+    "ssf.receiver.subject_unmapped": {
+      "description": "A handler acted on nothing because the SET's subject names no user or device here (an iss_sub from another issuer, a complex subject with no user or device member, an aliases subject none of whose identifiers maps); reason unmapped.",
+      "audit": false,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "handler",
+        "format"
+      ],
+      "declaredOnly": false
+    }
+  }
+}

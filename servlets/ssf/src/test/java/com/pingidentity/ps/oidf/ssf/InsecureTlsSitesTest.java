@@ -49,20 +49,20 @@ class InsecureTlsSitesTest {
 
     @Test
     void thePollReceiversTransport() throws Exception {
-        assertEquals(BODY, PollReceiverClient.httpTransport(rightName.url("/poll"), "t", true).poll("{}"));
+        assertEquals(BODY, PollReceiverClient.httpTransport(() -> rightName.url("/poll"), ReceiverBearer.fixed("t"), true).poll("{}"));
         assertTrue(SelfSignedTlsServer.isWrongName(assertThrows(Exception.class,
-                () -> PollReceiverClient.httpTransport(wrongName.url("/poll"), "t", true).poll("{}"))));
+                () -> PollReceiverClient.httpTransport(() -> wrongName.url("/poll"), ReceiverBearer.fixed("t"), true).poll("{}"))));
         assertFalse(SelfSignedTlsServer.isWrongName(assertThrows(Exception.class,
-                () -> PollReceiverClient.httpTransport(rightName.url("/poll"), "t", false).poll("{}"))));
+                () -> PollReceiverClient.httpTransport(() -> rightName.url("/poll"), ReceiverBearer.fixed("t"), false).poll("{}"))));
     }
 
     @Test
     void theReceiversStreamManagementTransport() throws Exception {
-        assertEquals(BODY, ReceiverStreamClient.httpTransport("t", true).call("GET", rightName.url("/ssf/streams"), null));
+        assertEquals(BODY, ReceiverStreamClient.httpTransport(ReceiverBearer.fixed("t"), true).call("GET", rightName.url("/ssf/streams"), null));
         assertTrue(SelfSignedTlsServer.isWrongName(assertThrows(Exception.class,
-                () -> ReceiverStreamClient.httpTransport("t", true).call("GET", wrongName.url("/ssf/streams"), null))));
+                () -> ReceiverStreamClient.httpTransport(ReceiverBearer.fixed("t"), true).call("GET", wrongName.url("/ssf/streams"), null))));
         assertFalse(SelfSignedTlsServer.isWrongName(assertThrows(Exception.class,
-                () -> ReceiverStreamClient.httpTransport("t", false).call("GET", rightName.url("/ssf/streams"), null))));
+                () -> ReceiverStreamClient.httpTransport(ReceiverBearer.fixed("t"), false).call("GET", rightName.url("/ssf/streams"), null))));
     }
 
     @Test
@@ -89,11 +89,11 @@ class InsecureTlsSitesTest {
         assertEquals(receiver, SelfSignedTlsServer.settingsRecordedBy(
                 () -> JwksHttpSource.of(rightName.url("/jwks"), 60, true)));
         assertEquals(receiver, SelfSignedTlsServer.settingsRecordedBy(
-                () -> PollReceiverClient.httpTransport(rightName.url("/poll"), "t", true)));
-        assertEquals(receiver, SelfSignedTlsServer.settingsRecordedBy(() -> ReceiverStreamClient.httpTransport("t", true)));
+                () -> PollReceiverClient.httpTransport(() -> rightName.url("/poll"), ReceiverBearer.fixed("t"), true)));
+        assertEquals(receiver, SelfSignedTlsServer.settingsRecordedBy(() -> ReceiverStreamClient.httpTransport(ReceiverBearer.fixed("t"), true)));
         assertEquals(Set.of("OIDF_SSF_INTROSPECTION_INSECURE_TLS"), SelfSignedTlsServer.settingsRecordedBy(
                 () -> PfIntrospectionReceiverAuthenticator.forEndpoint(rightName.url("/as/introspect.oauth2"), "id", "secret", true, null)));
         assertEquals(Set.of(), SelfSignedTlsServer.settingsRecordedBy(
-                () -> PollReceiverClient.httpTransport(rightName.url("/poll"), "t", false)), "off: nothing recorded");
+                () -> PollReceiverClient.httpTransport(() -> rightName.url("/poll"), ReceiverBearer.fixed("t"), false)), "off: nothing recorded");
     }
 }

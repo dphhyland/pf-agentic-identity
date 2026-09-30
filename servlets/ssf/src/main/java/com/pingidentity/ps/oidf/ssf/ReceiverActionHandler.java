@@ -3,10 +3,12 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.platform.events.Events;
 import com.pingidentity.ps.oidf.signals.ReceivedSet;
 import com.pingidentity.ps.oidf.signals.SubjectId;
-import java.util.Map;
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -17,6 +19,11 @@ import org.apache.commons.logging.LogFactory;
  * reference-token validation immediately). The PF call is behind {@link ReceiverActions} so this mapping is
  * unit-testable; the runtime implementation is {@code PfReceiverActions} (PF SDK
  * {@code AccessGrantManagerAccessor}). Best-effort: action failures are logged, never thrown.
+ *
+ * <p>The subject is mapped to a user key by {@link SsfSubjects#userKey}, honouring an {@code iss_sub}'s issuer: the
+ * SET's own issuer and {@code localIssuers} (this PingFederate's SSF issuer and {@code OIDF_SSF_RECEIVER_SUBJECT_ISSUERS})
+ * are honoured, any other is refused. A subject that maps to no
+ * one is logged with the reason and counted ({@value #SUBJECT_UNMAPPED}); nothing is revoked.
  */
 public final class ReceiverActionHandler implements SsfReceiverService.ReceivedSetHandler {
 
@@ -28,10 +35,24 @@ public final class ReceiverActionHandler implements SsfReceiverService.ReceivedS
 
     private static final Log LOGGER = LogFactory.getLog(ReceiverActionHandler.class);
 
-    private final ReceiverActions actions;
+    static final String EVENTS = "ssf-receiver";
+    static final String SUBJECT_UNMAPPED = "ssf.receiver.subject_unmapped";
 
+    private final ReceiverActions actions;
+    private final Set<String> localIssuers;
+
+    /** A handler that honours only the SET's own issuer in an {@code iss_sub} subject. */
     public ReceiverActionHandler(ReceiverActions actions) {
+        this(actions, Set.of());
+    }
+
+    /**
+     * @param localIssuers the issuers, besides the SET's own, whose {@code iss_sub} subjects name a user here
+     *                     ({@link SsfConfiguration#receiverLocalIssuers()})
+     */
+    public ReceiverActionHandler(ReceiverActions actions, Set<String> localIssuers) {
         this.actions = Objects.requireNonNull(actions, "actions");
+        this.localIssuers = Set.copyOf(localIssuers);
     }
 
     @Override
@@ -41,11 +62,15 @@ public final class ReceiverActionHandler implements SsfReceiverService.ReceivedS
                 && !set.hasEvent(SsfEventTypes.RISC_ACCOUNT_CREDENTIAL_CHANGE_REQUIRED)) {
             return; // not a revocation-worthy signal (e.g. verification)
         }
-        String userKey = userKeyOf(set.subjectId());
-        if (userKey == null) {
-            LOGGER.warn((Object) ("SSF receiver: revocation signal " + set.jti() + " has no usable subject"));
+        SsfSubjects.Mapping mapping = SsfSubjects.userKey(set.subjectId(), issuers(set, this.localIssuers));
+        if (!mapping.mapped()) {
+            LOGGER.warn((Object) ("SSF receiver: revocation signal " + set.jti() + " names no user here: "
+                    + mapping.refusal()));
+            Events.event(EVENTS, SUBJECT_UNMAPPED).failure("unmapped").field("handler", "grants")
+                    .field("format", formatOf(set.subjectId())).emit();
             return;
         }
+        String userKey = mapping.value();
         try {
             int revoked = this.actions.revokeGrantsFor(userKey);
             LOGGER.info((Object) ("SSF receiver: revoked " + revoked + " grant(s) for '" + userKey
@@ -55,35 +80,15 @@ public final class ReceiverActionHandler implements SsfReceiverService.ReceivedS
         }
     }
 
-    /**
-     * The PF user key a subject maps to: {@code iss_sub}→{@code sub}, {@code email}→the address,
-     * {@code opaque}→{@code id}, {@code phone_number}/{@code account}→their value. Null if no subject.
-     */
-    static String userKeyOf(SubjectId subject) {
-        if (subject == null) {
-            return null;
-        }
-        Map<String, Object> m = subject.toMap();
-        Object v;
-        switch (subject.format()) {
-            case SubjectId.FORMAT_ISS_SUB:
-                v = m.get("sub");
-                break;
-            case SubjectId.FORMAT_EMAIL:
-                v = m.get("email");
-                break;
-            case SubjectId.FORMAT_OPAQUE:
-                v = m.get("id");
-                break;
-            case SubjectId.FORMAT_PHONE_NUMBER:
-                v = m.get("phone_number");
-                break;
-            case SubjectId.FORMAT_ACCOUNT:
-                v = m.get("uri");
-                break;
-            default:
-                v = null;
-        }
-        return v instanceof String && !((String) v).isBlank() ? (String) v : null;
+    /** The issuers whose {@code iss_sub} subjects name someone here: the SET's own and {@code localIssuers}. */
+    static Set<String> issuers(ReceivedSet set, Set<String> localIssuers) {
+        Set<String> out = new HashSet<>(localIssuers);
+        out.add(set.issuer());
+        return out;
+    }
+
+    /** The subject's format for an event field, or {@code none}. */
+    static String formatOf(SubjectId subject) {
+        return subject == null ? "none" : subject.format();
     }
 }

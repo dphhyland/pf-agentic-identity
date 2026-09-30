@@ -39,6 +39,8 @@ public final class SsfConfiguration {
     private static final int DEFAULT_PUSH_RETRY_MAX_ATTEMPTS = 5;
     private static final int DEFAULT_PUSH_RETRY_BACKOFF_SECONDS = 5;
     private static final int DEFAULT_POLL_MAX_EVENTS = 100;
+    private static final int DEFAULT_POLL_MAX_EVENTS_CAP = 100;
+    private static final int DEFAULT_POLL_LONG_POLL_WAIT_SECONDS = 10;
     private static final long DEFAULT_SET_TTL_SECONDS = 604800L; // 7 days
     private static final List<String> DEFAULT_EVENT_TYPES = List.of(
             SsfEventTypes.CAEP_SESSION_REVOKED,
@@ -92,6 +94,18 @@ public final class SsfConfiguration {
     private final boolean receiverInstanceRegistry;
     private final boolean auditEventsEnabled;
     private final String auditEventMap;
+    // H-SSF-1 and H-SSF-2 (0.6.0): the receiver's client, its managed stream, and the poll endpoint's cap and wait.
+    private final String receiverTokenEndpoint;
+    private final String receiverClientId;
+    private final String receiverClientSecret;
+    private final String receiverClientKey;
+    private final String receiverClientScope;
+    private final String receiverTransmitterConfigurationUrl;
+    private final String receiverPushEndpointUrl;
+    private final List<String> receiverEventsRequested;
+    private final int pollMaxEventsCap;
+    private final int pollLongPollWaitSeconds;
+    private final Set<String> receiverSubjectIssuers;
 
     private SsfConfiguration(Builder b) {
         if (b.issuer == null || b.issuer.isBlank()) {
@@ -149,6 +163,71 @@ public final class SsfConfiguration {
         if (this.kafkaEnabled && (this.kafkaBootstrapServers == null || this.kafkaBootstrapServers.isBlank())) {
             throw new Refused(KAFKA_BOOTSTRAP_SERVERS, KAFKA_BOOTSTRAP_SERVERS + " is required when " + KAFKA_ENABLED + "=true");
         }
+        this.receiverTokenEndpoint = trimOrNull(b.receiverTokenEndpoint);
+        this.receiverClientId = trimOrNull(b.receiverClientId);
+        this.receiverClientSecret = trimOrNull(b.receiverClientSecret);
+        this.receiverClientKey = trimOrNull(b.receiverClientKey);
+        this.receiverClientScope = trimOrNull(b.receiverClientScope);
+        this.receiverTransmitterConfigurationUrl = trimOrNull(b.receiverTransmitterConfigurationUrl);
+        this.receiverPushEndpointUrl = trimOrNull(b.receiverPushEndpointUrl);
+        this.receiverEventsRequested = b.receiverEventsRequested == null || b.receiverEventsRequested.isEmpty()
+                ? RECEIVER_DEFAULT_EVENTS : List.copyOf(b.receiverEventsRequested);
+        this.pollMaxEventsCap = b.pollMaxEventsCap;
+        this.pollLongPollWaitSeconds = b.pollLongPollWaitSeconds;
+        this.receiverSubjectIssuers = b.receiverSubjectIssuers == null ? Set.of() : Set.copyOf(b.receiverSubjectIssuers);
+        refuseReceiverCombinations();
+    }
+
+    /** The events a managed stream asks for when {@code OIDF_SSF_RECEIVER_EVENTS_REQUESTED} is unset: what the handlers act on. */
+    static final List<String> RECEIVER_DEFAULT_EVENTS = List.of(SsfEventTypes.CAEP_SESSION_REVOKED,
+            SsfEventTypes.CAEP_CREDENTIAL_CHANGE, SsfEventTypes.CAEP_DEVICE_COMPLIANCE_CHANGE,
+            SsfEventTypes.RISC_ACCOUNT_DISABLED, SsfEventTypes.RISC_ACCOUNT_CREDENTIAL_CHANGE_REQUIRED);
+
+    /**
+     * The receiver's token and stream settings that only make sense together (H-SSF-1): a client needs its token
+     * endpoint, an id and exactly one of a secret or a key that parses; the static poll token and a client are not
+     * both set; a managed stream needs a token and takes its poll URL from the stream; a push endpoint needs a managed
+     * stream.
+     */
+    private void refuseReceiverCombinations() {
+        boolean client = this.receiverClientId != null || this.receiverClientSecret != null || this.receiverClientKey != null;
+        if (client && this.receiverTokenEndpoint == null) {
+            throw new Refused(RECEIVER_TOKEN_ENDPOINT, RECEIVER_TOKEN_ENDPOINT + " is required when the receiver has a client ("
+                    + RECEIVER_CLIENT_ID + ", " + RECEIVER_CLIENT_SECRET + " or " + RECEIVER_CLIENT_KEY + ")");
+        }
+        if (this.receiverTokenEndpoint != null) {
+            if (this.receiverClientId == null) {
+                throw new Refused(RECEIVER_CLIENT_ID, RECEIVER_CLIENT_ID + " is required with " + RECEIVER_TOKEN_ENDPOINT);
+            }
+            if ((this.receiverClientSecret == null) == (this.receiverClientKey == null)) {
+                throw new Refused(RECEIVER_CLIENT_SECRET, "set one of " + RECEIVER_CLIENT_SECRET + " and " + RECEIVER_CLIENT_KEY
+                        + " with " + RECEIVER_TOKEN_ENDPOINT + ", not " + (this.receiverClientSecret == null ? "neither" : "both"));
+            }
+            if (this.receiverClientKey != null) {
+                try {
+                    ClientCredentialsToken.privateKey(this.receiverClientKey);
+                } catch (IllegalArgumentException e) {
+                    throw new Refused(RECEIVER_CLIENT_KEY, RECEIVER_CLIENT_KEY + ": " + e.getMessage());
+                }
+            }
+            if (this.receiverPollToken != null && !this.receiverPollToken.isBlank()) {
+                throw new Refused(RECEIVER_POLL_TOKEN, RECEIVER_POLL_TOKEN + " is the development token; unset it now that the"
+                        + " receiver has a client (" + RECEIVER_TOKEN_ENDPOINT + ")");
+            }
+        }
+        if (this.receiverTransmitterConfigurationUrl != null) {
+            if (this.receiverTokenEndpoint == null && (this.receiverPollToken == null || this.receiverPollToken.isBlank())) {
+                throw new Refused(RECEIVER_TRANSMITTER_CONFIGURATION_URL, RECEIVER_TRANSMITTER_CONFIGURATION_URL
+                        + " needs a token for the transmitter's stream API: set " + RECEIVER_TOKEN_ENDPOINT + " and its client");
+            }
+            if (this.receiverPollUrl != null) {
+                throw new Refused(RECEIVER_POLL_URL, RECEIVER_POLL_URL + " is the transmitter's to say when the receiver manages"
+                        + " its stream (" + RECEIVER_TRANSMITTER_CONFIGURATION_URL + "): unset it");
+            }
+        } else if (this.receiverPushEndpointUrl != null) {
+            throw new Refused(RECEIVER_PUSH_ENDPOINT_URL, RECEIVER_PUSH_ENDPOINT_URL + " names where a managed stream pushes, so it"
+                    + " needs " + RECEIVER_TRANSMITTER_CONFIGURATION_URL);
+        }
     }
 
     // The catalogue's names (META-INF/oidf-settings/ssf-transmitter.json), read through platform.settings. Each entry's
@@ -197,6 +276,17 @@ public final class SsfConfiguration {
     static final String RECEIVER_INSTANCE_REGISTRY = "OIDF_SSF_RECEIVER_INSTANCE_REGISTRY";
     static final String AUDIT_EVENTS_ENABLED = "OIDF_SSF_AUDIT_EVENTS_ENABLED";
     static final String AUDIT_EVENT_MAP = "OIDF_SSF_AUDIT_EVENT_MAP";
+    static final String RECEIVER_TOKEN_ENDPOINT = "OIDF_SSF_RECEIVER_TOKEN_ENDPOINT";
+    static final String RECEIVER_CLIENT_ID = "OIDF_SSF_RECEIVER_CLIENT_ID";
+    static final String RECEIVER_CLIENT_SECRET = "OIDF_SSF_RECEIVER_CLIENT_SECRET";
+    static final String RECEIVER_CLIENT_KEY = "OIDF_SSF_RECEIVER_CLIENT_KEY";
+    static final String RECEIVER_CLIENT_SCOPE = "OIDF_SSF_RECEIVER_CLIENT_SCOPE";
+    static final String RECEIVER_TRANSMITTER_CONFIGURATION_URL = "OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL";
+    static final String RECEIVER_PUSH_ENDPOINT_URL = "OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL";
+    static final String RECEIVER_EVENTS_REQUESTED = "OIDF_SSF_RECEIVER_EVENTS_REQUESTED";
+    static final String POLL_MAX_EVENTS_CAP = "OIDF_SSF_POLL_MAX_EVENTS_CAP";
+    static final String POLL_LONG_POLL_WAIT_SECONDS = "OIDF_SSF_POLL_LONG_POLL_WAIT_SECONDS";
+    static final String RECEIVER_SUBJECT_ISSUERS = "OIDF_SSF_RECEIVER_SUBJECT_ISSUERS";
 
     /** The transmitter's catalogue, {@code META-INF/oidf-settings/ssf-transmitter.json}. */
     public static final String CATALOGUE = "ssf-transmitter";
@@ -284,7 +374,18 @@ public final class SsfConfiguration {
                 .receiverActionsEnabled(s.bool(RECEIVER_ACTIONS_ENABLED))
                 .receiverInstanceRegistry(s.bool(RECEIVER_INSTANCE_REGISTRY))
                 .auditEventsEnabled(s.bool(AUDIT_EVENTS_ENABLED))
-                .auditEventMap(s.string(AUDIT_EVENT_MAP));
+                .auditEventMap(s.string(AUDIT_EVENT_MAP))
+                .receiverTokenEndpoint(text(s.url(RECEIVER_TOKEN_ENDPOINT)))
+                .receiverClientId(s.string(RECEIVER_CLIENT_ID))
+                .receiverClientSecret(reveal(s.secret(RECEIVER_CLIENT_SECRET)))
+                .receiverClientKey(reveal(s.secret(RECEIVER_CLIENT_KEY)))
+                .receiverClientScope(s.string(RECEIVER_CLIENT_SCOPE))
+                .receiverTransmitterConfigurationUrl(text(s.url(RECEIVER_TRANSMITTER_CONFIGURATION_URL)))
+                .receiverPushEndpointUrl(text(s.url(RECEIVER_PUSH_ENDPOINT_URL)))
+                .receiverEventsRequested(list(s.words(RECEIVER_EVENTS_REQUESTED)))
+                .pollMaxEventsCap(s.integer(POLL_MAX_EVENTS_CAP))
+                .pollLongPollWaitSeconds(s.integer(POLL_LONG_POLL_WAIT_SECONDS))
+                .receiverSubjectIssuers(list(s.words(RECEIVER_SUBJECT_ISSUERS)));
         try {
             return b.build();
         } catch (Refused e) {
@@ -594,6 +695,66 @@ public final class SsfConfiguration {
         return this.receiverInstanceRegistry;
     }
 
+    // ---- the receiver's client and managed stream, the poll endpoint's cap and wait (H-SSF-1, H-SSF-2) ----
+
+    /** The transmitter's token endpoint for the receiver's client credentials; null for none (development's static token). */
+    public String receiverTokenEndpoint() {
+        return this.receiverTokenEndpoint;
+    }
+
+    public String receiverClientId() {
+        return this.receiverClientId;
+    }
+
+    /** The client's secret ({@code client_secret_basic}); null when it has a key instead. */
+    public String receiverClientSecret() {
+        return this.receiverClientSecret;
+    }
+
+    /** The client's private JWK ({@code private_key_jwt}); null when it has a secret instead. */
+    public String receiverClientKey() {
+        return this.receiverClientKey;
+    }
+
+    public String receiverClientScope() {
+        return this.receiverClientScope;
+    }
+
+    /** The transmitter's configuration metadata URL; set, the receiver manages its own stream there. */
+    public String receiverTransmitterConfigurationUrl() {
+        return this.receiverTransmitterConfigurationUrl;
+    }
+
+    /** Where the managed stream pushes (this receiver's public endpoint); null for a poll stream. */
+    public String receiverPushEndpointUrl() {
+        return this.receiverPushEndpointUrl;
+    }
+
+    /** The events the managed stream asks for. */
+    public List<String> receiverEventsRequested() {
+        return this.receiverEventsRequested;
+    }
+
+    /** The most SETs one poll answer carries (1-1000). */
+    public int pollMaxEventsCap() {
+        return this.pollMaxEventsCap;
+    }
+
+    /** How long a long poll is held with nothing to return, in seconds (0-30); 0 answers at once. */
+    public int pollLongPollWaitSeconds() {
+        return this.pollLongPollWaitSeconds;
+    }
+
+    /**
+     * The issuers whose {@code iss_sub} subjects name a user here, besides the SET's own: this PingFederate's SSF
+     * issuer and {@code OIDF_SSF_RECEIVER_SUBJECT_ISSUERS}.
+     */
+    public Set<String> receiverLocalIssuers() {
+        Set<String> out = new LinkedHashSet<>(this.receiverSubjectIssuers);
+        out.add(this.issuer);
+        return out;
+    }
+
     // ---- endpoint URLs advertised in ssf-configuration (issuer + fixed module paths) ----
 
     public String configurationEndpoint() {
@@ -731,6 +892,17 @@ public final class SsfConfiguration {
         private boolean receiverInstanceRegistry;
         private boolean auditEventsEnabled = true;
         private String auditEventMap;
+        private String receiverTokenEndpoint;
+        private String receiverClientId;
+        private String receiverClientSecret;
+        private String receiverClientKey;
+        private String receiverClientScope;
+        private String receiverTransmitterConfigurationUrl;
+        private String receiverPushEndpointUrl;
+        private List<String> receiverEventsRequested;
+        private int pollMaxEventsCap = DEFAULT_POLL_MAX_EVENTS_CAP;
+        private int pollLongPollWaitSeconds = DEFAULT_POLL_LONG_POLL_WAIT_SECONDS;
+        private List<String> receiverSubjectIssuers;
 
         public Builder issuer(String v) {
             this.issuer = v;
@@ -956,6 +1128,61 @@ public final class SsfConfiguration {
 
         public Builder auditEventMap(String v) {
             this.auditEventMap = v;
+            return this;
+        }
+
+        public Builder receiverTokenEndpoint(String v) {
+            this.receiverTokenEndpoint = v;
+            return this;
+        }
+
+        public Builder receiverClientId(String v) {
+            this.receiverClientId = v;
+            return this;
+        }
+
+        public Builder receiverClientSecret(String v) {
+            this.receiverClientSecret = v;
+            return this;
+        }
+
+        public Builder receiverClientKey(String v) {
+            this.receiverClientKey = v;
+            return this;
+        }
+
+        public Builder receiverClientScope(String v) {
+            this.receiverClientScope = v;
+            return this;
+        }
+
+        public Builder receiverTransmitterConfigurationUrl(String v) {
+            this.receiverTransmitterConfigurationUrl = v;
+            return this;
+        }
+
+        public Builder receiverPushEndpointUrl(String v) {
+            this.receiverPushEndpointUrl = v;
+            return this;
+        }
+
+        public Builder receiverEventsRequested(List<String> v) {
+            this.receiverEventsRequested = v;
+            return this;
+        }
+
+        public Builder pollMaxEventsCap(int v) {
+            this.pollMaxEventsCap = v;
+            return this;
+        }
+
+        public Builder pollLongPollWaitSeconds(int v) {
+            this.pollLongPollWaitSeconds = v;
+            return this;
+        }
+
+        public Builder receiverSubjectIssuers(List<String> v) {
+            this.receiverSubjectIssuers = v;
             return this;
         }
 

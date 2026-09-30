@@ -29,10 +29,12 @@ import org.jose4j.json.JsonUtil;
  * The receiver side of RFC 8935: a transmitter POSTs each SET here with
  * {@code Content-Type: application/secevent+jwt}. The SET is verified against the configured transmitter's
  * JWKS ({@code receiverExpectedIssuer} / {@code receiverJwksUrl}), duplicates are accepted idempotently, and
- * verified SETs are dispatched to the registered handlers. Responses per RFC 8935 §2.3–2.4: {@code 202} on
- * acceptance (including duplicates), {@code 400} with {@code {"err": "...", "description": "..."}} on
- * verification failure. The POST must carry {@code receiverEndpointAuthToken} as a bearer token
- * ({@code 401} otherwise).
+ * verified SETs are dispatched to the registered handlers. Responses per RFC 8935 §2.2–2.4: {@code 202} on
+ * acceptance (including duplicates, and a SET discarded for a critical subject member it cannot act on),
+ * {@code 400} with {@code {"err": "...", "description": "..."}} on verification failure - a SET carrying {@code exp}
+ * or {@code sub} among them (SSF 1.0 §4.1.7, §4.1.2; {@link SsfReceiverService}) - with {@code Content-Language: en-US}
+ * (§2.3: "The response MUST include a "Content-Language" header field"). The POST must carry
+ * {@code receiverEndpointAuthToken} as a bearer token ({@code 401} otherwise).
  *
  * <p>{@code GET} serves a bounded recent-events summary for demos/inspection (same bearer).
  * The receiver is active only when {@code receiverExpectedIssuer} is set; otherwise both methods return 404. Each
@@ -132,6 +134,7 @@ public class SsfReceiverServlet extends HttpServlet {
             throws IOException {
         resp.setStatus(status);
         resp.setContentType("application/json");
+        resp.setHeader("Content-Language", "en-US");
         LinkedHashMap<String, Object> body = new LinkedHashMap<>();
         body.put("err", err);
         if (description != null) {

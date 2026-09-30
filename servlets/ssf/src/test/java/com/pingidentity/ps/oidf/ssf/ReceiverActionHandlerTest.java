@@ -4,7 +4,6 @@
 package com.pingidentity.ps.oidf.ssf;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.signals.ReceivedSet;
@@ -12,6 +11,7 @@ import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class ReceiverActionHandlerTest {
@@ -63,10 +63,17 @@ class ReceiverActionHandlerTest {
     }
 
     @Test
-    void userKeyDerivationPerFormat() {
-        assertEquals("bob", ReceiverActionHandler.userKeyOf(SubjectId.issSub("https://x", "bob")));
-        assertEquals("a@b.com", ReceiverActionHandler.userKeyOf(SubjectId.email("a@b.com")));
-        assertEquals("op-1", ReceiverActionHandler.userKeyOf(SubjectId.opaque("op-1")));
-        assertNull(ReceiverActionHandler.userKeyOf(null));
+    void anIssSubFromAnotherIssuerRevokesNothing() {
+        List<String> revoked = new ArrayList<>();
+        ReceiverActionHandler h = new ReceiverActionHandler(userKey -> {
+            revoked.add(userKey);
+            return 1;
+        }, Set.of("https://pf.example.com"));
+        h.onSet(set(SsfEventTypes.CAEP_SESSION_REVOKED, SubjectId.issSub("https://elsewhere", "bob")));
+        assertTrue(revoked.isEmpty(), "another issuer's sub names nobody here");
+        h.onSet(set(SsfEventTypes.CAEP_SESSION_REVOKED, SubjectId.issSub("https://pf.example.com", "carol")));
+        h.onSet(set(SsfEventTypes.CAEP_SESSION_REVOKED, SubjectId.complex(Map.of(
+                "user", SubjectId.email("dan@example.com"), "session", SubjectId.opaque("s-1")))));
+        assertEquals(List.of("carol", "dan@example.com"), revoked, "this PingFederate's issuer is honoured; complex by user");
     }
 }

@@ -15,6 +15,8 @@ import com.pingidentity.ps.oidf.platform.profile.ProfileRefusals;
 import com.pingidentity.ps.oidf.platform.settings.ProfileRefused;
 import com.pingidentity.ps.oidf.platform.settings.SettingRefused;
 import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.ssf.ReceiverStream;
+import com.pingidentity.ps.oidf.ssf.ReceiverStreamClient;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.SsfSupport;
 import java.io.IOException;
@@ -265,6 +267,34 @@ final class SsfComponents {
         if (SsfSupport.receiverService() == null) {
             part.notConfigured("the SSF transmitter did not build the receiver: " + ComponentSwitches.SSF_RECEIVER
                     + " is false or the production profile refuses SSF_RECEIVER");
+            return;
+        }
+        receiverStream(part, SsfSupport.receiverStream());
+    }
+
+    /**
+     * The receiver's own stream at its transmitter (H-SSF-1), when it manages one: set up before the receiver is ready.
+     * A transmitter that cannot be reached or refuses leaves the part {@code FAILED_DEPENDENCY}, and the supervisor runs
+     * the start again; one whose metadata or stream does not match the receiver's settings is {@code FAILED_CONFIG}. A
+     * stream it created and could not accept is deleted again ({@link ReceiverStreamClient#ensure}).
+     */
+    static void receiverStream(ComponentParts.Part part, ReceiverStream stream) {
+        if (stream == null) {
+            return;
+        }
+        try {
+            stream.ensure();
+        } catch (ReceiverStreamClient.Misconfigured e) {
+            LOG.error((Object) ("SSF receiver NOT started: its stream at the transmitter does not match its settings: "
+                    + e.getMessage()));
+            part.failedConfig("the receiver's stream: " + e.getMessage());
+        } catch (Exception e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            LOG.warn((Object) ("SSF receiver waiting for its transmitter: its stream could not be set up (" + e
+                    + "); the supervisor tries again"));
+            part.failedDependency("the receiver's stream could not be set up at the transmitter: " + e.getMessage());
         }
     }
 

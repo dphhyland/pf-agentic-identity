@@ -100,6 +100,7 @@ class InstanceRegistryReceiverHandlerTest {
 
     @Test
     void sessionRevokedForTheOwnerFansOutToEveryDeviceTheyOwn() throws Exception {
+        handler = new InstanceRegistryReceiverHandler(new CaepSignalApplier(registry), java.util.Set.of("https://pingone.example"));
         handler.onSet(set(SsfEventTypes.CAEP_SESSION_REVOKED, SubjectId.issSub("https://pingone.example", ownerSubject),
                 Map.of()));
         assertEquals(InstanceStatus.REVOKED, statusOf(instanceA));
