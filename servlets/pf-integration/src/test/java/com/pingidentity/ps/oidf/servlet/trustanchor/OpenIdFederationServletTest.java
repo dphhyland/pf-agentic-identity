@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
+import com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -241,7 +242,7 @@ class OpenIdFederationServletTest {
         Exchange exchange = new Exchange(servlet(true), "/federation/fetch", Map.of("sub", new String[] {HOSTED}));
 
         assertError(exchange, 500, "server_error");
-        assertEquals(FederationErrors.SERVER_ERROR_DESCRIPTION, exchange.error().get("error_description"));
+        PublicErrorsAssert.assertGenericDescription("server_error", exchange.error().get("error_description"));
         assertTrue(!exchange.body.toString().contains("secret-host"), exchange.body.toString());
     }
 
@@ -259,8 +260,8 @@ class OpenIdFederationServletTest {
         Exchange exchange = new Exchange(servlet, "/federation/fetch", Map.of("sub", new String[] {"https://foreign.example"}));
 
         assertError(exchange, 503, "temporarily_unavailable");
-        assertEquals("the subordinate's entity configuration could not be fetched yet", exchange.error().get("error_description"),
-                "a 503 says what is wrong; only a fault of ours hides it");
+        // The caller has not authenticated: a 503 is the code's fixed description and a reference (H-FED-4).
+        PublicErrorsAssert.assertGenericDescription("temporarily_unavailable", exchange.error().get("error_description"));
     }
 
     @Test

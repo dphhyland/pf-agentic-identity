@@ -209,7 +209,8 @@ public class HostedEntityServlet extends RequestScopedServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         Optional<String> idSegment = parseIdSegment(req.getPathInfo());
         if (idSegment.isEmpty()) {
-            writeError(resp, 404, "not_found", "no such endpoint");
+            // A caller that has not authenticated: the fixed description and a correlation id (H-FED-4).
+            FederationErrors.write(resp, 404, "not_found", "no such endpoint", null);
             return;
         }
 
@@ -220,13 +221,13 @@ public class HostedEntityServlet extends RequestScopedServlet {
             found = registry.find(entityId);
         } catch (Exception e) {
             LOGGER.error("hosted entity lookup failed for " + entityId, e);
-            writeError(resp, 500, "server_error", "the entity configuration could not be produced");
+            FederationErrors.write(resp, 500, "server_error", "the entity configuration could not be produced", null);
             return;
         }
         // A revoked or expired entity is refused identically to one that was never hosted — its status
         // is not something an unauthenticated resolver is entitled to learn.
         if (found.isEmpty() || !found.get().resolvable(Instant.now())) {
-            writeError(resp, 404, "not_found", "unknown entity");
+            FederationErrors.write(resp, 404, "not_found", "unknown entity", null);
             return;
         }
 
@@ -234,11 +235,11 @@ public class HostedEntityServlet extends RequestScopedServlet {
         try {
             jwt = AuthoritySupport.configurationBuilder().buildEntityConfiguration(found.get());
         } catch (HostedEntityConfigurationBuilder.NotPublishedException e) {
-            writeError(resp, 404, "not_found", "entity configuration not published");
+            FederationErrors.write(resp, 404, "not_found", "entity configuration not published", null);
             return;
         } catch (RuntimeException e) {
             LOGGER.error("failed to sign entity configuration for " + entityId, e);
-            writeError(resp, 500, "server_error", "the entity configuration could not be produced");
+            FederationErrors.write(resp, 500, "server_error", "the entity configuration could not be produced", null);
             return;
         }
         resp.setStatus(200);

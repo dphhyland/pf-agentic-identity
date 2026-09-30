@@ -264,7 +264,8 @@ class FrontChannelAutoRegistrationFilterTest {
         verify(this.response, never()).sendRedirect(anyString());
         verify(this.response, never()).setHeader(eq("Location"), anyString());
         assertTrue(this.body.toString().contains("invalid_metadata"));
-        assertTrue(this.body.toString().contains("&lt;script&gt;"), "the description is escaped");
+        assertFalse(this.body.toString().contains("script"), "the detail stays in the log (H-FED-4)");
+        assertTrue(this.body.toString().contains(com.pingidentity.ps.oidf.servlet.oauth.PublicErrors.generic("invalid_metadata")));
         assertFalse(this.body.toString().contains(RP + "/cb"), "the RP's redirect_uri appears nowhere");
         verify(this.chain, never()).doFilter(any(), any());
     }

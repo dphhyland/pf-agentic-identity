@@ -1,5 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert;
+import com.pingidentity.ps.oidf.servlet.oauth.RefusalLog;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -722,10 +724,13 @@ class ClientAttestationAuthFilterTest {
                 popJwt(instanceKey, DOFILTER_CLIENT_ID, OP_ISSUER), new HashMap<>());
         FilterChain chain = mock(FilterChain.class);
 
-        String body = rejectedWith(req, filter, chain);
+        try (RefusalLog log = RefusalLog.open()) {
+            String body = rejectedWith(req, filter, chain);
 
-        assertTrue(body.contains("invalid_client"), body);
-        assertTrue(body.contains("attesters"), "the refusal must say what to configure: " + body);
+            PublicErrorsAssert.assertGeneric("invalid_client", body);
+            org.junit.jupiter.api.Assertions.assertFalse(body.contains("attesters"), "what to configure is the operator's, not the caller's: " + body);
+            log.assertDetail("attesters");
+        }
         verify(chain, org.mockito.Mockito.never()).doFilter(any(), any());
     }
 
@@ -1048,8 +1053,7 @@ class ClientAttestationAuthFilterTest {
         verify(f.response()).setStatus(400);
         org.mockito.Mockito.verifyNoInteractions(f.chain());
         assertEquals("invalid_authorization_details", errorBody(f.body()).get("error"));
-        assertEquals("authorization_details exceeds what the client attestation allows",
-                errorBody(f.body()).get("error_description"));
+        PublicErrorsAssert.assertGenericDescription("invalid_authorization_details", errorBody(f.body()).get("error_description"));
     }
 
     /**
@@ -1065,8 +1069,7 @@ class ClientAttestationAuthFilterTest {
         verify(f.response()).setStatus(400);
         org.mockito.Mockito.verifyNoInteractions(f.chain());
         assertEquals("invalid_authorization_details", errorBody(f.body()).get("error"));
-        assertEquals("authorization_details carries a field its type does not define",
-                errorBody(f.body()).get("error_description"));
+        PublicErrorsAssert.assertGenericDescription("invalid_authorization_details", errorBody(f.body()).get("error_description"));
         assertTrue(!f.body().contains("STAFF-50") && !f.body().contains("discount_code"), f.body());
     }
 
@@ -1079,8 +1082,7 @@ class ClientAttestationAuthFilterTest {
         verify(f.response()).setStatus(401);
         org.mockito.Mockito.verifyNoInteractions(f.chain());
         assertEquals("invalid_client", errorBody(f.body()).get("error"));
-        assertEquals("the client attestation's authorization_details cannot be evaluated by this server",
-                errorBody(f.body()).get("error_description"));
+        PublicErrorsAssert.assertGenericDescription("invalid_client", errorBody(f.body()).get("error_description"));
     }
 
     /**

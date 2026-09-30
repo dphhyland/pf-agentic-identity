@@ -1,5 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert;
+import com.pingidentity.ps.oidf.servlet.oauth.RefusalLog;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -60,6 +62,19 @@ import org.junit.jupiter.api.Test;
  * <p>Ported from pf-oidf-modules (2026-08-15) when that repo was reduced to the demo.
  */
 class TokenEndpointAutoRegistrationFilterTest {
+    /** The lines holding each refusal's detail: the caller is told only the code and a reference (H-FED-4). */
+    private RefusalLog refusals;
+
+    @BeforeEach
+    void openRefusalLog() {
+        this.refusals = RefusalLog.open();
+    }
+
+    @AfterEach
+    void closeRefusalLog() {
+        this.refusals.close();
+    }
+
 
     private static final String CLIENT_ID = "https://rp.example.com/e/agent-42";
     private static final String OP_ISSUER = "https://as.example.com";
@@ -324,7 +339,8 @@ class TokenEndpointAutoRegistrationFilterTest {
         verify(this.response).setContentType("application/json");
         verify(this.response).setHeader("Cache-Control", "no-store");
         assertEquals("invalid_client", this.answered().get("error"));
-        assertEquals("the client's federation registration has expired", this.answered().get("error_description"));
+        PublicErrorsAssert.assertGenericDescription("invalid_client", this.answered().get("error_description"));
+        this.refusals.assertDetail("the client's federation registration has expired");
         verify(this.chain, never()).doFilter(any(), any());
     }
 
@@ -386,7 +402,8 @@ class TokenEndpointAutoRegistrationFilterTest {
 
         verify(this.response).setStatus(401);
         assertEquals("invalid_client", this.answered().get("error"));
-        assertEquals("does not advertise automatic", this.answered().get("error_description"));
+        PublicErrorsAssert.assertGenericDescription("invalid_client", this.answered().get("error_description"));
+        this.refusals.assertDetail("does not advertise automatic");
     }
 
     @Test
@@ -550,8 +567,8 @@ class TokenEndpointAutoRegistrationFilterTest {
 
         verify(this.response).setStatus(401);
         assertEquals("invalid_client", this.answered().get("error"));
-        assertTrue(String.valueOf(this.answered().get("error_description")).contains("explicit registration has expired"),
-                this.body.toString());
+        PublicErrorsAssert.assertGenericDescription("invalid_client", this.answered().get("error_description"));
+        this.refusals.assertDetail("explicit registration has expired");
         verify(this.chain, never()).doFilter(any(), any());
 
         // Current, the same request goes on to ClientAttestationAuth and PingFederate.
@@ -581,8 +598,8 @@ class TokenEndpointAutoRegistrationFilterTest {
         new TokenEndpointAutoRegistrationFilter(real, FIXED_ISSUER, true).doFilter(this.request, this.response, this.chain);
 
         verify(this.response).setStatus(401);
-        assertTrue(String.valueOf(this.answered().get("error_description")).contains("explicit registration has expired"),
-                this.body.toString());
+        PublicErrorsAssert.assertGenericDescription("invalid_client", this.answered().get("error_description"));
+        this.refusals.assertDetail("explicit registration has expired");
         verify(this.chain, never()).doFilter(any(), any());
     }
 

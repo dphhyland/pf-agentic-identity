@@ -1,5 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert;
+import com.pingidentity.ps.oidf.servlet.oauth.RefusalLog;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -119,10 +121,13 @@ class OpenIdRegistrationServletTest {
         OpenIdRegistrationServlet servlet = new OpenIdRegistrationServlet(service, req -> OP_ISSUER);
         Response resp = new Response();
 
-        servlet.doPost(post("application/entity-statement+jwt", untypedSignedEntityStatement(EXISTING_CLIENT)), resp.mock);
+        try (RefusalLog log = RefusalLog.open()) {
+            servlet.doPost(post("application/entity-statement+jwt", untypedSignedEntityStatement(EXISTING_CLIENT)), resp.mock);
 
-        verify(resp.mock).setStatus(400);
-        assertTrue(resp.body.toString().contains("typ"), resp.body.toString());
+            verify(resp.mock).setStatus(400);
+            PublicErrorsAssert.assertGeneric("invalid_request", resp.body.toString());
+            log.assertDetail("typ");
+        }
         verifyNoInteractions(store);
         verifyNoInteractions(validator);
     }
@@ -209,11 +214,13 @@ class OpenIdRegistrationServletTest {
                 .thenThrow(new RegistrationRejectedException(409, "invalid_client_metadata", "administered outside OpenID Federation"));
         Response resp = new Response();
 
-        new OpenIdRegistrationServlet(service, req -> OP_ISSUER).doPost(post("application/trust-chain+json", trustChainBody()), resp.mock);
+        try (RefusalLog log = RefusalLog.open()) {
+            new OpenIdRegistrationServlet(service, req -> OP_ISSUER).doPost(post("application/trust-chain+json", trustChainBody()), resp.mock);
 
-        verify(resp.mock).setStatus(409);
-        assertTrue(resp.body.toString().contains("\"invalid_client_metadata\""), resp.body.toString());
-        assertTrue(resp.body.toString().contains("administered outside"), resp.body.toString());
+            verify(resp.mock).setStatus(409);
+            PublicErrorsAssert.assertGeneric("invalid_client_metadata", resp.body.toString());
+            log.assertDetail("administered outside");
+        }
     }
 
     @Test

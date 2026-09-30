@@ -54,7 +54,11 @@ class Fapi2ProfileFilterTest {
     }
 
     private Fapi2ProfileFilter initialised(FilterConfig config, Function<String, String> environment) throws Exception {
-        when(response.getWriter()).thenReturn(new PrintWriter(body, true));
+        // A writer per response, as a container gives: the refusal closes the one it wrote.
+        when(response.getWriter()).thenAnswer(call -> {
+            body.getBuffer().setLength(0);
+            return new PrintWriter(body, true);
+        });
         Fapi2ProfileFilter f = new Fapi2ProfileFilter(request -> ISSUER, environment);
         f.init(config);
         return f;
