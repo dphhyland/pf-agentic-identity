@@ -70,35 +70,6 @@
       "file": false
     },
     {
-      "name": "OIDF_SSF_BASE_PATH",
-      "kind": "env",
-      "type": "string",
-      "default": "/ssf",
-      "description": "The path after the issuer in the endpoints the transmitter advertises; the servlets serve /ssf whatever it says",
-      "when_wrong": {
-        "effect": "not-checked",
-        "detail": "Anything but /ssf advertises endpoints nothing serves"
-      },
-      "profile": "any",
-      "security": false,
-      "sources": [
-        {
-          "from": "init-param",
-          "name": "basePath"
-        },
-        {
-          "from": "system-property",
-          "name": "oidf.ssf.basePath"
-        },
-        {
-          "from": "env",
-          "name": "OIDF_SSF_BASE_PATH"
-        }
-      ],
-      "aliases": [],
-      "file": false
-    },
-    {
       "name": "OIDF_SSF_DATA_STORE_ID",
       "kind": "env",
       "type": "string",
@@ -1675,7 +1646,119 @@
       "components": [
         "SSF_RECEIVER"
       ]
+    },
+    {
+      "name": "OIDF_SSF_MAX_STREAMS_PER_CLIENT",
+      "kind": "env",
+      "type": "int",
+      "default": 10,
+      "min": 1,
+      "max": 1000,
+      "description": "The most streams one receiver client may have at once; creating one more is refused with 409 Conflict, as SSF 1.0 answers a transmitter that allows a receiver no more streams",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number from 1 to 1000: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. Too low: a receiver that needs more streams is refused them"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "maxStreamsPerClient"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.maxStreamsPerClient"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_MAX_STREAMS_PER_CLIENT"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_MIN_VERIFICATION_INTERVAL_SECONDS",
+      "kind": "env",
+      "type": "int",
+      "default": 30,
+      "min": 0,
+      "max": 86400,
+      "description": "The min_verification_interval a new stream is given: a verification request on a stream sooner than this after its last one is answered 429 with Retry-After; 0 gives new streams none and never refuses",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number from 0 to 86400: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. 0: a receiver can have the transmitter sign verification events as fast as it asks"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "minVerificationIntervalSeconds"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.minVerificationIntervalSeconds"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_MIN_VERIFICATION_INTERVAL_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_INACTIVITY_TIMEOUT_SECONDS",
+      "kind": "env",
+      "type": "long",
+      "default": 0,
+      "min": 0,
+      "max": 31536000,
+      "description": "The inactivity_timeout a new stream is given and reported; 0 gives new streams none. Recorded and reported only: this release does not pause or delete an inactive stream",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number from 0 to 31536000: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "inactivityTimeoutSeconds"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.inactivityTimeoutSeconds"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_INACTIVITY_TIMEOUT_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
     }
   ],
-  "removed": []
+  "removed": [
+    {
+      "name": "OIDF_SSF_BASE_PATH",
+      "from": "env",
+      "replacement": null,
+      "release": "0.6.0"
+    },
+    {
+      "name": "oidf.ssf.basePath",
+      "from": "system-property",
+      "replacement": null,
+      "release": "0.6.0"
+    },
+    {
+      "name": "basePath",
+      "from": "init-param",
+      "replacement": null,
+      "release": "0.6.0"
+    }
+  ]
 }

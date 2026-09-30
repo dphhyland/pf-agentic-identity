@@ -9,6 +9,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -38,7 +39,8 @@ public final class JdbcSsfStore implements SsfStore {
                     + "stream_id VARCHAR(64) PRIMARY KEY, audience VARCHAR(1024) NOT NULL, owner_client_id VARCHAR(1024), "
                     + "delivery_method VARCHAR(64) NOT NULL, push_endpoint_url VARCHAR(2048), push_auth_header VARCHAR(4096), "
                     + "events_requested VARCHAR(8192), events_delivered VARCHAR(8192), "
-                    + "status VARCHAR(16) NOT NULL, status_reason VARCHAR(1024), created_at BIGINT, updated_at BIGINT)";
+                    + "status VARCHAR(16) NOT NULL, status_reason VARCHAR(1024), created_at BIGINT, updated_at BIGINT, "
+                    + "description VARCHAR(1024), min_verification_interval INTEGER, inactivity_timeout BIGINT)";
     static final String DDL_SUBJECTS =
             "CREATE TABLE IF NOT EXISTS ssf_stream_subjects ("
                     + "stream_id VARCHAR(64) NOT NULL, subject_key VARCHAR(1024) NOT NULL, subject_json VARCHAR(4096) NOT NULL, "
@@ -59,6 +61,27 @@ public final class JdbcSsfStore implements SsfStore {
     /** Selects nothing. It resolves the column exactly as the store's own statements will, or fails. */
     static final String PROBE_OWNER = "SELECT owner_client_id FROM ssf_streams WHERE 1 = 0";
 
+    /**
+     * The three optional stream members of SSF 1.0 §8.1.1 (plan item H-SSF-3, 0.6.0), added to an {@code ssf_streams}
+     * an earlier version created. Nullable: a stream stored before them has none. {@code ADD COLUMN IF NOT EXISTS} is
+     * PostgreSQL's (the one database this store supports since 0.5.0), and makes two nodes booting together harmless.
+     * DB-2's V300 baseline (Phase 4, which removes DDL at runtime) is {@link #DDL_STREAMS} as written, these included.
+     */
+    static final List<String> DDL_ADD_STREAM_MEMBERS = List.of(
+            "ALTER TABLE ssf_streams ADD COLUMN IF NOT EXISTS description VARCHAR(1024)",
+            "ALTER TABLE ssf_streams ADD COLUMN IF NOT EXISTS min_verification_interval INTEGER",
+            "ALTER TABLE ssf_streams ADD COLUMN IF NOT EXISTS inactivity_timeout BIGINT");
+
+    /**
+     * What the SCIM endpoint keeps about a user (plan item H-SSF-4, 0.6.0): one row per subject it was given, keyed by
+     * the subject's canonical key, which is the SCIM {@code id}. Part of DB-2's V300 baseline as written.
+     */
+    static final String DDL_SCIM_USERS =
+            "CREATE TABLE IF NOT EXISTS ssf_scim_users ("
+                    + "subject_key VARCHAR(1024) PRIMARY KEY, subject_json VARCHAR(4096) NOT NULL, user_name VARCHAR(1024), "
+                    + "external_id VARCHAR(1024), active BOOLEAN NOT NULL, streams VARCHAR(8192), "
+                    + "created_at BIGINT, updated_at BIGINT)";
+
     private final DataSource dataSource;
 
     public JdbcSsfStore(DataSource dataSource) {
@@ -72,8 +95,14 @@ public final class JdbcSsfStore implements SsfStore {
                 st.execute(DDL_STREAMS);
                 st.execute(DDL_SUBJECTS);
                 st.execute(DDL_PENDING);
+                st.execute(DDL_SCIM_USERS);
             }
             ensureOwnerColumn(c);
+            try (Statement st = c.createStatement()) {
+                for (String ddl : DDL_ADD_STREAM_MEMBERS) {
+                    st.execute(ddl);
+                }
+            }
         } catch (SQLException e) {
             throw new IllegalStateException("failed to apply SSF schema", e);
         }
@@ -116,8 +145,9 @@ public final class JdbcSsfStore implements SsfStore {
     @Override
     public Stream createStream(Stream s) {
         exec("INSERT INTO ssf_streams (stream_id, audience, delivery_method, push_endpoint_url, push_auth_header, "
-                + "events_requested, events_delivered, status, status_reason, created_at, updated_at, owner_client_id) "
-                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", ps -> {
+                + "events_requested, events_delivered, status, status_reason, created_at, updated_at, owner_client_id, "
+                + "description, min_verification_interval, inactivity_timeout) "
+                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", ps -> {
                     ps.setString(1, s.id());
                     ps.setString(2, s.audience());
                     ps.setString(3, s.deliveryMethod().name());
@@ -130,6 +160,7 @@ public final class JdbcSsfStore implements SsfStore {
                     ps.setLong(10, s.createdAt());
                     ps.setLong(11, s.updatedAt());
                     ps.setString(12, s.ownerClientId());
+                    bindMembers(ps, 13, s);
                 });
         return s;
     }
@@ -155,7 +186,8 @@ public final class JdbcSsfStore implements SsfStore {
     public Stream updateStream(Stream s) {
         // owner_client_id is absent from this statement by design, not oversight: see SsfStore#updateStream.
         int n = exec("UPDATE ssf_streams SET audience=?, delivery_method=?, push_endpoint_url=?, push_auth_header=?, "
-                + "events_requested=?, events_delivered=?, status=?, status_reason=?, updated_at=? WHERE stream_id=?", ps -> {
+                + "events_requested=?, events_delivered=?, status=?, status_reason=?, updated_at=?, description=?, "
+                + "min_verification_interval=?, inactivity_timeout=? WHERE stream_id=?", ps -> {
                     ps.setString(1, s.audience());
                     ps.setString(2, s.deliveryMethod().name());
                     ps.setString(3, s.pushEndpointUrl());
@@ -165,7 +197,8 @@ public final class JdbcSsfStore implements SsfStore {
                     ps.setString(7, s.status().value());
                     ps.setString(8, s.statusReason());
                     ps.setLong(9, s.updatedAt());
-                    ps.setString(10, s.id());
+                    bindMembers(ps, 10, s);
+                    ps.setString(13, s.id());
                 });
         if (n == 0) {
             throw new IllegalArgumentException("no such stream: " + s.id());
@@ -302,6 +335,54 @@ public final class JdbcSsfStore implements SsfStore {
         return exec("DELETE FROM ssf_pending_sets WHERE expires_at > 0 AND expires_at <= ?", ps -> ps.setLong(1, now));
     }
 
+    // ─────────────────────────────── SCIM users ───────────────────────────────
+
+    @Override
+    public Optional<ScimUser> getScimUser(String id) {
+        return query("SELECT * FROM ssf_scim_users WHERE subject_key = ?", ps -> ps.setString(1, id),
+                rs -> rs.next() ? Optional.of(mapScimUser(rs)) : Optional.<ScimUser>empty());
+    }
+
+    @Override
+    public List<ScimUser> listScimUsers() {
+        return query("SELECT * FROM ssf_scim_users", ps -> { }, rs -> {
+            List<ScimUser> out = new ArrayList<>();
+            while (rs.next()) {
+                out.add(mapScimUser(rs));
+            }
+            return out;
+        });
+    }
+
+    /** One statement, so two provisioners writing the same user leave one row whichever lands second. */
+    @Override
+    public void putScimUser(ScimUser u) {
+        exec("INSERT INTO ssf_scim_users (subject_key, subject_json, user_name, external_id, active, streams, created_at, "
+                + "updated_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT (subject_key) DO UPDATE SET "
+                + "subject_json = EXCLUDED.subject_json, user_name = EXCLUDED.user_name, external_id = EXCLUDED.external_id, "
+                + "active = EXCLUDED.active, streams = EXCLUDED.streams, updated_at = EXCLUDED.updated_at", ps -> {
+                    ps.setString(1, u.id());
+                    ps.setString(2, JsonUtil.toJson(u.subject().toMap()));
+                    ps.setString(3, u.userName());
+                    ps.setString(4, u.externalId());
+                    ps.setBoolean(5, u.active());
+                    ps.setString(6, joinEvents(u.restoreStreams()));
+                    ps.setLong(7, u.createdAt());
+                    ps.setLong(8, u.updatedAt());
+                });
+    }
+
+    @Override
+    public boolean deleteScimUser(String id) {
+        return exec("DELETE FROM ssf_scim_users WHERE subject_key = ?", ps -> ps.setString(1, id)) > 0;
+    }
+
+    private static ScimUser mapScimUser(ResultSet rs) throws SQLException {
+        return new ScimUser(parseSubject(rs.getString("subject_json")), rs.getString("user_name"),
+                rs.getString("external_id"), rs.getBoolean("active"), splitEvents(rs.getString("streams")),
+                rs.getLong("created_at"), rs.getLong("updated_at"));
+    }
+
     // ─────────────────────────────── mapping + JDBC plumbing ───────────────────────────────
 
     private Stream mapStream(ResultSet rs) throws SQLException {
@@ -318,7 +399,35 @@ public final class JdbcSsfStore implements SsfStore {
                 .statusReason(rs.getString("status_reason"))
                 .createdAt(rs.getLong("created_at"))
                 .updatedAt(rs.getLong("updated_at"))
+                .description(rs.getString("description"))
+                .minVerificationInterval(nullableInt(rs, "min_verification_interval"))
+                .inactivityTimeout(nullableLong(rs, "inactivity_timeout"))
                 .build();
+    }
+
+    /** The optional members at {@code first}, {@code first + 1} and {@code first + 2}; SQL NULL for each one absent. */
+    private static void bindMembers(PreparedStatement ps, int first, Stream s) throws SQLException {
+        ps.setString(first, s.description());
+        if (s.minVerificationInterval() == null) {
+            ps.setNull(first + 1, Types.INTEGER);
+        } else {
+            ps.setInt(first + 1, s.minVerificationInterval());
+        }
+        if (s.inactivityTimeout() == null) {
+            ps.setNull(first + 2, Types.BIGINT);
+        } else {
+            ps.setLong(first + 2, s.inactivityTimeout());
+        }
+    }
+
+    private static Integer nullableInt(ResultSet rs, String column) throws SQLException {
+        int v = rs.getInt(column);
+        return rs.wasNull() ? null : v;
+    }
+
+    private static Long nullableLong(ResultSet rs, String column) throws SQLException {
+        long v = rs.getLong(column);
+        return rs.wasNull() ? null : v;
     }
 
     private List<PendingSet> mapPending(ResultSet rs) throws SQLException {
@@ -340,6 +449,7 @@ public final class JdbcSsfStore implements SsfStore {
         }
     }
 
+    /** Newline-joined: event-type URIs and stream ids contain no newlines. */
     private static String joinEvents(List<String> events) {
         return events == null ? "" : String.join("\n", events);
     }

@@ -244,6 +244,30 @@
                                         <!-- Receiver fail-closed: no audience or no endpoint token, no receiver. -->
                                         <include>com.pingidentity.ps.oidf.ssf.SsfConfiguration.receiverMissingRequirements(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.SsfSupport.receiverMayRun(*</include>
+
+                                        <!-- H-SSF-3 (0.6.0): the cap on streams per receiver, the verification interval
+                                             (429), the Transmitter-Supplied members a receiver may only echo, and the
+                                             https issuer SSF 1.0 §7.1 requires. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.requireRoomForAnotherStream(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.admitVerification(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.effectiveMinVerificationInterval(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.requireNumberMatch(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.parseDescription(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfComponents.issuerProblem(*</include>
+
+                                        <!-- H-SSF-4 (0.6.0): SCIM - who may provision, which subject a request names, when
+                                             account-disabled and account-enabled are signed, and the filter language. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.create(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.query(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.replace(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.patch(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.delete(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.deactivate(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.requireProvisioner(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.subjectOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimFilter.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimFilter.matches(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

@@ -465,4 +465,76 @@ abstract class SsfStoreContract {
         assertTrue(this.store.peek(b, 10).isEmpty());
         assertEquals(0, this.store.evictExpired(4_000_000_000L), "nothing with no expiry, however late");
     }
+
+    // ─────────────────────────────── optional members (H-SSF-3) ───────────────────────────────
+
+    /** SSF 1.0 §8.1.1's optional members are stored and read back, through a create and through an update. */
+    @Test
+    @Requirement("SSF §8.1.1")
+    void theOptionalMembersAreStoredAndReadBack() {
+        String id = newId();
+        this.store.createStream(pollStream(id).toBuilder().description("For receiver A \u00e9").minVerificationInterval(30)
+                .inactivityTimeout(86_400L).build());
+        Stream read = this.store.getStream(id).orElseThrow();
+        assertEquals("For receiver A \u00e9", read.description());
+        assertEquals(30, read.minVerificationInterval());
+        assertEquals(86_400L, read.inactivityTimeout());
+        assertEquals(read.description(), this.store.listStreams().get(0).description());
+
+        this.store.updateStream(read.toBuilder().description("changed").minVerificationInterval(5).inactivityTimeout(60L).build());
+        Stream changed = this.store.getStream(id).orElseThrow();
+        assertEquals("changed", changed.description());
+        assertEquals(5, changed.minVerificationInterval());
+        assertEquals(60L, changed.inactivityTimeout());
+
+        this.store.updateStream(changed.toBuilder().description(null).minVerificationInterval(null).inactivityTimeout(null).build());
+        Stream cleared = this.store.getStream(id).orElseThrow();
+        assertNull(cleared.description());
+        assertNull(cleared.minVerificationInterval());
+        assertNull(cleared.inactivityTimeout());
+    }
+
+    @Test
+    void aStreamWithoutTheOptionalMembersHasNone() {
+        String id = newId();
+        this.store.createStream(pollStream(id));
+        Stream read = this.store.getStream(id).orElseThrow();
+        assertNull(read.description());
+        assertNull(read.minVerificationInterval());
+        assertNull(read.inactivityTimeout());
+    }
+
+    // ─────────────────────────────── SCIM users (H-SSF-4) ───────────────────────────────
+
+    @Test
+    void aScimUserIsWrittenReadReplacedListedAndDeleted() {
+        SubjectId alice = SubjectId.email("alice@example.com");
+        String a = newId();
+        String b = newId();
+        this.store.createStream(pollStream(a));
+        this.store.addSubject(a, alice);
+        assertTrue(this.store.getScimUser(alice.canonicalKey()).isEmpty());
+        assertTrue(this.store.listScimUsers().isEmpty());
+
+        this.store.putScimUser(new ScimUser(alice, "alice", "ext-1", true, List.of(), 100, 200));
+        ScimUser read = this.store.getScimUser(alice.canonicalKey()).orElseThrow();
+        assertEquals(new ScimUser(alice, "alice", "ext-1", true, List.of(), 100, 200), read);
+
+        this.store.putScimUser(new ScimUser(alice, null, null, false, List.of(a, b), 100, 300));
+        assertEquals(new ScimUser(alice, null, null, false, List.of(a, b), 100, 300),
+                this.store.getScimUser(alice.canonicalKey()).orElseThrow(), "replaced, not added beside");
+        assertEquals(1, this.store.listScimUsers().size());
+
+        SubjectId bob = SubjectId.issSub("https://op.example.com", "bob");
+        this.store.putScimUser(new ScimUser(bob, "bob", null, true, List.of(), 1, 1));
+        assertEquals(Set.of(alice, bob), Set.copyOf(this.store.listScimUsers().stream().map(ScimUser::subject).toList()));
+
+        assertEquals(List.of(alice), this.store.listSubjects(a), "a record is not a membership");
+        assertTrue(this.store.deleteScimUser(alice.canonicalKey()));
+        assertFalse(this.store.deleteScimUser(alice.canonicalKey()));
+        assertTrue(this.store.getScimUser(alice.canonicalKey()).isEmpty());
+        assertTrue(this.store.hasSubject(a, alice), "and forgetting one leaves the memberships alone");
+        this.store.deleteStream(a);
+        assertTrue(this.store.getScimUser(bob.canonicalKey()).isPresent(), "deleting a stream leaves the records alone");
+    }
 }

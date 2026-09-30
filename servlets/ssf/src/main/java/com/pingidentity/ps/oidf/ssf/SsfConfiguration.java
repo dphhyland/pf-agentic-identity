@@ -30,7 +30,6 @@ import jakarta.servlet.ServletConfig;
 public final class SsfConfiguration {
 
     private static final String DEFAULT_SIGNING_ALGORITHM = "RS256";
-    private static final String DEFAULT_BASE_PATH = "/ssf";
     private static final String DEFAULT_STORE_DIALECT = "tables";
     private static final Set<String> SUPPORTED_STORE_DIALECTS = Set.of("tables", "ldm");
     private static final String DEFAULT_KAFKA_TOPIC = "sse-events";
@@ -41,6 +40,8 @@ public final class SsfConfiguration {
     private static final int DEFAULT_POLL_MAX_EVENTS = 100;
     private static final int DEFAULT_POLL_MAX_EVENTS_CAP = 100;
     private static final int DEFAULT_POLL_LONG_POLL_WAIT_SECONDS = 10;
+    private static final int DEFAULT_MAX_STREAMS_PER_CLIENT = 10;
+    private static final int DEFAULT_MIN_VERIFICATION_INTERVAL_SECONDS = 30;
     private static final long DEFAULT_SET_TTL_SECONDS = 604800L; // 7 days
     private static final List<String> DEFAULT_EVENT_TYPES = List.of(
             SsfEventTypes.CAEP_SESSION_REVOKED,
@@ -53,7 +54,6 @@ public final class SsfConfiguration {
 
     private final String issuer;
     private final String signingAlgorithm;
-    private final String basePath;
     private final String dataStoreId;
     private final String storeDialect;
     private final String jdbcUrl;
@@ -106,6 +106,9 @@ public final class SsfConfiguration {
     private final int pollMaxEventsCap;
     private final int pollLongPollWaitSeconds;
     private final Set<String> receiverSubjectIssuers;
+    private final int maxStreamsPerClient;
+    private final int minVerificationIntervalSeconds;
+    private final long inactivityTimeoutSeconds;
 
     private SsfConfiguration(Builder b) {
         if (b.issuer == null || b.issuer.isBlank()) {
@@ -113,7 +116,6 @@ public final class SsfConfiguration {
         }
         this.issuer = stripTrailingSlash(b.issuer.trim());
         this.signingAlgorithm = b.signingAlgorithm;
-        this.basePath = b.basePath;
         this.dataStoreId = b.dataStoreId;
         this.storeDialect = parseStoreDialect(b.storeDialect);
         this.jdbcUrl = b.jdbcUrl;
@@ -175,6 +177,9 @@ public final class SsfConfiguration {
         this.pollMaxEventsCap = b.pollMaxEventsCap;
         this.pollLongPollWaitSeconds = b.pollLongPollWaitSeconds;
         this.receiverSubjectIssuers = b.receiverSubjectIssuers == null ? Set.of() : Set.copyOf(b.receiverSubjectIssuers);
+        this.maxStreamsPerClient = b.maxStreamsPerClient;
+        this.minVerificationIntervalSeconds = b.minVerificationIntervalSeconds;
+        this.inactivityTimeoutSeconds = b.inactivityTimeoutSeconds;
         refuseReceiverCombinations();
     }
 
@@ -235,7 +240,6 @@ public final class SsfConfiguration {
     // order, as SsfConfiguration.param read them before 0.6.0 (F-0235).
     public static final String ISSUER = "OIDF_SSF_ISSUER";
     static final String SIGNING_ALGORITHM = "OIDF_SSF_SIGNING_ALGORITHM";
-    static final String BASE_PATH = "OIDF_SSF_BASE_PATH";
     static final String DATA_STORE_ID = "OIDF_SSF_DATA_STORE_ID";
     static final String STORE_DIALECT = "OIDF_SSF_STORE_DIALECT";
     public static final String JDBC_URL = "OIDF_SSF_JDBC_URL";
@@ -287,6 +291,9 @@ public final class SsfConfiguration {
     static final String POLL_MAX_EVENTS_CAP = "OIDF_SSF_POLL_MAX_EVENTS_CAP";
     static final String POLL_LONG_POLL_WAIT_SECONDS = "OIDF_SSF_POLL_LONG_POLL_WAIT_SECONDS";
     static final String RECEIVER_SUBJECT_ISSUERS = "OIDF_SSF_RECEIVER_SUBJECT_ISSUERS";
+    static final String MAX_STREAMS_PER_CLIENT = "OIDF_SSF_MAX_STREAMS_PER_CLIENT";
+    static final String MIN_VERIFICATION_INTERVAL_SECONDS = "OIDF_SSF_MIN_VERIFICATION_INTERVAL_SECONDS";
+    static final String INACTIVITY_TIMEOUT_SECONDS = "OIDF_SSF_INACTIVITY_TIMEOUT_SECONDS";
 
     /** The transmitter's catalogue, {@code META-INF/oidf-settings/ssf-transmitter.json}. */
     public static final String CATALOGUE = "ssf-transmitter";
@@ -334,7 +341,6 @@ public final class SsfConfiguration {
         Builder b = new Builder()
                 .issuer(issuer)
                 .signingAlgorithm(s.choice(SIGNING_ALGORITHM))
-                .basePath(s.string(BASE_PATH))
                 .dataStoreId(s.string(DATA_STORE_ID))
                 .storeDialect(s.choice(STORE_DIALECT))
                 .jdbcUrl(s.string(JDBC_URL))
@@ -385,7 +391,10 @@ public final class SsfConfiguration {
                 .receiverEventsRequested(list(s.words(RECEIVER_EVENTS_REQUESTED)))
                 .pollMaxEventsCap(s.integer(POLL_MAX_EVENTS_CAP))
                 .pollLongPollWaitSeconds(s.integer(POLL_LONG_POLL_WAIT_SECONDS))
-                .receiverSubjectIssuers(list(s.words(RECEIVER_SUBJECT_ISSUERS)));
+                .receiverSubjectIssuers(list(s.words(RECEIVER_SUBJECT_ISSUERS)))
+                .maxStreamsPerClient(s.integer(MAX_STREAMS_PER_CLIENT))
+                .minVerificationIntervalSeconds(s.integer(MIN_VERIFICATION_INTERVAL_SECONDS))
+                .inactivityTimeoutSeconds(s.longValue(INACTIVITY_TIMEOUT_SECONDS));
         try {
             return b.build();
         } catch (Refused e) {
@@ -426,10 +435,6 @@ public final class SsfConfiguration {
 
     public String signingAlgorithm() {
         return this.signingAlgorithm;
-    }
-
-    public String basePath() {
-        return this.basePath;
     }
 
     public String dataStoreId() {
@@ -745,6 +750,27 @@ public final class SsfConfiguration {
         return this.pollLongPollWaitSeconds;
     }
 
+    /** The most streams one receiver client may have at once (1-1000); one more is refused (plan item H-SSF-3). */
+    public int maxStreamsPerClient() {
+        return this.maxStreamsPerClient;
+    }
+
+    /**
+     * The {@code min_verification_interval} a new stream is given, in seconds (0-86400); 0 gives it none (SSF 1.0
+     * §8.1.1, plan item H-SSF-3).
+     */
+    public int minVerificationIntervalSeconds() {
+        return this.minVerificationIntervalSeconds;
+    }
+
+    /**
+     * The {@code inactivity_timeout} a new stream is given, in seconds (0-31536000); 0 gives it none. Recorded and
+     * reported, not acted on (SSF 1.0 §8.1.1, plan item H-SSF-3; pausing an inactive stream is S-10's).
+     */
+    public long inactivityTimeoutSeconds() {
+        return this.inactivityTimeoutSeconds;
+    }
+
     /**
      * The issuers whose {@code iss_sub} subjects name a user here, besides the SET's own: this PingFederate's SSF
      * issuer and {@code OIDF_SSF_RECEIVER_SUBJECT_ISSUERS}.
@@ -755,26 +781,26 @@ public final class SsfConfiguration {
         return out;
     }
 
-    // ---- endpoint URLs advertised in ssf-configuration (issuer + fixed module paths) ----
+    // ---- endpoint URLs advertised in ssf-configuration: the issuer and the servlets' paths (SsfPaths) ----
 
     public String configurationEndpoint() {
-        return this.issuer + this.basePath + "/streams";
+        return this.issuer + SsfPaths.STREAMS;
     }
 
     public String statusEndpoint() {
-        return this.issuer + this.basePath + "/status";
+        return this.issuer + SsfPaths.STATUS;
     }
 
     public String addSubjectEndpoint() {
-        return this.issuer + this.basePath + "/subjects:add";
+        return this.issuer + SsfPaths.SUBJECTS_ADD;
     }
 
     public String removeSubjectEndpoint() {
-        return this.issuer + this.basePath + "/subjects:remove";
+        return this.issuer + SsfPaths.SUBJECTS_REMOVE;
     }
 
     public String verificationEndpoint() {
-        return this.issuer + this.basePath + "/verify";
+        return this.issuer + SsfPaths.VERIFY;
     }
 
     public String jwksUri() {
@@ -851,7 +877,6 @@ public final class SsfConfiguration {
     public static final class Builder {
         private String issuer;
         private String signingAlgorithm = DEFAULT_SIGNING_ALGORITHM;
-        private String basePath = DEFAULT_BASE_PATH;
         private String dataStoreId;
         private String storeDialect;
         private String jdbcUrl;
@@ -903,6 +928,9 @@ public final class SsfConfiguration {
         private int pollMaxEventsCap = DEFAULT_POLL_MAX_EVENTS_CAP;
         private int pollLongPollWaitSeconds = DEFAULT_POLL_LONG_POLL_WAIT_SECONDS;
         private List<String> receiverSubjectIssuers;
+        private int maxStreamsPerClient = DEFAULT_MAX_STREAMS_PER_CLIENT;
+        private int minVerificationIntervalSeconds = DEFAULT_MIN_VERIFICATION_INTERVAL_SECONDS;
+        private long inactivityTimeoutSeconds;
 
         public Builder issuer(String v) {
             this.issuer = v;
@@ -912,13 +940,6 @@ public final class SsfConfiguration {
         public Builder signingAlgorithm(String v) {
             if (v != null && !v.isBlank()) {
                 this.signingAlgorithm = v;
-            }
-            return this;
-        }
-
-        public Builder basePath(String v) {
-            if (v != null && !v.isBlank()) {
-                this.basePath = v;
             }
             return this;
         }
@@ -1183,6 +1204,21 @@ public final class SsfConfiguration {
 
         public Builder receiverSubjectIssuers(List<String> v) {
             this.receiverSubjectIssuers = v;
+            return this;
+        }
+
+        public Builder maxStreamsPerClient(int v) {
+            this.maxStreamsPerClient = v;
+            return this;
+        }
+
+        public Builder minVerificationIntervalSeconds(int v) {
+            this.minVerificationIntervalSeconds = v;
+            return this;
+        }
+
+        public Builder inactivityTimeoutSeconds(long v) {
+            this.inactivityTimeoutSeconds = v;
             return this;
         }
 

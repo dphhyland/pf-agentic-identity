@@ -101,4 +101,18 @@ public interface SsfStore {
      * with the same {@code now}, and that is what keeps an expired SET from being delivered.
      */
     int evictExpired(long now);
+
+    // ---- SCIM users (plan item H-SSF-4) ----
+
+    /** The SCIM endpoint's record of the user whose SCIM {@code id} (subject canonical key) is {@code id}. */
+    Optional<ScimUser> getScimUser(String id);
+
+    /** Every SCIM user record, in no particular order. */
+    List<ScimUser> listScimUsers();
+
+    /** Write {@code user}, replacing any record with its {@code id}. */
+    void putScimUser(ScimUser user);
+
+    /** Delete the record with this {@code id}. Returns true if there was one. */
+    boolean deleteScimUser(String id);
 }
