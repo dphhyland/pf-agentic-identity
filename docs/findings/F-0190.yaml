@@ -3,10 +3,16 @@ title: No build records the commit it was built from in what it ships, so /agent
 severity: low
 area: platform-pf, build
 source: design
-status: open
+status: closed
 plan_items: [O-4, F-2, R-I3]
-prs: [53]
-verification: ''
+prs: [53, 68]
+verification: >
+  Closed 2026-09-29 by package RI3 (PR #68). platform-pf's pom writes the Maven property oidf.build.commit
+  (default unknown) into its manifest as Build-Commit; Build's image job and the release's verify, install and deploy
+  pass -Doidf.build.commit=$GITHUB_SHA. BuildInfo.commit reads the manifest of the jar platform-pf's own
+  pom.properties is in, and reports null for unknown, blank or unreadable (BuildInfoTest). The image carries the same
+  commit as its org.opencontainers.image.revision label, and the image job checks both. On the rig built from this
+  branch the start-up banner printed the commit (2026-09-29).
 target_release: 0.6.0
 notes: >
   Found by package O4 (2026-09-28). The info document and the health detail report this repository's version (from

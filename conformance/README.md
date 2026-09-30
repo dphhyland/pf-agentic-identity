@@ -23,7 +23,11 @@ ever lands in git: everything `up.sh` generates is under `.gitignore` here.
 
 When it finishes, PF answers on `https://localhost:9031` (self-signed) with discovery at
 `/.well-known/openid-configuration`, the SSF transmitter at `/.well-known/ssf-configuration`, an HTTP
-listener on 9080 and the admin console on 9999 (`administrator`, password in `.author.env`).
+listener on 9080 and the admin console on 9999 (`administrator`, password in `.author.env`). The image
+configures none of that for you: `vars.env` accepts Ping Identity's licence agreement
+(`PING_IDENTITY_ACCEPT_EULA=YES`), turns the plain listener on (`PF_RUN_PF_HTTP_PORT=9080`, which the
+image's entrypoint allows only because the rig's profile is `development`), and the container's health is
+the image's own healthcheck ([build/pingfederate/README.md](../build/pingfederate/README.md#the-healthcheck)).
 `docker compose down` stops it; `./up.sh` again rebuilds the image from the archive you already have;
 `SKIP_AUTHOR=1 ./up.sh` skips re-authoring when only the modules changed.
 

@@ -284,7 +284,9 @@ jobs:
       # Tests ON, coverage gates ON (they are bound to verify, not package). A release is the one build
       # where "it compiled" is not the bar.
       - name: build the reactor with tests
-        run: mvn -B verify
+        # The commit goes into platform-pf's manifest, where /agentic-identity/info and the start-up banner read it
+        # (F-0190). install and deploy below pass the same, so their rebuilds make the bytes verify built.
+        run: mvn -B verify -Doidf.build.commit="$GITHUB_SHA"
 
       - name: every PingFederate and servlet member the artifacts link resolves on this image
         run: python3 tools/pf-linkcheck.py --lib pf-lib --lib pf-jetty-lib --reactor .
@@ -368,7 +370,7 @@ jobs:
         # writes only target/ and this runner's ~/.m2, so the comparison below can stop the release before
         # a draft or a package exists. Tests already ran in verify; running them again here would double a
         # slow build for no new signal.
-        run: mvn -B -DskipTests install
+        run: mvn -B -DskipTests -Doidf.build.commit="$GITHUB_SHA" install
 
       - name: the rebuilt jars and wars are what dist/ holds
         # Every jar and war in dist/ against the reactor file the install above left in target/, byte for
@@ -425,8 +427,9 @@ jobs:
           MAVEN_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # deploy rebuilds once more: the install above rebuilt every reactor dependency again, so the compiler
         # recompiles the modules that have one and their archives are built again. The outputTimestamp keeps them the
-        # bytes the comparison above accepted, and the step after this checks it for the files deploy sent.
-        run: mvn -B -DskipTests deploy
+        # bytes the comparison above accepted, and the step after this checks it for the files deploy sent. It passes
+        # the commit as verify and install did, or platform-pf's manifest would differ (F-0190).
+        run: mvn -B -DskipTests -Doidf.build.commit="$GITHUB_SHA" deploy
 
       - name: what deploy published is still what dist/ holds
         # The same check as before the deploy, on the files deploy just rebuilt and published. The install

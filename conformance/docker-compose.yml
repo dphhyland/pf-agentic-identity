@@ -8,7 +8,8 @@
 #
 # Ports are bound to 127.0.0.1: the archive's admin password is in .author.env and this is not a rig
 # to expose. 9031 is PF's HTTPS runtime (the issuer), 9080 an HTTP runtime listener for anything that
-# terminates TLS itself, 9999 the admin console and API. PF_PORT_* move the host side when another PF
+# terminates TLS itself (vars.env turns it on: the image leaves it off), 9999 the admin console and API.
+# The healthcheck is the image's own (build/pingfederate/pf-healthcheck.sh). PF_PORT_* move the host side when another PF
 # already has them; up.sh then makes the issuer match. PF_RIG_NAME names the container and the image, so
 # a second rig - another checkout's, say - runs beside the first instead of replacing it.
 services:
@@ -33,11 +34,7 @@ services:
       # PING_IDENTITY_DEVOPS_USER / PING_IDENTITY_DEVOPS_KEY - yours, never in git. up.sh checks it exists.
       - path: ${PING_DEVOPS_CONFIG:-${HOME}/.pingidentity/config}
         required: false
+    # The image accepts no licence agreement for anyone; vars.env accepts it too, and this keeps the rig's
+    # acceptance where the compose file shows it.
     environment:
       PING_IDENTITY_ACCEPT_EULA: "YES"
-    healthcheck:
-      test: ["CMD", "curl", "-sk", "-o", "/dev/null", "https://localhost:9031/pf/heartbeat.ping"]
-      interval: 15s
-      timeout: 5s
-      retries: 40
-      start_period: 90s

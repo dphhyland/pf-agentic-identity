@@ -611,11 +611,11 @@ public final class ClientAttestationUtils {
             b.dpopAlgorithms(dpopAlgs);
         }
         // Required-claims policy (AS side): top-level claims this AS requires the attestation to carry.
-        // Per-client via extproperties.attestation_required_claims, else a global default from the
-        // oidf.attestation.required.claims system property (comma-separated; e.g. "workload").
+        // Per-client via extproperties.attestation_required_claims, else the global default (comma-separated;
+        // e.g. "workload") - see requiredClaimsDefault.
         Set<String> requiredClaims = ClientAttestationUtils.setProp(inParameters, "extproperties.attestation_required_claims");
         if (requiredClaims == null) {
-            requiredClaims = ClientAttestationUtils.systemPropertySet("oidf.attestation.required.claims");
+            requiredClaims = ClientAttestationUtils.requiredClaimsDefault(System::getProperty, System::getenv);
         }
         if (requiredClaims != null) {
             b.requiredDisclosedClaims(requiredClaims);
@@ -623,8 +623,18 @@ public final class ClientAttestationUtils {
         return b.build();
     }
 
-    private static Set<String> systemPropertySet(String property) {
-        String value = System.getProperty(property);
+    /**
+     * The required claims for a client whose {@code attestation_required_claims} names none: the
+     * {@code oidf.attestation.required.claims} system property, else {@code OIDF_ATTESTATION_REQUIRED_CLAIMS} - the
+     * first set to something not blank, as the catalogue entry records its sources - or null when neither names one.
+     * The image used to set the property to {@code workload}; from 0.6.0 the deployment sets either (plan item R-I3).
+     */
+    static Set<String> requiredClaimsDefault(java.util.function.Function<String, String> props,
+            java.util.function.Function<String, String> env) {
+        String value = props.apply("oidf.attestation.required.claims");
+        if (value == null || value.isBlank()) {
+            value = env.apply("OIDF_ATTESTATION_REQUIRED_CLAIMS");
+        }
         if (value == null || value.isBlank()) {
             return null;
         }

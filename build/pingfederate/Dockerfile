@@ -22,8 +22,10 @@
 # has no business in a production image, plus the directory it keeps its decisions in). The profile is
 # recorded as a label, and the assembler refuses a modules/ that was staged for the other one.
 #   (no jose4j: the assemble call passes "-" and relies on PF's own copy in server/default/lib)
-#   oidf-mock-attesters.json         <- OPTIONAL, consumer-supplied: DEV attester trust
-#                                       (issuer -> public JWK), bypassing federation trust chains
+#
+# The image carries no configuration of its own (plan item R-I3): no EULA acceptance, no DEBUG logging, no plain
+# HTTP listener, no ForceUnsupportedImport, no required claims and no mock attesters. Each is the deployment's to
+# set at run time - README.md, "What the image leaves to you".
 #
 # The module is MERGED INTO pf-runtime.war (not deployed as a loose oidf.war + jar). This puts its
 # @WebServlet servlets in the ROOT context — so `/.well-known/ssf-configuration`, `/ssf/*`, the challenge endpoints
@@ -34,12 +36,17 @@
 # Licensing is DevOps-fetched — NO pingfederate.lic is baked. The base image's boot hook
 # 17-check-license.sh pulls a fresh evaluation license when these RUNTIME env vars are set (as the
 # deployment's secrets - see vars.<env>.env):
-#   PING_IDENTITY_ACCEPT_EULA=YES            (baked below; non-secret)
+#   PING_IDENTITY_ACCEPT_EULA=YES            (the deployment's to set; pf-entrypoint.sh refuses to start without it)
 #   PING_IDENTITY_DEVOPS_USER=<devops email> (SECRET — never in git)
 #   PING_IDENTITY_DEVOPS_KEY=<devops key>    (SECRET — never in git)
 # Trade-off: DevOps eval licenses are short-lived (~7 days) and re-fetched only at container start.
 
 ARG STAGING_PROFILE=production
+# What the OCI labels say (org.opencontainers.image.*): the release version, the commit and the build time. CI
+# passes all three; a local build says unknown, unknown and nothing.
+ARG OCI_VERSION=unknown
+ARG OCI_REVISION=unknown
+ARG OCI_CREATED=
 
 # The tag and digest are the ones build/pf-version.env records (PF_IMAGE, PF_IMAGE_DIGEST), written out as a
 # literal so Dependabot can bump them here; tools/pf-version-check.py fails when the two disagree, and
@@ -62,7 +69,8 @@ RUN case "$STAGING_PROFILE" in production|conformance) ;; *) \
 # assembler/, run here on the base image's own Java 21 (JAVA_HOME=/opt/java). modules/ holds the reactor's jars
 # (modules/MANIFEST names every one; under the conformance profile the CIBA simulator too), staged for one
 # profile, and the assembler checks them against the MANIFEST - digests, and the profile against
-# STAGING_PROFILE. bash is for the wrapper; the base image has unzip itself. (No pf-rar-paz-plugin - agentic.)
+# STAGING_PROFILE. bash is for the wrapper, in this stage only: the image the capability stage makes has no bash.
+# The base image has unzip itself. (No pf-rar-paz-plugin - agentic.)
 FROM pingfederate AS builder
 USER root
 ARG STAGING_PROFILE
@@ -75,36 +83,57 @@ RUN apk add --no-cache bash \
  && WAR_ASSEMBLER_JAR=/tmp/assembler/war-assembler.jar bash /tmp/assembler/assemble-pf-runtime-war.sh "$STOCK" \
       /tmp/modules - /build/pf-runtime.war "$STAGING_PROFILE"
 
+# --- age: the release binary, checked, in a stage of its own ---
+# age decrypts the configuration archive at boot (pf-entrypoint.sh). It comes from age's own GitHub release,
+# checked against the sha256 recorded here before it is unpacked, and not from apk: the base image has no apk
+# database (/lib/apk/db holds no installed file), so `apk add` believed nothing was installed and reinstalled the
+# whole of PingFederate's Alpine userland at the day's versions (F-0220). This way the image's system files are
+# the base image's, byte for byte, apart from the two binaries and the licence copied below - Build's image job
+# checks exactly that. The sums are of the archives as downloaded on 2026-09-29 (age publishes sigsum proofs, not
+# a checksums file); the binaries are Go, statically linked, built with golang.org/x/crypto v0.55.0. To move
+# age: change the version and both sums, and build both architectures.
+FROM pingfederate AS age
+USER root
+ARG TARGETARCH
+ARG AGE_VERSION=1.3.2
+RUN case "$TARGETARCH" in \
+      amd64) sum=cbe24006683f8eb669266162894b9a522a1af52f2665fbc63a4bb032ed26ac10 ;; \
+      arm64) sum=6b8dc4333c53a5a57c9e5834e3a48f92605d7154014cd07269ff3327db5d37f4 ;; \
+      *) echo "ERROR: no age checksum recorded for '$TARGETARCH'" >&2; exit 1 ;; \
+    esac \
+ && curl -fsSL --retry 3 -o /tmp/age.tar.gz \
+      "https://github.com/FiloSottile/age/releases/download/v${AGE_VERSION}/age-v${AGE_VERSION}-linux-${TARGETARCH}.tar.gz" \
+ && echo "$sum  /tmp/age.tar.gz" | sha256sum -c - \
+ && mkdir /age && tar -xzf /tmp/age.tar.gz -C /age --strip-components=1 age/age age/age-keygen age/LICENSE \
+ && /age/age --version
+
 # --- capability: the image with no configuration archive ---
 FROM pingfederate AS capability
 USER root
 ARG STAGING_PROFILE
-LABEL io.github.dphhyland.pf-agentic-identity.staging-profile=$STAGING_PROFILE
+ARG OCI_VERSION
+ARG OCI_REVISION
+ARG OCI_CREATED
+LABEL io.github.dphhyland.pf-agentic-identity.staging-profile=$STAGING_PROFILE \
+      org.opencontainers.image.title="pf-agentic-identity PingFederate" \
+      org.opencontainers.image.description="PingFederate 13.1.3 with pf-agentic-identity's modules merged into pf-runtime.war" \
+      org.opencontainers.image.source="https://github.com/dphhyland/pf-agentic-identity" \
+      org.opencontainers.image.version=$OCI_VERSION \
+      org.opencontainers.image.revision=$OCI_REVISION \
+      org.opencontainers.image.created=$OCI_CREATED \
+      org.opencontainers.image.licenses="Apache-2.0 AND BSD-3-Clause AND LicenseRef-PingIdentity-Proprietary"
 
-# Accept the Ping EULA so the DevOps license hook runs unattended (non-secret; the DEVOPS_USER/KEY that
-# actually authenticate the fetch are supplied as runtime secrets, never baked).
-ENV PING_IDENTITY_ACCEPT_EULA=YES
+# age and age-keygen (the entrypoint needs age; test-entrypoint.sh --image makes its fixtures with age-keygen),
+# and age's licence, which its BSD-3-Clause terms ask a binary distribution to carry.
+COPY --from=age --chown=0:0 /age/age /age/age-keygen /usr/local/bin/
+COPY --from=age --chown=0:0 /age/LICENSE /usr/local/share/licenses/age/LICENSE
 
-# age, for the encrypted config archive (see pf-entrypoint.sh). Available from the community repo this
-# base image already enables: alpine 3.24.1, age 1.3.1 (verified 2026-09-26 on the 13.1.3 image). No
-# static-binary fallback needed.
-RUN apk add --no-cache age
-
-# The assembled war from the builder, and bash, which the image has carried since the assembler first ran in
-# it: test-entrypoint.sh --image runs under it. The directories above deploy/ are PingFederate's user's, as
-# the archive's COPY used to leave them when it came first.
+# The assembled war from the builder. The directories above deploy/ are PingFederate's user's, as the archive's
+# COPY used to leave them when it came first.
 COPY modules/ /tmp/modules/
 RUN mkdir -p /opt/in/instance/server/default/deploy \
- && chown 9031:0 /opt/in/instance /opt/in/instance/server /opt/in/instance/server/default \
- && apk add --no-cache bash
+ && chown 9031:0 /opt/in/instance /opt/in/instance/server /opt/in/instance/server/default
 COPY --from=builder --chown=9031:0 /build/pf-runtime.war /opt/in/instance/server/default/deploy/pf-runtime.war
-# DEV attester trust, OPTIONAL — supplied by the consumer, never baked here. This file is a static
-# issuer -> public JWK map that BYPASSES OpenID Federation trust-chain resolution, so whoever ships it
-# decides which attesters this AS believes. That is a demo's decision about its own trust, not a
-# capability this image should carry: baking one in would hand every consumer another consumer's
-# attesters and silently pre-trust a key they never chose. The bracket glob makes it a no-op when the
-# build context does not supply the file.
-COPY --chown=9031:0 oidf-mock-attesters.jso[n] /opt/in/instance/server/default/conf/
 
 # ALSO place the module jars on the ENGINE classpath (server/default/deploy): the token-endpoint OGNL
 # issuance criteria evaluate on the engine classloader, which does NOT search pf-runtime.war's
@@ -126,38 +155,30 @@ RUN if [ "$STAGING_PROFILE" = conformance ]; then \
       mkdir -m 0700 /opt/ciba-sim && chown 9031:0 /opt/ciba-sim && echo 'ciba-sim: /opt/ciba-sim made for the simulator (conformance profile)'; \
     else echo 'ciba-sim: not in this image (production profile)'; fi
 
-# A platform that terminates TLS at its edge forwards plain HTTP to the target port; PF's 9031 is
-# HTTPS-only, so expose an HTTP runtime listener on 9080 for that path.
-RUN sed -i 's/^pf.http.port=-1/pf.http.port=9080/' /opt/staging/instance/bin/run.properties.subst.default
-# Activate the static mock-attester resolver ONLY if the consumer supplied one — PF loads
-# run.properties entries as sys props. Unconditional activation would mean the image always resolves
-# attester trust from a file it chose; absent the file, attester trust resolves the real way, through
-# federation trust chains. Both branches announce themselves: which resolver is live decides what this
-# AS will believe about who vouched for a client, and that should never be a silent build detail.
-RUN if [ -f /opt/in/instance/server/default/conf/oidf-mock-attesters.json ]; then \
-      printf '\noidf.mock.attesters=/opt/out/instance/server/default/conf/oidf-mock-attesters.json\n' \
-        >> /opt/staging/instance/bin/run.properties.subst.default; \
-      echo 'oidf.mock.attesters: ACTIVE - static attester trust supplied by the build context (DEV/DEMO)'; \
-    else \
-      echo 'oidf.mock.attesters: not supplied - attester trust resolves via OpenID Federation trust chains'; \
-    fi
-# Federation-gated disclosure (AS side): this AS REQUIRES the workload attributes disclosed, so a
-# presentation that withholds them (external / unknown profile) is rejected (insufficient_disclosure).
-RUN printf '\noidf.attestation.required.claims=workload\n' >> /opt/staging/instance/bin/run.properties.subst.default
-
-# Surface the federation plugin's DEBUG resolve/fetch lines (fetchEntityStatement /
-# fetchSubordinateStatement / chain walk in HttpTrustControllerGateway + TrustChainValidator) so the demo's
-# activity panel shows the AS resolving the entity statement + walking the chain — not just the final
-# "Automatically registered" line. Scoped to the module's package; the rest of PF stays at INFO.
-RUN CONF="$(find /opt -path '*server/default/conf/log4j2.xml' 2>/dev/null | head -1)"; echo "log4j2 = $CONF"; \
-    sed -i 's#</Loggers>#    <Logger name="com.pingidentity.ps.oidf" level="DEBUG" />\n    </Loggers>#' "$CONF" \
-    && grep -c 'com.pingidentity.ps.oidf' "$CONF"
+# PingFederate's plain HTTP runtime listener, off as PingFederate ships it and switchable at run time. The base
+# image's run.properties template has pf.http.port=-1 written out, where its neighbours read variables
+# (pf.https.port=${PF_ENGINE_PORT}); this has it read PF_RUN_PF_HTTP_PORT - the base image's PF_RUN_PF_* naming -
+# which the base image's 05-expand-templates.sh substitutes at boot as it does the others. -1 is off, and the
+# entrypoint refuses any port outside the development profile. (Checked 2026-09-29 in the 13.1.3 image: no
+# variable of the base image's own reaches pf.http.port.) The template's lines end CRLF, and the sed keeps the CR.
+ENV PF_RUN_PF_HTTP_PORT=-1
+RUN F=/opt/staging/instance/bin/run.properties.subst.default \
+ && sed -i 's/^pf\.http\.port=-1\([[:space:]]*\)$/pf.http.port=${PF_RUN_PF_HTTP_PORT}\1/' "$F" \
+ && [ "$(grep -c '^pf\.http\.port=' "$F")" = 1 ] \
+ && grep -q '^pf\.http\.port=\${PF_RUN_PF_HTTP_PORT}[[:space:]]*$' "$F"
 
 # Check and decrypt the archive at boot, with the identity gone from the environment before PingFederate
 # starts, then hand over to the base image's own bootstrap. build/pingfederate/test-entrypoint.sh --image
-# exercises its decisions in the built image.
-COPY --chown=9031:0 pf-entrypoint.sh /opt/pf-entrypoint.sh
-RUN chmod 755 /opt/pf-entrypoint.sh
+# exercises its decisions in the built image, and the healthcheck's.
+COPY --chown=9031:0 pf-entrypoint.sh pf-healthcheck.sh /opt/
+RUN chmod 755 /opt/pf-entrypoint.sh /opt/pf-healthcheck.sh
+
+# The runtime (HTTPS) and admin ports, as the base image declares them; the plain HTTP listener is off unless
+# the deployment turns it on, so it is not declared. The healthcheck is live, not ready: see pf-healthcheck.sh
+# and README.md, "The healthcheck". It replaces the base image's (liveness.sh alone), which it runs first; the
+# timings are the base image's.
+EXPOSE 9031 9999
+HEALTHCHECK --interval=31s --timeout=29s --start-period=241s --retries=7 CMD ["/opt/pf-healthcheck.sh"]
 
 USER 9031:0
 ENTRYPOINT ["/opt/pf-entrypoint.sh"]
@@ -167,8 +188,9 @@ FROM capability AS deployment
 USER root
 
 # Config restore via PF's native drop-in-deployer: the DataDeployer timer imports data.zip on boot
-# (no admin API, no license-acceptance gate). ForceImport is set in the overlay below; the master-key
-# overlay lets the archive's encrypted secrets decrypt natively (running master key == archive key).
+# (no admin API, no license-acceptance gate). The overlay's DataDeployer settings are PingFederate's own
+# defaults (README.md, "The drop-in deployer's settings"); the master-key overlay lets the archive's encrypted
+# secrets decrypt natively (running master key == archive key).
 # data.zip.age (encrypted, preferred) or data.zip (plaintext, transitional); the glob takes whichever
 # is staged. It does NOT enforce that one is: a COPY glob matching nothing succeeds silently under
 # BuildKit, which would produce an image that boots with no configuration and looks like it worked.
@@ -197,4 +219,5 @@ RUN D=/opt/in/instance/server/default/data; mkdir -p "$D/config-store"; \
 # NB: no pingfederate.lic COPY — the boot hook fetches the license from the DevOps env vars above.
 
 USER 9031:0
-# Stock entrypoint: the drop-in-deployer imports data.zip during boot.
+# The capability stage's entrypoint and healthcheck: pf-entrypoint.sh places the archive, and the drop-in
+# deployer imports data.zip during boot.

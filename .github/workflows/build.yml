@@ -371,7 +371,9 @@ jobs:
       - name: extract provided PF jars from the image
         uses: ./.github/actions/pf-provided-jars
       - name: the reactor's jars (the java job runs the tests)
-        run: mvn -B -DskipTests package
+        # The commit goes into platform-pf's manifest, where /agentic-identity/info and the start-up banner read it
+        # (F-0190); the image carries it again as its org.opencontainers.image.revision label.
+        run: mvn -B -DskipTests -Doidf.build.commit="$GITHUB_SHA" package
       - name: the war assembler against PingFederate's own war
         # StockWarGoldenTest runs only when it is given the stock pf-runtime.war, which is PingFederate's and not in
         # this repository: it holds the war's web.xml to 13.1.3's digest and the assembled one to the shell
@@ -397,18 +399,102 @@ jobs:
           PY
       - name: the capability image, for each staging profile
         # stage-modules.sh rewrites modules/ for the profile it is given, so each profile is staged and built in
-        # turn. The assembler runs again inside the build, on the image's own Java 21.
+        # turn. The assembler runs again inside the build, on the image's own Java 21. The OCI labels get the
+        # release version from the root pom, the commit and the build time.
         run: |
+          version="$(python3 -c 'import xml.etree.ElementTree as E; print(E.parse("pom.xml").getroot().find("{http://maven.apache.org/POM/4.0.0}version").text)')"
+          created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "OCI_VERSION=$version" >> "$GITHUB_ENV"
           for profile in production conformance; do
             build/pingfederate/stage-modules.sh --profile "$profile"
             cp build/pingfederate/modules/MANIFEST "$RUNNER_TEMP/MANIFEST-$profile"
             docker build --target capability --build-arg STAGING_PROFILE="$profile" \
+              --build-arg OCI_VERSION="$version" --build-arg OCI_REVISION="$GITHUB_SHA" --build-arg OCI_CREATED="$created" \
               -t "pf-agentic-identity:capability-$profile" build/pingfederate
             label="$(docker inspect --format '{{index .Config.Labels "io.github.dphhyland.pf-agentic-identity.staging-profile"}}' \
               "pf-agentic-identity:capability-$profile")"
             [ "$label" = "$profile" ] || { echo "::error::capability-$profile is labelled '$label'"; exit 1; }
           done
-      - name: the entrypoint's decisions, inside each image
+      - name: each image's labels, ports, healthcheck and environment carry no configuration of their own
+        # Plan item R-I3: the OCI labels name this build; 9031 and 9999 are declared and the plain listener is not;
+        # the healthcheck is pf-healthcheck.sh (live, not ready); the EULA is left at the base image's NO and the
+        # plain listener at -1 (off); and no DEBUG logger, required claims or mock attesters are written into
+        # PingFederate's configuration. platform-pf's manifest in the war carries the commit (F-0190).
+        run: |
+          for profile in production conformance; do
+            image="pf-agentic-identity:capability-$profile"
+            docker inspect "$image" --format '{{json .Config}}' > "$RUNNER_TEMP/config-$profile.json"
+            PROFILE="$profile" CONFIG="$RUNNER_TEMP/config-$profile.json" python3 - <<'PY'
+          import datetime, json, os, sys
+          config = json.load(open(os.environ["CONFIG"]))
+          labels, env = config.get("Labels") or {}, dict(e.split("=", 1) for e in config.get("Env") or [])
+          want = {
+              "org.opencontainers.image.title": "pf-agentic-identity PingFederate",
+              "org.opencontainers.image.source": "https://github.com/dphhyland/pf-agentic-identity",
+              "org.opencontainers.image.version": os.environ["OCI_VERSION"],
+              "org.opencontainers.image.revision": os.environ["GITHUB_SHA"],
+              "org.opencontainers.image.licenses": "Apache-2.0 AND BSD-3-Clause AND LicenseRef-PingIdentity-Proprietary",
+          }
+          problems = [f"label {k} is {labels.get(k)!r}, not {v!r}" for k, v in want.items() if labels.get(k) != v]
+          if not labels.get("org.opencontainers.image.description"):
+              problems.append("no org.opencontainers.image.description label")
+          try:
+              datetime.datetime.strptime(labels.get("org.opencontainers.image.created", ""), "%Y-%m-%dT%H:%M:%SZ")
+          except ValueError:
+              problems.append(f"org.opencontainers.image.created is {labels.get('org.opencontainers.image.created')!r}, not an RFC 3339 UTC time")
+          if sorted(config.get("ExposedPorts") or {}) != ["9031/tcp", "9999/tcp"]:
+              problems.append(f"exposed ports are {sorted(config.get('ExposedPorts') or {})}, not 9031 and 9999 alone")
+          if (config.get("Healthcheck") or {}).get("Test") != ["CMD", "/opt/pf-healthcheck.sh"]:
+              problems.append(f"the healthcheck is {config.get('Healthcheck')}, not /opt/pf-healthcheck.sh")
+          if env.get("PING_IDENTITY_ACCEPT_EULA") != "NO":
+              problems.append(f"PING_IDENTITY_ACCEPT_EULA is {env.get('PING_IDENTITY_ACCEPT_EULA')!r}: the image accepts the EULA for its users")
+          if env.get("PF_RUN_PF_HTTP_PORT") != "-1":
+              problems.append(f"PF_RUN_PF_HTTP_PORT is {env.get('PF_RUN_PF_HTTP_PORT')!r}, not -1 (off)")
+          for p in problems:
+              print(f"::error::capability-{os.environ['PROFILE']}: {p}")
+          sys.exit(1 if problems else 0)
+          PY
+            docker run --rm --entrypoint sh "$image" -c '
+              set -e
+              F=/opt/staging/instance/bin/run.properties.subst.default
+              grep -q "^pf\.http\.port=\${PF_RUN_PF_HTTP_PORT}" "$F" || { echo "pf.http.port does not read PF_RUN_PF_HTTP_PORT"; exit 1; }
+              if grep -n "^oidf\." "$F"; then echo "run.properties sets oidf.* system properties"; exit 1; fi
+              if grep -rn "com.pingidentity.ps.oidf" /opt/server/server/default/conf/log4j2.xml; then echo "log4j2.xml names this repository'"'"'s loggers"; exit 1; fi
+              if [ -e /opt/in/instance/server/default/conf/oidf-mock-attesters.json ]; then echo "the image carries mock attesters"; exit 1; fi
+              if command -v bash; then echo "the image has bash"; exit 1; fi
+              unzip -p /opt/in/instance/server/default/deploy/platform-pf-*.jar META-INF/MANIFEST.MF | tr -d "\r" | grep -x "Build-Commit: $0"
+            ' "$GITHUB_SHA" || { echo "::error::capability-$profile carries configuration of its own, or no commit"; exit 1; }
+          done
+      - name: each image's system files are the base image's, apart from age
+        # F-0220: the base image has no apk database, so an `apk add` reinstalled its whole Alpine userland at the
+        # day's versions. The Dockerfile now installs age from its release; this holds every file, link and
+        # directory under /bin, /sbin, /lib, /usr, /etc and /var to the base image's, byte for byte, apart from age,
+        # age-keygen and age's licence. (Docker bind-mounts /etc/hostname, /etc/hosts and /etc/resolv.conf.)
+        run: |
+          list() {
+            docker run --rm --user 0 --entrypoint sh "$1" -c '
+              set -e
+              skip="! -path /etc/hostname ! -path /etc/hosts ! -path /etc/resolv.conf ! -path /etc/mtab"
+              # shellcheck disable=SC2086
+              find /bin /sbin /lib /usr /etc /var -xdev -type f $skip -exec sha256sum {} + | sed "s/^\([0-9a-f]*\)  /file \1 /"
+              # shellcheck disable=SC2086
+              find /bin /sbin /lib /usr /etc /var -xdev -type l $skip | while IFS= read -r l; do echo "link $l -> $(readlink "$l")"; done
+              find /bin /sbin /lib /usr /etc /var -xdev -type d | sed "s/^/dir /"' | LC_ALL=C sort
+          }
+          list "$PF_IMAGE@$PF_IMAGE_DIGEST" > "$RUNNER_TEMP/base.files"
+          for profile in production conformance; do
+            list "pf-agentic-identity:capability-$profile" > "$RUNNER_TEMP/capability-$profile.files"
+            added="$(diff "$RUNNER_TEMP/base.files" "$RUNNER_TEMP/capability-$profile.files" | grep '^[<>]' || true)"
+            expected="$(printf '%s\n' '> dir /usr/local/share/licenses' '> dir /usr/local/share/licenses/age' \
+              '> file /usr/local/bin/age' '> file /usr/local/bin/age-keygen' '> file /usr/local/share/licenses/age/LICENSE')"
+            got="$(printf '%s\n' "$added" | sed -E 's/^(> file) [0-9a-f]{64} /\1 /' | LC_ALL=C sort)"
+            if [ "$got" != "$(printf '%s\n' "$expected" | LC_ALL=C sort)" ]; then
+              printf '%s\n' "$added"
+              echo "::error::capability-$profile's system files differ from the base image's by more than age"; exit 1
+            fi
+            echo "capability-$profile: the base image's system files, and age"
+          done
+      - name: the entrypoint's and the healthcheck's decisions, inside each image
         run: |
           for profile in production conformance; do
             build/pingfederate/test-entrypoint.sh --image "pf-agentic-identity:capability-$profile"

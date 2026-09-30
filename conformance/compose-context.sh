@@ -32,7 +32,7 @@ done
 
 CTX="$HERE/.context"
 rm -rf "$CTX"; mkdir -p "$CTX/overlay"
-cp "$BUILD/Dockerfile" "$BUILD/assemble-pf-runtime-war.sh" "$BUILD/filters.xml" "$BUILD/pf-entrypoint.sh" "$CTX/"
+cp "$BUILD/Dockerfile" "$BUILD/assemble-pf-runtime-war.sh" "$BUILD/filters.xml" "$BUILD/pf-entrypoint.sh" "$BUILD/pf-healthcheck.sh" "$CTX/"
 cp -R "$BUILD/modules" "$CTX/modules"
 cp -R "$BUILD/assembler" "$CTX/assembler"
 cp -R "$BUILD/overlay/config-store" "$CTX/overlay/config-store"
@@ -41,7 +41,8 @@ cp -R "$BUILD/overlay/config-store" "$CTX/overlay/config-store"
 cp "$HERE"/config-store/*.xml "$CTX/overlay/config-store/"
 cp "$HERE/data.zip" "$CTX/"
 cp "$HERE/overlay/pf.jwk" "$HERE/overlay/pingfederate-system-keys.xml" "$CTX/overlay/"
-# No oidf-mock-attesters.json: this PF trusts no attester, and the Dockerfile treats the file as optional.
+# No mock attesters: this PF trusts no attester. The image no longer reads oidf-mock-attesters.json from the
+# context (0.6.0); a development deployment that wants them mounts the file and sets oidf.mock.attesters itself.
 
 jars=("$CTX/modules"/*.jar)
 echo "composed $CTX from $CAP (${#jars[@]} module jars; $manifest_header)" >&2
