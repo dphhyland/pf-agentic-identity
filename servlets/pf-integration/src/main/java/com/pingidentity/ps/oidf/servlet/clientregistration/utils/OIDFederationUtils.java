@@ -1,5 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration.utils;
 
+import com.pingidentity.ps.oidf.platform.pf.component.CriterionGate;
+import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
@@ -120,6 +122,10 @@ public final class OIDFederationUtils {
     }
 
     public static boolean validateTrustChain(Object inObj) {
+        // S9b: false, never a throw, while FEDERATION is not serving here (CriterionGate says how the engine knows).
+        if (!CriterionGate.serves(Startup.FEDERATION, "validateTrustChain")) {
+            return false;
+        }
         // Deployment-wide settings, resolved once and identical for every reader. These used to be
         // statics on RegistrationConfiguration, mirrored from its constructor, so this call site
         // needed its own env fallback for the case where nothing had constructed one yet -- see
@@ -130,6 +136,10 @@ public final class OIDFederationUtils {
     }
 
     public static boolean validateTrustChain(Object inObj, Boolean ignoreSslErrors, String trustControllerHost) {
+        // S9b: false, never a throw, while FEDERATION is not serving here (CriterionGate says how the engine knows).
+        if (!CriterionGate.serves(Startup.FEDERATION, "validateTrustChain")) {
+            return false;
+        }
         return validateTrustChain(inObj, ignoreSslErrors, trustControllerHost, trustControllerHost);
     }
 
@@ -143,6 +153,10 @@ public final class OIDFederationUtils {
      * the token-endpoint filter never enters. So it enters its own, and what it audits carries the caller's address.
      */
     public static boolean validateTrustChain(Object inObj, Boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
+        // S9b: false, never a throw, while FEDERATION is not serving here (CriterionGate says how the engine knows).
+        if (!CriterionGate.serves(Startup.FEDERATION, "validateTrustChain")) {
+            return false;
+        }
         PfRequestScope.Context outer = PfRequestScope.enter(requestOf(inObj));
         try {
             return validateTrustChainInner(inObj, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl);
@@ -204,6 +218,10 @@ public final class OIDFederationUtils {
      * validates - so a mapping needs one or the other, not both. Fails closed on anything unexpected.
      */
     public static boolean federationPolicy(Object inObj) {
+        // S9b: false, never a throw, while FEDERATION is not serving here (CriterionGate says how the engine knows).
+        if (!CriterionGate.serves(Startup.FEDERATION, "federationPolicy")) {
+            return false;
+        }
         PfRequestScope.Context outer = PfRequestScope.enter(requestOf(inObj));
         try {
             FederationPolicyDecisionPoint pdp = FederationPolicySupport.decisionPointFor(DecisionPoint.TOKEN_ISSUANCE);

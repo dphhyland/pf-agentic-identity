@@ -505,6 +505,73 @@ class AttestationPolicyRoutesTest {
         }
     }
 
+    /** The filter's own part of ATTESTATION_AUTH, as its init registered it. */
+    private static com.pingidentity.ps.oidf.platform.health.ComponentParts.Part part(ClientAttestationAuthFilter filter) throws Exception {
+        java.lang.reflect.Field field = ClientAttestationAuthFilter.class.getDeclaredField("part");
+        field.setAccessible(true);
+        return (com.pingidentity.ps.oidf.platform.health.ComponentParts.Part) field.get(filter);
+    }
+
+    @Test
+    void aClientThatRequiresAnAttestationIsRefusedWhileAttestationIsDisabledOrFailed() throws Exception {
+        // S9b: switched off or failed, the filter passes ordinary traffic on, but a client that authenticates only with an
+        // attestation must not authenticate with its other credential instead.
+        ClientStore store = store(client(CLIENT, Map.of(ClientAttestationPolicy.REQUIRED, "true")),
+                client("ordinary", Map.of()));
+        for (boolean disabled : new boolean[]{true, false}) {
+            ClientAttestationAuthFilter filter = filter(store);
+            if (disabled) {
+                part(filter).disabled();
+            } else {
+                part(filter).failedConfig("injected by the test");
+            }
+            FilterChain chain = mock(FilterChain.class);
+            int[] status = new int[1];
+            String body = run(filter, request(Map.of(), Map.of("client_id", new String[]{CLIENT})), chain, status);
+            assertEquals(401, status[0], disabled ? "disabled" : "failed");
+            assertTrue(body.contains("invalid_client") && body.contains("authenticates with a client attestation"), body);
+            verify(chain, never()).doFilter(any(), any());
+
+            HttpServletRequest ordinary = request(Map.of(), Map.of("client_id", new String[]{"ordinary"}));
+            FilterChain passes = mock(FilterChain.class);
+            assertEquals("", run(filter, ordinary, passes, new int[1]));
+            verify(passes).doFilter(org.mockito.ArgumentMatchers.eq(ordinary), any());
+        }
+
+        // A client store that cannot answer is 503 on the disabled path too: whether the client requires one is unknown.
+        ClientStore broken = new ClientStore() {
+            @Override
+            public void add(Client client) {
+            }
+
+            @Override
+            public void update(Client client) {
+            }
+
+            @Override
+            public Client get(String clientId) {
+                throw new IllegalStateException("database down");
+            }
+
+            @Override
+            public Collection<Client> getAll() {
+                return List.of();
+            }
+
+            @Override
+            public void disable(Client client) {
+            }
+        };
+        ClientAttestationAuthFilter filter = filter(broken);
+        part(filter).disabled();
+        FilterChain chain = mock(FilterChain.class);
+        int[] status = new int[1];
+        String body = run(filter, request(Map.of(), Map.of("client_id", new String[]{CLIENT})), chain, status);
+        assertEquals(503, status[0]);
+        assertTrue(body.contains("temporarily_unavailable"), body);
+        verify(chain, never()).doFilter(any(), any());
+    }
+
     @Test
     void anAttestationRequiredThatDoesNotParseIsRefused() throws Exception {
         ClientStore store = store(client(CLIENT, Map.of(ClientAttestationPolicy.REQUIRED, "sometimes")));

@@ -1,0 +1,23 @@
+id: F-0345
+title: An OGNL criterion on the engine classloader cannot see that the webapp's part of its component failed on a dependency or on a start-only setting
+severity: low
+area: platform-pf, pf-integration
+source: design
+status: open
+plan_items: [S9b]
+prs: [86]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found by package S9B (2026-09-30). A criterion runs on PingFederate's engine classloader, whose copy of platform
+  has its own, empty component registry: nothing there runs a servlet's or filter's init, and statics are per loader
+  (docs/development/classloaders.md). CriterionGate therefore answers from what that copy can read - the enable switch
+  and the production profile's refusals - and otherwise lets the criterion run on its own lazily built state. A webapp
+  part that is FAILED_DEPENDENCY, or FAILED_CONFIG for a reason only its start reads (ATTESTATION_AUTH switched on with
+  no bridge key, say), is invisible to it. The effect is small today: while ATTESTATION_AUTH is failed its filter
+  answers attestation traffic 503 before PingFederate authenticates the client, so an attested request never reaches
+  the criterion, and a request without an attestation fails the criterion's own verification. A criterion whose
+  component's webapp part failed on a dependency the criterion does not share would still answer from its own state.
+  Who and when: a shared view of component state across classloaders arrives with clustering's shared state (C-1,
+  Phase 4) or a process-wide channel the two copies can both read; until then the table in
+  docs/operator/components.md says the engine cannot learn it.

@@ -62,7 +62,7 @@ public class SsfReceiverServlet extends HttpServlet {
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        if (ComponentGate.servlet(this.part, resp)) {
+        if (ComponentGate.oauthEndpoint(this.part, resp)) {
             return;
         }
         SsfReceiverService receiver = SsfSupport.receiverService();
@@ -97,7 +97,7 @@ public class SsfReceiverServlet extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        if (ComponentGate.servlet(this.part, resp)) {
+        if (ComponentGate.oauthEndpoint(this.part, resp)) {
             return;
         }
         SsfReceiverService receiver = SsfSupport.receiverService();

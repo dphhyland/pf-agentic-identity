@@ -319,6 +319,12 @@
                                         <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.violationIn(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.doFilter(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.init(*</include>
+                                        <!-- S9b: while FAPI's part is failed only a listed client's request is
+                                             refused, and while automatic registration is off or failed only a
+                                             stored federation client's is. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.fromAListedClient(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.listed(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientLookup.registeredByFederation(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.doFilter(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.interactionIdFor(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.carriesTokenInQuery(*</include>

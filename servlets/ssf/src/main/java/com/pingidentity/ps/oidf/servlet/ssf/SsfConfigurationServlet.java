@@ -57,7 +57,7 @@ public class SsfConfigurationServlet extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        if (ComponentGate.servlet(this.part, resp)) {
+        if (ComponentGate.oauthEndpoint(this.part, resp)) {
             return;
         }
         applyCors(resp);
@@ -72,7 +72,7 @@ public class SsfConfigurationServlet extends HttpServlet {
 
     @Override
     protected void doOptions(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        if (ComponentGate.servlet(this.part, resp)) {
+        if (ComponentGate.oauthEndpoint(this.part, resp)) {
             return;
         }
         applyCors(resp);

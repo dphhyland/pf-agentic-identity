@@ -142,7 +142,7 @@ public final class FrontChannelAutoRegistrationFilter implements Filter {
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
-        if (ComponentGate.filter(this.part, request, response, chain, ComponentGate::federationClientTraffic)) {
+        if (ComponentGate.autoRegistration(this.part, request, response, chain, FederationClientLookup.pingFederate())) {
             return;
         }
         Wiring wired = this.wiring;

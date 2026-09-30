@@ -185,6 +185,26 @@ class HealthServletTest {
     }
 
     @Test
+    void readyCountsADependencyBlipAsDegraded() throws Exception {
+        // S9b: a serving component that fails on a dependency the supervisor retries is ready for its first
+        // ComponentParts.GRACE (the window's end is ComponentPartsTest's, under a fake clock); a failure on its
+        // configuration is not.
+        HealthServlet servlet = developmentWithStaticBearer();
+        ComponentParts.Part part = Startup.begin(Startup.HOSTING, "HealthServletBlipPart");
+        part.ready();
+        assertEquals(200, call(servlet, "GET", HealthServlet.READY, null).status);
+
+        part.failedDependency("database blip");
+        assertEquals(200, call(servlet, "GET", HealthServlet.READY, null).status, "a dependency blip counts as DEGRADED");
+
+        part.failedConfig("no authority");
+        assertEquals(503, call(servlet, "GET", HealthServlet.READY, null).status, "a configuration failure is never graced");
+
+        part.ready();
+        part.disabled();
+    }
+
+    @Test
     void theDetailAndInfoRefuseACallerWithoutACredentialWithTheChallenge() throws Exception {
         HealthServlet servlet = developmentWithStaticBearer();
         for (String path : List.of(HealthServlet.DETAIL, HealthServlet.INFO)) {
