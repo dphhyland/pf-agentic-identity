@@ -36,6 +36,14 @@ checks every servlet member the artefacts reference against `pf-jetty-lib`. An o
 directories, that every PingFederate and servlet member the artefacts link resolves on the pinned image. Run it
 when you touch anything that calls the SDK or `pf-protocolengine`.
 
+The lint job's source scans hold main code to platform, and each says in its docstring what it looks for and what it
+does not see: `tools/trust-scan.py` (no trust-all TLS outside `InsecureTls`), `tools/settings-scan.py` (every setting
+read is catalogued), `tools/direct-read-scan.py --check-allow-list` (no `System.getenv`, `System.getProperty` or
+`getInitParameter` outside `platform.settings`) and `tools/outbound-scan.py --check-allow-list` (no HTTP client
+outside `platform.http`). The last two print each hit with the allow-list line that would admit it; admit one only
+with a finding id or a reason a reviewer will accept, and delete a line when its read is converted, since
+`--check-allow-list` fails a line that admits nothing.
+
 ## Tests that need Postgres
 
 The store suites run on PostgreSQL, and only on it: H2 and HSQLDB were dropped in 0.5.0. They are the JDBC
