@@ -166,7 +166,6 @@ class ClientCredentialsTokenTest {
 
     /** RFC 7523 §2.2 and §3: the assertion's iss and sub are the client, aud the token endpoint, signed by the key. */
     @Test
-    @Requirement("RFC7523 §3")
     void aClientWithAKeyAuthenticatesWithPrivateKeyJwt() throws Exception {
         answers.add(issued("t1", 60));
         RsaJsonWebKey key = RsaJwkGenerator.generateJwk(2048);
