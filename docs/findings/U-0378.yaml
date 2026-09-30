@@ -1,0 +1,17 @@
+id: U-0378
+title: That a GKE projected service-account token's iss is exactly the cluster URL Google names for kubernetes.cluster
+area: attestation-issuer
+source: design
+status: open
+plan_items: [H-ATT-1]
+prs: [83]
+recorded_in: servlets/attestation-issuer/README.md, The cloud types (gke-sa-token)
+verify_by: >
+  In a GKE cluster, project a serviceAccountToken volume with a custom audience and decode the token's iss; compare
+  with kubectl get --raw /.well-known/openid-configuration.
+verification: ''
+notes: >
+  Google's Workload Identity Federation for GKE page (read 2026-09-30) names all Pods in a cluster by
+  https://container.googleapis.com/v1/projects/PROJECT_ID/locations/LOCATION/clusters/CLUSTER_NAME; the attester's
+  development default and its project check read the project from a token iss of that shape. If a cluster's iss
+  differs, a listed-project deployment refuses its GKE tokens (check="project"), which fails closed.

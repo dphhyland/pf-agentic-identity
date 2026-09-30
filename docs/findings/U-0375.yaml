@@ -1,0 +1,17 @@
+id: U-0375
+title: Whether Azure managed-identity tokens carry xms_mirid, and whether Microsoft documents it
+area: attestation-issuer
+source: design
+status: open
+plan_items: [H-ATT-1]
+prs: [83]
+recorded_in: docs/releases/unreleased/HATT1.md, Notes; servlets/attestation-issuer/README.md, The cloud types
+verify_by: >
+  Find xms_mirid in a Microsoft primary document (the Entra claims references, the managed identities
+  documentation), and decode a token from IMDS on a VM with a system-assigned and one with a user-assigned identity.
+verification: ''
+notes: >
+  H-ATT-1's spec named xms_mirid as the managed-identity claim, "or the claim the primary text names". Microsoft's
+  access token claims reference (read 2026-09-30) does not list it; it defines oid as "the verified identity of the
+  user or service principal", so the attester reads oid. Only Microsoft Q&A answers, not primary text, describe
+  xms_mirid as the managed identity's Azure resource ID.
