@@ -4,7 +4,7 @@ area: pf-integration
 source: design
 status: closed
 plan_items: [S5c]
-prs: []
+prs: [73]
 recorded_in: servlets/pf-integration/README.md, Configuration (Registration work limits); docs/releases/unreleased/S5C.md
 verify_by: Nothing further is needed.
 verification: >
