@@ -669,7 +669,9 @@ class TrustMarkValidatorTest {
         assertEquals(1, some.verified().size(), some.rejected().toString());
         assertEquals(2, some.rejected().size());
         for (TrustMarkValidator.Rejected rejected : some.rejected()) {
-            assertTrue(rejected.reason().contains("budget ran out of requests"), rejected.reason());
+            // The parent's cap, the one that ran out, not the issuer's own child budget's.
+            assertTrue(rejected.reason().contains("ran out of requests") && rejected.reason().contains("budget of " + (perIssuer + 1)
+                    + " requests"), rejected.reason());
         }
         assertTrue(tight.http().requests().size() <= perIssuer + 1, "three issuers, one budget: " + tight.http().requests());
     }
@@ -740,7 +742,7 @@ class TrustMarkValidatorTest {
         TrustMarkValidator.Result starved = this.withinBudget(this.withStatusEndpoint(mark),
                 ResolutionBudget.of(java.time.Duration.ofSeconds(30), forIssuer), status);
         assertEquals(0, starved.verified().size());
-        assertTrue(starved.rejected().get(0).reason().contains("status was not asked"), starved.rejected().toString());
+        assertTrue(starved.rejected().get(0).reason().contains("status was not asked: trust chain resolution ran out of requests"), starved.rejected().toString());
         assertEquals(List.of(), deadlines);
     }
 

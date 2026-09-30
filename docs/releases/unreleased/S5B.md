@@ -38,8 +38,9 @@
    refused with `invalid_trust_chain` and the description "trust chain resolution ran out of time: its wall-clock
    budget of 45000 ms is spent; refusing to keep resolving"; the request that caused it fails rather than hangs. To
    tell, search the PingFederate server log for the WARN from
-   `com.pingidentity.ps.oidf.federation.TrustChainValidator` that reads "Trust chain resolution for ... refused: it
-   ran out of time", which gives how long the resolution took, how many requests it spent and both settings. If a
+   `com.pingidentity.ps.oidf.federation.TrustChainValidator` that reads "Trust chain resolution for ... refused after
+   ... ms and ... requests: trust chain resolution ran out of time", which gives how long the resolution took, how
+   many requests it spent and both settings. If a
    federation you join is legitimately slower, raise `OIDF_FEDERATION_RESOLUTION_WALL_CLOCK_SECONDS` on every node.
    There is no development-profile escape, because this is tuning with a range, not a switch: the setting itself is
    the way out, up to 300 seconds.
@@ -48,13 +49,24 @@
    for. They now also count each authority Entity Configuration the gateway fetches, uncached, to find a fetch
    endpoint, and each second retrieval of a trust anchor's Entity Configuration that did not verify, so one statement
    can cost up to three requests. A deep chain whose authorities are not yet cached can run out where it did not
-   before. To tell, look for the same WARN reading "ran out of requests", or a refusal whose description reads "trust
-   chain resolution ran out of requests: its budget of 24 requests is spent". Raise
+   before. To tell, look for the same WARN with "ran out of requests" in it, or a refusal whose description reads
+   "trust chain resolution ran out of requests: its budget of 24 requests is spent". Raise
    `OIDF_FEDERATION_RESOLUTION_MAX_REQUESTS` if your federations are that deep. The description also changed: it
    used to read "exceeded its fetch budget of 24 (last: ...)", naming the last fetch; anything that matches on the
    old text should match on "ran out of" instead. There is no development-profile escape, for the reason the item
    **A federation resolution now has a wall-clock budget** gives.
-3. **Out-of-range federation-resolution settings stop a validator being built.** Each `OIDF_FEDERATION_RESOLUTION_*`
+3. **A Trust Mark check now shares one request budget across all its issuers.** Before this release each Trust
+   Mark issuer was resolved on a fresh budget of 24 requests and each status call was not counted at all. Now
+   `TrustMarkValidator.validate(chain)`, which registration and the resolve endpoint call, makes one budget of
+   `OIDF_FEDERATION_RESOLUTION_MAX_REQUESTS` (24 by default) and the wall clock for the whole check: the anchor's
+   configuration, every issuer it resolves (up to 8) and every status call spend from it. An entity carrying marks
+   from several issuers, with status checking on, can now have marks rejected that verified before, and if
+   `TrustMarkPolicy` requires one of those marks the registration is refused. To tell, look for a rejected mark
+   whose reason reads "its issuer ... was not resolved: trust chain resolution ran out of requests" or "its status
+   was not asked: trust chain resolution ran out of requests". Raise `OIDF_FEDERATION_RESOLUTION_MAX_REQUESTS` if
+   your entities carry marks from many issuers. There is no development-profile escape, for the reason the item
+   **A federation resolution now has a wall-clock budget** gives.
+4. **Out-of-range federation-resolution settings stop a validator being built.** Each `OIDF_FEDERATION_RESOLUTION_*`
    setting is read, and refused naming the setting, when a trust chain validator is built: at start-up for most of
    them, and on the first request that needs one for the rest. A value
    outside its range, or one that is not a whole number, fails that start-up or request instead of being ignored.
@@ -62,7 +74,7 @@
    checks them against [docs/configuration/federation-resolution.md](../../configuration/federation-resolution.md)
    first. The development profile does not relax a range: a range is a safety bound on how much work a stranger's
    chain can cause.
-4. **Code that constructs `ValidatorOptions` passes the wall clock.** `ValidatorOptions` is a record whose canonical
+5. **Code that constructs `ValidatorOptions` passes the wall clock.** `ValidatorOptions` is a record whose canonical
    constructor now takes a seventh argument, `Duration resolutionWallClock`. Code built against an earlier release
    that calls `new ValidatorOptions(...)` with six arguments does not compile, and a jar compiled against it fails
    with `NoSuchMethodError` when it runs. Nothing in this repository does; a consumer that does - a sibling repository
@@ -104,8 +116,9 @@ must move.
 its Trust Marks on a second (F-0280); S5c passes one budget through registration. F-0010 stays open as the umbrella
 for S5c and S5d. U-0215 (whether 32 places an origin are enough) was not measured.
 
-**Tests.** `TrustChainValidatorBudgetTest` (a slow-body peer across a multi-hop chain cut off at the wall clock, the
-gateway's authority-configuration and key-mismatch fetches counted, a peer chain sharing the budget),
+**Tests.** `TrustChainValidatorBudgetTest` (a slow-body peer across a multi-hop chain cut off at the wall clock, a body still
+arriving at the deadline cut off there, every gateway request carrying the resolution's deadline, the gateway's
+authority-configuration and key-mismatch fetches counted, a peer chain sharing the budget),
 `TrustMarkValidatorTest` (several issuers bounded by one parent budget, the status call spent),
 `ResolutionBudgetTest` (concurrent spends, children, what ran out), `ValidatorOptionsSettingsTest` (defaults and
 ranges) and `JdkHttpClientDeadlineTest` (a caller's deadline ends a slow body). Run on JDK 17 and 20, and the

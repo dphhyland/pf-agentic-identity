@@ -253,8 +253,8 @@ public final class TrustMarkValidator {
         } catch (TrustChainValidationException e) {
             // A validator refuses only with this; it says whether the budget ran out or the chain did not validate.
             if (e.kind() == TrustChainValidationException.Kind.BUDGET) {
-                return new Refusal("its issuer " + issuer + " was not resolved: the validation's budget ran out of "
-                        + budget.exhaustion().name().toLowerCase(Locale.ROOT));
+                // The refusal's text says what ran out (time, requests, or the search steps) and names no peer.
+                return new Refusal("its issuer " + issuer + " was not resolved: " + e.getMessage());
             }
             return new Refusal("its issuer " + issuer + " does not validate to the same trust anchor (" + e.error().code() + ")");
         }
@@ -326,8 +326,8 @@ public final class TrustMarkValidator {
             return;
         }
         if (!budget.trySpend("the trust mark status endpoint of " + issuer)) {
-            throw new Refusal("its status was not asked: the validation's budget ran out of "
-                    + budget.exhaustion().name().toLowerCase(Locale.ROOT));
+            // The budget's own refusal text: time, or the requests of whichever budget has none left; no peer text.
+            throw new Refusal("its status was not asked: " + budget.exhausted().getMessage());
         }
         HttpPostClient.Response response;
         try {

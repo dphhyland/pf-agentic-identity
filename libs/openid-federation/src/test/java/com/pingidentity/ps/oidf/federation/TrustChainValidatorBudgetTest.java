@@ -26,6 +26,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.IntFunction;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -60,10 +61,15 @@ class TrustChainValidatorBudgetTest {
         private final JdkHttpClient client;
 
         SlowPeers(ServingMap statements, Duration bodyTime) throws IOException {
+            this(statements, request -> bodyTime);
+        }
+
+        /** {@code bodyTime} says how long the n-th request's body (counting from 1) takes. */
+        SlowPeers(ServingMap statements, IntFunction<Duration> bodyTime) throws IOException {
             this.server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 50);
             this.server.setExecutor(this.pool);
             this.server.createContext("/", exchange -> {
-                this.requests.incrementAndGet();
+                Duration thisBody = bodyTime.apply(this.requests.incrementAndGet());
                 String url = URLDecoder.decode(exchange.getRequestURI().getRawQuery().substring("u=".length()), StandardCharsets.UTF_8);
                 byte[] body;
                 try {
@@ -79,7 +85,7 @@ class TrustChainValidatorBudgetTest {
                     for (int i = 0; i < chunks; i++) {
                         out.write(body, i * body.length / chunks, (i + 1) * body.length / chunks - i * body.length / chunks);
                         out.flush();
-                        Thread.sleep(bodyTime.toMillis() / chunks);
+                        Thread.sleep(thisBody.toMillis() / chunks);
                     }
                 } catch (IOException | InterruptedException gone) {
                     // the client gave up at its deadline
@@ -125,7 +131,8 @@ class TrustChainValidatorBudgetTest {
     void aSlowPeersBodySpendsTheResolutionsWallClockAcrossHops() throws Exception {
         Federation f = threeLevels();
         try (SlowPeers peers = new SlowPeers(f.http(), Duration.ofMillis(400))) {
-            // Five requests of 0.4 s each against a wall clock of 1 s: the third is cut off in its body.
+            // Requests of 0.4 s each against a wall clock of 1 s: the refusal says time ran out, after more than one hop.
+            // aBodyStillArrivingAtTheDeadlineIsCutOffThere shows the body in flight is what the deadline stops.
             TrustChainValidator impatient = validator(peers.http(), f, ValidatorOptions.defaults().withResolutionWallClock(Duration.ofMillis(1000)));
             long started = System.nanoTime();
             TrustChainValidationException e = assertThrows(TrustChainValidationException.class,
@@ -138,6 +145,65 @@ class TrustChainValidatorBudgetTest {
             assertFalse(e.getMessage().contains(".example"), "the refusal names no peer: " + e.getMessage());
             assertTrue(peers.requests() >= 3, "it got across hops before the time ran out: " + peers.requests());
             assertTrue(elapsed < 1800, "the slow body is stopped at the resolution's deadline, not the request timeout: " + elapsed + " ms");
+        }
+    }
+
+    @Test
+    @Requirement("OIDFED §18.1(3)")
+    void aBodyStillArrivingAtTheDeadlineIsCutOffThere() throws Exception {
+        Federation f = threeLevels();
+        // Two quick hops, then a body of 3 s against a wall clock of 1 s. Only the gateway making the third request by
+        // the resolution's deadline stops it at 1 s; the client's own request timeout (30 s here) would let it finish.
+        try (SlowPeers peers = new SlowPeers(f.http(), request -> request < 3 ? Duration.ofMillis(100) : Duration.ofSeconds(3))) {
+            TrustChainValidator impatient = validator(peers.http(), f, ValidatorOptions.defaults().withResolutionWallClock(Duration.ofMillis(1000)));
+            long started = System.nanoTime();
+            TrustChainValidationException e = assertThrows(TrustChainValidationException.class,
+                    () -> impatient.validate(ValidationRequest.forSubject(LEAF).build()));
+            long elapsed = (System.nanoTime() - started) / 1_000_000L;
+
+            assertEquals(Kind.BUDGET, e.kind(), e.getMessage());
+            assertTrue(e.getMessage().contains("ran out of time"), e.getMessage());
+            assertEquals(3, peers.requests(), "the third request was the one cut off");
+            assertTrue(elapsed >= 1000 && elapsed < 1500, "the third body is cut off in flight at the resolution's deadline: " + elapsed + " ms");
+        }
+    }
+
+    /**
+     * Every request the gateway makes carries the resolution's deadline, not one of its own: the subject's and an
+     * authority's Entity Configuration, the statements, and the §11.3 second retrieval of the anchor's.
+     */
+    @Test
+    @Requirement("OIDFED §11.3")
+    void everyRequestTheGatewayMakesCarriesTheResolutionsDeadline() throws Exception {
+        Federation f = threeLevels();
+        String anchorUrl = TA + "/.well-known/openid-federation";
+        f.http().sequence(anchorUrl, Federation.builder().anchor(TA).build().entityConfiguration(TA), f.entityConfiguration(TA));
+        List<String> urls = new java.util.ArrayList<>();
+        List<Deadline> deadlines = new java.util.ArrayList<>();
+        HttpGetClient recording = new HttpGetClient() {
+            @Override
+            public String get(String url, String accept) throws Exception {
+                return this.get(url, accept, null);
+            }
+
+            @Override
+            public synchronized String get(String url, String accept, Deadline deadline) throws Exception {
+                urls.add(url);
+                deadlines.add(deadline);
+                return f.http().get(url, accept);
+            }
+        };
+        // A caller's budget far shorter than the settings' 45 s, so a deadline of the gateway's own would show.
+        ResolutionBudget mine = ResolutionBudget.of(Duration.ofSeconds(5), 24);
+
+        validator(recording, f, ValidatorOptions.defaults()).validate(ValidationRequest.forSubject(LEAF).budget(mine).build());
+
+        assertEquals(2, urls.stream().filter(anchorUrl::equals).count(), "the anchor's configuration was retrieved twice: " + urls);
+        assertTrue(urls.contains(INT + "/.well-known/openid-federation"), "the authority's configuration was looked up: " + urls);
+        for (int i = 0; i < urls.size(); i++) {
+            Deadline deadline = deadlines.get(i);
+            assertTrue(deadline != null && deadline.remaining().compareTo(Duration.ofSeconds(5)) <= 0,
+                    urls.get(i) + " was made by the resolution's deadline, not " + deadline);
         }
     }
 

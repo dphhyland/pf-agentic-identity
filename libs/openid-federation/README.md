@@ -111,9 +111,11 @@ Spending is thread-safe.
 - **What a refusal says.** A resolution that runs out is refused as a `TrustChainValidationException` of kind
   `BUDGET`, answered as `invalid_trust_chain`, whose description says what ran out and what the budget allowed
   ("ran out of time: its wall-clock budget of 45000 ms is spent", "ran out of requests: its budget of 24 requests
-  is spent") and never names what was being fetched, which a peer chose. The validator logs a WARN naming the
-  subject (through `LogSafe`), what ran out, how long it took, how many requests it spent, and the two settings; at
-  DEBUG it logs each resolution that succeeds, with its time and requests.
+  is spent") and never names what was being fetched, which a peer chose. When a caller's budget ran out rather
+  than the validation's own share of it, the description names the caller's cap. The search-step bound
+  (`MAX_SEARCH_STEPS`) is refused with the same kind and says so ("took more than 128 steps"). The validator logs a
+  WARN naming the subject (through `LogSafe`), how long it took, how many requests it spent, the refusal's own
+  description and the two settings; at DEBUG it logs each resolution that succeeds, with its time and requests.
 - **A gateway that does not know budgets.** The budget travels as a trailing parameter on
   `TrustControllerGateway`'s fetch overloads, whose defaults forward to the overloads without it, so every
   existing gateway and caller compiles and behaves as before. Such a gateway is still held to one request per

@@ -171,11 +171,12 @@ public final class TrustChainValidator {
             result = new Run(request, budget, pendingWrites).execute();
         } catch (TrustChainValidationException e) {
             if (e.kind() == Kind.BUDGET) {
-                LOGGER.warn("Trust chain resolution for " + LogSafe.value(request.subject()) + " refused: it ran out of "
-                        + budget.exhaustion().name().toLowerCase(java.util.Locale.ROOT) + " after " + elapsedMillis(started)
-                        + " ms and " + budget.used() + " requests (the budget: " + budget.wallClock().toMillis() + " ms, "
-                        + budget.requests() + " requests; " + ValidatorOptions.WALL_CLOCK_SETTING + " and "
-                        + ValidatorOptions.MAX_REQUESTS_SETTING + " set them)");
+                // The refusal's own text says what ran out - time, the requests of whichever budget has none left, or
+                // the search steps - and names nothing a peer chose.
+                LOGGER.warn("Trust chain resolution for " + LogSafe.value(request.subject()) + " refused after "
+                        + elapsedMillis(started) + " ms and " + budget.used() + " requests: " + e.getMessage() + " ("
+                        + ValidatorOptions.WALL_CLOCK_SETTING + " and " + ValidatorOptions.MAX_REQUESTS_SETTING
+                        + " set the budget)");
             }
             throw e;
         }
