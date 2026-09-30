@@ -186,23 +186,13 @@
                                         <include>com.pingidentity.ps.oidf.issuer.InstanceIdentity.selectors(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.SpiffeInstanceAttestationValidator.validate(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.SpiffeInstanceAttestationValidator.selectorNames(*</include>
-                                        <include>com.pingidentity.ps.oidf.issuer.GkeTokenValidator.validate(*</include>
-                                        <include>com.pingidentity.ps.oidf.issuer.GkeTokenValidator.selectors(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.selectors(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.GkeTokenValidator.selectorNames(*</include>
-                                        <include>com.pingidentity.ps.oidf.issuer.EksTokenValidator.validate(*</include>
-                                        <include>com.pingidentity.ps.oidf.issuer.EksTokenValidator.selectors(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.EksTokenValidator.selectorNames(*</include>
-                                        <include>com.pingidentity.ps.oidf.issuer.AksWorkloadIdentityValidator.validate(*</include>
-                                        <include>com.pingidentity.ps.oidf.issuer.AksWorkloadIdentityValidator.selectors(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.AksWorkloadIdentityValidator.selectorNames(*</include>
-                                        <include>com.pingidentity.ps.oidf.issuer.GcpSaTokenValidator.validate(*</include>
-                                        <include>com.pingidentity.ps.oidf.issuer.GcpSaTokenValidator.selectors(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.GcpSaTokenValidator.selectorNames(*</include>
-                                        <include>com.pingidentity.ps.oidf.issuer.AwsStsWebIdentityValidator.validate(*</include>
-                                        <include>com.pingidentity.ps.oidf.issuer.AwsStsWebIdentityValidator.selectors(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.AwsStsWebIdentityValidator.selectorNames(*</include>
-                                        <include>com.pingidentity.ps.oidf.issuer.AzureManagedIdentityValidator.validate(*</include>
-                                        <include>com.pingidentity.ps.oidf.issuer.AzureManagedIdentityValidator.selectors(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.AzureManagedIdentityValidator.selectorNames(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.WalletInstanceAttestationValidator.selectors(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.WalletInstanceAttestationValidator.selectorNames(*</include>
