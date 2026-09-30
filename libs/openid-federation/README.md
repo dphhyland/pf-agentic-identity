@@ -245,7 +245,7 @@ unchanged, deprecated for removal when plan item O-2 (Phase 3) moves them. A fie
 catalogue does not declare for its code is dropped before any sink sees it, so a new field means a catalogue
 entry: `EventsCataloguedTest` in `servlets/pf-integration` scans every emitter in the reactor and fails on an
 uncatalogued code or field, and on a catalogued code nothing emits unless the catalogue marks it `declaredOnly`
-(thirteen are, among them `attestation.client.verified` and `.refused`). What an operator sees is in
+(eleven are). What an operator sees is in
 [docs/federation/operations.md](../../docs/federation/operations.md#reading-the-logs).
 
 ## Configuration

@@ -18,3 +18,11 @@ notes: >
   old policy during that window - a refusal, never a loosening. Wiring invalidate(clientId) into PfMgmtClientStore's
   add, update and disable would close the registration half; the engine copy still needs its own 30 s. Found while
   building S4C, 2026-09-30.
+
+  The resolver also keeps an unknown client id for 30 s. A request that names a client before
+  TokenEndpointAutoRegistrationFilter registers it (the first token request of a federation client) leaves that
+  client with the server's policy for up to 30 s after registration: its tighter properties are not applied and,
+  with attestation_required=true, a request without an attestation goes on to PingFederate. The auto-registration
+  filter runs in the same webapp classloader, so a call to AttestationPolicyResolver.shared().invalidate(clientId)
+  after it registers would close this path; that file is S4D1's and S5C's in Phase 3. Found in S4C's review,
+  2026-09-30.

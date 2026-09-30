@@ -445,8 +445,7 @@ public final class ClientAttestationAuthFilter implements Filter {
     /**
      * Refuses a request that carries no attestation for a client that authenticates only with one
      * ({@code attestation_required}), or whose {@code attestation_required} is refused, or when the client manager
-     * cannot answer. The client is each one the request names - {@code client_id}, HTTP Basic's user and a
-     * {@code client_assertion}'s {@code sub}, none of them verified: PingFederate decides which of them the request
+     * cannot answer. The client is each one the request names ({@link #namedClients}), none of them verified: PingFederate decides which of them the request
      * authenticates as, and each is refused here if it may not authenticate without an attestation.
      *
      * @return whether the request was refused
@@ -481,8 +480,9 @@ public final class ClientAttestationAuthFilter implements Filter {
 
     /**
      * The clients a request without an attestation names, unverified and in order, without repeats: its
-     * {@code client_id}, the user of HTTP Basic (RFC 6749 §2.3.1: form-encoded) and its {@code client_assertion}'s
-     * {@code sub}. What cannot be read names nobody.
+     * {@code client_id}, the user of HTTP Basic both as sent and form-decoded (RFC 6749 §2.3.1), and its
+     * {@code client_assertion}'s {@code sub} and {@code iss}. Whichever of them PingFederate authenticates the
+     * request as is among them; each extra name can only refuse, never admit. What cannot be read names nobody.
      */
     static java.util.Set<String> namedClients(HttpServletRequest request) {
         java.util.Set<String> ids = new java.util.LinkedHashSet<>();
@@ -493,13 +493,16 @@ public final class ClientAttestationAuthFilter implements Filter {
                 String decoded = new String(java.util.Base64.getDecoder().decode(authorization.substring(6).trim()),
                         java.nio.charset.StandardCharsets.UTF_8);
                 int colon = decoded.indexOf(':');
-                ClientAttestationAuthFilter.addNamed(ids, java.net.URLDecoder.decode(colon < 0 ? decoded : decoded.substring(0, colon),
-                        java.nio.charset.StandardCharsets.UTF_8));
+                String user = colon < 0 ? decoded : decoded.substring(0, colon);
+                ClientAttestationAuthFilter.addNamed(ids, user);
+                ClientAttestationAuthFilter.addNamed(ids, java.net.URLDecoder.decode(user, java.nio.charset.StandardCharsets.UTF_8));
             } catch (IllegalArgumentException e) {
-                // Not Basic credentials PingFederate could read either.
+                // Not Basic credentials, or a user that does not form-decode; what was read so far stays named.
             }
         }
-        ClientAttestationAuthFilter.addNamed(ids, ClientAttestationAuthFilter.unverifiedSubject(request.getParameter("client_assertion")));
+        String assertion = request.getParameter("client_assertion");
+        ClientAttestationAuthFilter.addNamed(ids, ClientAttestationAuthFilter.unverifiedClaim(assertion, "sub"));
+        ClientAttestationAuthFilter.addNamed(ids, ClientAttestationAuthFilter.unverifiedClaim(assertion, "iss"));
         return ids;
     }
 
@@ -511,12 +514,17 @@ public final class ClientAttestationAuthFilter implements Filter {
 
     /** A JWT's {@code sub}, not verified, or null when it has none or cannot be read. */
     static String unverifiedSubject(String jwt) {
+        return ClientAttestationAuthFilter.unverifiedClaim(jwt, "sub");
+    }
+
+    /** A JWT's string claim {@code name}, not verified, or null when it has none or cannot be read. */
+    static String unverifiedClaim(String jwt, String name) {
         if (jwt == null || jwt.isBlank()) {
             return null;
         }
         try {
-            Object sub = com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(jwt).getClaimValue("sub");
-            return sub instanceof String ? (String) sub : null;
+            Object value = com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(jwt).getClaimValue(name);
+            return value instanceof String ? (String) value : null;
         } catch (Exception e) {
             return null;
         }

@@ -36,9 +36,10 @@ import java.util.function.Consumer;
  *
  * <p>A property that does not parse, holds more than one value, or would loosen the server's policy is a policy error
  * for the client: the client is refused (401 {@code invalid_client}), never given a default. The error names the
- * property and never its value. In the development profile only, the boolean spellings the old reader was written
- * for ({@code yes}, {@code no}, {@code on}, {@code off}, {@code 1}, {@code 0}) are read as what they say, with a warning
- * naming {@code true} or {@code false} (the programme's decision 11); production refuses them.
+ * property and never its value. In the development profile only, the spellings the old reader accepted - the booleans
+ * {@code yes}, {@code no}, {@code on}, {@code off}, {@code 1}, {@code 0} and {@code true} or {@code false} in another
+ * case, and any value with spaces around it - are read as what they say, with a warning naming the strict spelling
+ * (the programme's decision 11); production refuses them.
  */
 public final class ClientAttestationPolicy {
 
@@ -106,16 +107,16 @@ public final class ClientAttestationPolicy {
         Builder b = new Builder(clientId);
         try {
             b.attestationRequired = Boolean.TRUE.equals(bool(clientId, properties, REQUIRED, development, warnings));
-            b.popMaxAge = seconds(clientId, properties, POP_MAX_AGE, 1L, Long.MAX_VALUE);
-            b.dpopMaxAge = seconds(clientId, properties, DPOP_MAX_AGE, 1L, Long.MAX_VALUE);
-            Long skew = seconds(clientId, properties, CLOCK_SKEW, 0L, Integer.MAX_VALUE);
+            b.popMaxAge = seconds(clientId, properties, POP_MAX_AGE, 1L, Long.MAX_VALUE, development, warnings);
+            b.dpopMaxAge = seconds(clientId, properties, DPOP_MAX_AGE, 1L, Long.MAX_VALUE, development, warnings);
+            Long skew = seconds(clientId, properties, CLOCK_SKEW, 0L, Integer.MAX_VALUE, development, warnings);
             b.clockSkew = skew == null ? null : skew.intValue();
             b.challengeRequired = Boolean.TRUE.equals(bool(clientId, properties, CHALLENGE_REQUIRED, development, warnings));
-            b.expectedHtu = htu(clientId, properties);
-            b.acceptedAlgs = words(clientId, properties, ACCEPTED_ALGS);
-            b.popAlgs = words(clientId, properties, POP_ALGS);
-            b.dpopAlgs = words(clientId, properties, DPOP_ALGS);
-            b.requiredClaims = words(clientId, properties, REQUIRED_CLAIMS);
+            b.expectedHtu = htu(clientId, properties, development, warnings);
+            b.acceptedAlgs = words(clientId, properties, ACCEPTED_ALGS, development, warnings);
+            b.popAlgs = words(clientId, properties, POP_ALGS, development, warnings);
+            b.dpopAlgs = words(clientId, properties, DPOP_ALGS, development, warnings);
+            b.requiredClaims = words(clientId, properties, REQUIRED_CLAIMS, development, warnings);
         } catch (AttestationPolicyException e) {
             b.invalid = e;
         }
@@ -241,8 +242,12 @@ public final class ClientAttestationPolicy {
 
     // ---- strict readers ------------------------------------------------------------------------------------------
 
-    /** The one value set for {@code name}, trimmed, or null when unset or blank; more than one value is an error. */
-    static String single(String clientId, Map<String, List<String>> properties, String name) throws AttestationPolicyException {
+    /**
+     * The one value set for {@code name}, or null when unset or blank; more than one value is an error, and so is a
+     * value with spaces around it, which the development profile reads trimmed with a warning.
+     */
+    static String single(String clientId, Map<String, List<String>> properties, String name, boolean development,
+            Consumer<String> warnings) throws AttestationPolicyException {
         List<String> values = properties.get(name);
         if (values == null) {
             return null;
@@ -250,27 +255,39 @@ public final class ClientAttestationPolicy {
         List<String> set = new ArrayList<>();
         for (String v : values) {
             if (v != null && !v.isBlank()) {
-                set.add(v.trim());
+                set.add(v);
             }
         }
         if (set.size() > 1) {
             throw new AttestationPolicyException(clientId, name, "unparsable", "holds more than one value");
         }
-        return set.isEmpty() ? null : set.get(0);
+        if (set.isEmpty()) {
+            return null;
+        }
+        String value = set.get(0);
+        String trimmed = value.trim();
+        if (!trimmed.equals(value)) {
+            if (!development) {
+                throw new AttestationPolicyException(clientId, name, "unparsable", "has spaces around its value");
+            }
+            warnings.accept(name + " on client " + clientId + " is read without the spaces around its value in the"
+                    + " development profile only; remove them, which production requires");
+        }
+        return trimmed;
     }
 
     private static Boolean bool(String clientId, Map<String, List<String>> properties, String name, boolean development,
             Consumer<String> warnings) throws AttestationPolicyException {
-        String value = single(clientId, properties, name);
+        String value = single(clientId, properties, name, development, warnings);
         if (value == null) {
             return null;
         }
-        String lower = value.toLowerCase(Locale.ROOT);
-        if ("true".equals(lower) || "false".equals(lower)) {
-            return "true".equals(lower);
+        if ("true".equals(value) || "false".equals(value)) {
+            return "true".equals(value);
         }
-        if (development && List.of("yes", "on", "1", "no", "off", "0").contains(lower)) {
-            boolean read = List.of("yes", "on", "1").contains(lower);
+        String lower = value.toLowerCase(Locale.ROOT);
+        if (development && List.of("true", "yes", "on", "1", "false", "no", "off", "0").contains(lower)) {
+            boolean read = List.of("true", "yes", "on", "1").contains(lower);
             warnings.accept(name + " on client " + clientId + " is read as " + read + " in the development profile only;"
                     + " write " + read + ", which production requires");
             return read;
@@ -278,9 +295,9 @@ public final class ClientAttestationPolicy {
         throw new AttestationPolicyException(clientId, name, "unparsable", "must be true or false");
     }
 
-    private static Long seconds(String clientId, Map<String, List<String>> properties, String name, long min, long max)
-            throws AttestationPolicyException {
-        String value = single(clientId, properties, name);
+    private static Long seconds(String clientId, Map<String, List<String>> properties, String name, long min, long max,
+            boolean development, Consumer<String> warnings) throws AttestationPolicyException {
+        String value = single(clientId, properties, name, development, warnings);
         if (value == null) {
             return null;
         }
@@ -296,9 +313,9 @@ public final class ClientAttestationPolicy {
         return read;
     }
 
-    private static Set<String> words(String clientId, Map<String, List<String>> properties, String name)
-            throws AttestationPolicyException {
-        String value = single(clientId, properties, name);
+    private static Set<String> words(String clientId, Map<String, List<String>> properties, String name, boolean development,
+            Consumer<String> warnings) throws AttestationPolicyException {
+        String value = single(clientId, properties, name, development, warnings);
         if (value == null) {
             return null;
         }
@@ -314,8 +331,9 @@ public final class ClientAttestationPolicy {
         return words;
     }
 
-    private static String htu(String clientId, Map<String, List<String>> properties) throws AttestationPolicyException {
-        String value = single(clientId, properties, EXPECTED_HTU);
+    private static String htu(String clientId, Map<String, List<String>> properties, boolean development,
+            Consumer<String> warnings) throws AttestationPolicyException {
+        String value = single(clientId, properties, EXPECTED_HTU, development, warnings);
         if (value == null) {
             return null;
         }

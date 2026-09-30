@@ -517,9 +517,9 @@ class AttestationPolicyRoutesTest {
     }
 
     @Test
-    void theClientsARequestNamesAreReadInOrderWithoutRepeats() {
+    void theClientsARequestNamesAreReadInOrderWithoutRepeats() throws Exception {
         String basic = "Basic " + Base64.getEncoder().encodeToString("a%3Ab:pw".getBytes(StandardCharsets.UTF_8));
-        assertEquals(List.of("x", "a:b"), new ArrayList<>(ClientAttestationAuthFilter.namedClients(
+        assertEquals(List.of("x", "a%3Ab", "a:b"), new ArrayList<>(ClientAttestationAuthFilter.namedClients(
                 request(Map.of("Authorization", basic), Map.of("client_id", new String[]{"x"})))));
         assertEquals(List.of("x"), new ArrayList<>(ClientAttestationAuthFilter.namedClients(
                 request(Map.of("Authorization", "basic " + Base64.getEncoder().encodeToString("x:".getBytes(StandardCharsets.UTF_8))),
@@ -527,6 +527,16 @@ class AttestationPolicyRoutesTest {
         assertEquals(List.of(), new ArrayList<>(ClientAttestationAuthFilter.namedClients(
                 request(Map.of("Authorization", "Basic " + Base64.getEncoder().encodeToString(":pw".getBytes(StandardCharsets.UTF_8))),
                         Map.of("client_id", new String[]{" "})))));
+        // A user that does not form-decode is still named as sent.
+        String undecodable = "Basic " + Base64.getEncoder().encodeToString("bad%zz:pw".getBytes(StandardCharsets.UTF_8));
+        assertEquals(List.of("bad%zz"), new ArrayList<>(ClientAttestationAuthFilter.namedClients(
+                request(Map.of("Authorization", undecodable), Map.of()))));
+        // A client_assertion names its sub and its iss.
+        JwtClaims assertion = new JwtClaims();
+        assertion.setIssuer("assertion-iss");
+        assertion.setSubject("assertion-sub");
+        assertEquals(List.of("assertion-sub", "assertion-iss"), new ArrayList<>(ClientAttestationAuthFilter.namedClients(
+                request(Map.of(), Map.of("client_assertion", new String[]{sign(attesterKey, "JWT", assertion, false)})))));
     }
 
     // ---- F-0074: the subject token ---------------------------------------------------------------------------------

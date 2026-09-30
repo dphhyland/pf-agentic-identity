@@ -154,8 +154,10 @@ them, and a value such as `attestation_dpop_max_age=3600` or `0` loosened the po
   [client-properties](../../docs/configuration/client-properties.md).
 - **A property that does not parse, holds two values or would loosen the policy refuses the client**: 401
   `invalid_client` with `the client's attestation policy is not valid`, never a default. The log line and an
-  `attestation.policy.invalid` event name the client and the property, never the value. The development profile
-  also reads `yes`, `no`, `on`, `off`, `1` and `0` for the two booleans, with a warning naming `true` or `false`.
+  `attestation.policy.invalid` event name the client and the property, never the value. A list (the algorithms,
+  the required claims) is one comma-separated value, not several. The development profile also reads `yes`, `no`,
+  `on`, `off`, `1`, `0` and `TRUE` or `False` for the two booleans, and any value with spaces around it, with a
+  warning naming the strict spelling; production refuses them.
 - **The client is the attestation's `sub`, read before it is verified**: draft-ietf-oauth-attestation-based-client-auth-10
   §4, "sub: REQUIRED.  The sub (subject) claim MUST specify client_id value of the OAuth Client." The filter
   verifies under that client's policy and refuses (401) a verified `sub` that is another client. The criterion

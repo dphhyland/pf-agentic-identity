@@ -128,7 +128,8 @@ class AttestationPolicyResolverTest {
     @Test
     void theChallengeCanOnlyTurnOn() throws Exception {
         assertTrue(effective(Map.of(ClientAttestationPolicy.CHALLENGE_REQUIRED, "true")).challengeRequired());
-        assertTrue(effective(Map.of(ClientAttestationPolicy.CHALLENGE_REQUIRED, "TRUE")).challengeRequired());
+        assertEquals("unparsable", refused(Map.of(ClientAttestationPolicy.CHALLENGE_REQUIRED, "TRUE")).problem());
+        assertEquals("unparsable", refused(Map.of(ClientAttestationPolicy.CHALLENGE_REQUIRED, "true ")).problem());
         assertFalse(effective(Map.of(ClientAttestationPolicy.CHALLENGE_REQUIRED, "false")).challengeRequired());
         ClientAttestationConfig challenged = ClientAttestationConfig.builder().challengeRequired(true).build();
         assertTrue(parse(Map.of(ClientAttestationPolicy.CHALLENGE_REQUIRED, "false")).apply(challenged, Set.of()).challengeRequired(),
@@ -145,7 +146,8 @@ class AttestationPolicyResolverTest {
         for (String property : List.of(ClientAttestationPolicy.ACCEPTED_ALGS, ClientAttestationPolicy.POP_ALGS,
                 ClientAttestationPolicy.DPOP_ALGS)) {
             assertEquals("empty_intersection", refused(Map.of(property, "HS256,none")).problem());
-            assertEquals("unparsable", refused(Map.of(property, " , ,")).problem());
+            assertEquals("unparsable", refused(Map.of(property, ", ,")).problem());
+            assertEquals("unparsable", refused(Map.of(property, " ES256")).problem());
         }
     }
 
@@ -222,6 +224,11 @@ class AttestationPolicyResolverTest {
                     .attestationRequired());
         }
         assertTrue(warnings.get(0).contains("write true"), warnings.get(0));
+        assertTrue(ClientAttestationPolicy.parse(CLIENT, Map.of(ClientAttestationPolicy.REQUIRED, List.of("TRUE ")), true,
+                warnings::add).attestationRequired(), "a padded, upper-case true");
+        assertFalse(ClientAttestationPolicy.parse(CLIENT, Map.of(ClientAttestationPolicy.REQUIRED, List.of("False")), true,
+                warnings::add).attestationRequired());
+        assertTrue(warnings.stream().anyMatch(w -> w.contains("remove them")), warnings.toString());
         assertNotNull(ClientAttestationPolicy.parse(CLIENT, Map.of(ClientAttestationPolicy.REQUIRED, List.of("maybe")), true,
                 warnings::add).invalid(), "only the listed spellings");
     }
@@ -234,6 +241,18 @@ class AttestationPolicyResolverTest {
         blank.put(ClientAttestationPolicy.POP_MAX_AGE, java.util.Arrays.asList(" ", null));
         blank.put(ClientAttestationPolicy.DPOP_MAX_AGE, null);
         assertEquals(300L, ClientAttestationPolicy.parse(CLIENT, blank, false, w -> { }).apply(GLOBAL, ALIASES).popMaxAgeSeconds());
+    }
+
+    @Test
+    void aPaddedValueIsRefusedInProductionAndReadTrimmedInDevelopment() throws Exception {
+        Map<String, List<String>> padded = Map.of(ClientAttestationPolicy.POP_MAX_AGE, List.of(" 30 "));
+        AttestationPolicyException e = ClientAttestationPolicy.parse(CLIENT, padded, false, w -> { }).invalid();
+        assertEquals("unparsable", e.problem());
+        assertEquals(ClientAttestationPolicy.POP_MAX_AGE, e.property());
+        List<String> warnings = new ArrayList<>();
+        assertEquals(30L, ClientAttestationPolicy.parse(CLIENT, padded, true, warnings::add).apply(GLOBAL, ALIASES).popMaxAgeSeconds());
+        assertEquals(1, warnings.size());
+        assertTrue(warnings.get(0).contains(ClientAttestationPolicy.POP_MAX_AGE), warnings.get(0));
     }
 
     @Test

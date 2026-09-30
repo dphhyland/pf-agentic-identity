@@ -53,8 +53,13 @@
    after start-up, the health detail (`/agentic-identity/health`) lists the refused clients as the `ATTESTATION_AUTH` part
    `AttestationPolicyScan`, `DEGRADED`, with each client's id and property, and server.log names each one ("attestation
    policy: attestation_dpop_max_age on client ... would loosen the server's 300 s"). What to change: correct or remove
-   the property. Development-profile escape: `yes`, `no`, `on`, `off`, `1` and `0` are read for the booleans, with a
-   warning naming `true` or `false`; every other rule holds in both profiles.
+   the property. A property that holds more than one value is refused too: the old reader took the first value and
+   split it on commas, so a client whose `attestation_accepted_algs`, `attestation_pop_algs`, `attestation_dpop_algs`
+   or `attestation_required_claims` was stored as several values (pf-oidf-modules declares them multi-valued) is now
+   refused until the list is written as one comma-separated value. Development-profile escape: `yes`, `no`, `on`,
+   `off`, `1`, `0` and `true` or `false` in another case are read for the booleans, and a value with spaces around it
+   is read trimmed, each with a warning naming the strict spelling; production refuses them, and every other rule
+   holds in both profiles.
 3. **`attestation_required` is enforced.** A federation client whose metadata asks for `attest_jwt_client_auth` is
    written with `attestation_required=true`, and an administrator can set it on any client. Until 0.6.0 nothing read
    it: a token request for such a client with no attestation went on to PingFederate's own client authentication.
