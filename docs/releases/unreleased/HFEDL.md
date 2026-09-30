@@ -24,9 +24,9 @@
 
 1. **Concurrent operator changes to one hosted entity or Trust Mark now conflict.** From 0.6.0, when two operators
    change the same hosted entity (`/federation/admin/entities/suspend`, `reactivate`, `revoke`), the same Trust Mark
-   grant (`/federation/admin/trust-marks`, `/trust-marks/revoke`) or the same retired key (`/keys/revoke`) at once, the
-   change that commits second is answered `409` with `{"error": "stale_update"}` and changes nothing - no new status, no
-   audit line, no `federation.*` event. Why: before 0.6.0 each change read the current state and then wrote its own
+   grant (`/federation/admin/trust-marks`, `/trust-marks/revoke`) or the same retired key (`/keys/revoke`) at once, each
+   deciding on what it read, the change that reaches the store second is answered `409` with
+   `{"error": "stale_update"}` and changes nothing - no new status, no audit line, no `federation.*` event. Why: before 0.6.0 each change read the current state and then wrote its own
    unconditionally, so a revocation could race a reactivation and both be recorded, the later one silently undoing the
    earlier, or two revocations each record a reason. How to tell: an operator tool or script that calls the admin API
    concurrently, or retries on a timeout, will now see 409 where it saw 200; the audit trail
@@ -85,7 +85,7 @@
   `access_evaluation_endpoint` for the life of the process; it now reads it again once ten minutes have passed, and a
   read that fails is no decision, retried on the next request. A PDP configured by URL
   (`OIDF_FEDERATION_POLICY_PDP_URL` without discovery) fetches nothing and is unchanged.
-- **Verified.** `openid-federation` (657 tests) and `pf-integration` (895) on JDK 17, 20 and 21.0.12 with Postgres 16,
+- **Verified.** `openid-federation` (663 tests) and `pf-integration` (896) on JDK 17, 20 and 21.0.12 with Postgres 16,
   coverage gates met. The conditional updates were exercised by two threads whose updates were held until both had
   read; with the hosted-entity update made unconditional again, all four hosted-entity races failed. The
   abandoned-route test fails when the validator commits every staged statement, as it did before.

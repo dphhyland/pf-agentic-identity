@@ -57,6 +57,11 @@ public final class TrustMarkSupport {
         }
 
         @Override
+        public TrustMarkGrant revoke(TrustMarkGrant expected, String reason, String actor) throws AuthorityRegistryException {
+            return registry().revoke(expected, reason, actor);
+        }
+
+        @Override
         public List<TrustMarkAuditEntry> auditTrail(String type, String subject) throws AuthorityRegistryException {
             return registry().auditTrail(type, subject);
         }

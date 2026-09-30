@@ -341,7 +341,8 @@ public class FederationAdminServlet extends RequestScopedServlet {
             return;
         }
         String reason = Optional.ofNullable(text(body, "reason")).orElse("revoked by the operator");
-        TrustMarkGrant revoked = this.registry.revoke(type, subject, reason, actor);
+        // Only the grant read above: one revoked or granted again since is a 409, not a second event (H-FED-3).
+        TrustMarkGrant revoked = this.registry.revoke(current.get(), reason, actor);
         FederationEvents.event(FederationEvents.TRUST_MARK_REVOKED).subject(subject).role("TMI").audit().field("trust_mark_type", type)
                 .field("actor", actor).description(reason).emit();
         writeJson(resp, 200, json(revoked));

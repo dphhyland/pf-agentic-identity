@@ -150,4 +150,26 @@ abstract class TrustMarkRegistryContract {
         assertEquals(List.of(TrustMarkAuditEntry.GRANTED, TrustMarkAuditEntry.REVOKED),
                 registry.auditTrail(CERTIFIED, AGENT).stream().map(TrustMarkAuditEntry::eventCode).toList());
     }
+
+    /** H-FED-3, as the admin API decides: a revocation decided on a grant that has since changed is stale and writes nothing. */
+    @Test
+    void aRevocationOfAGrantThatChangedSinceItWasReadIsStale() throws Exception {
+        TrustMarkRegistry registry = this.newRegistry();
+        TrustMarkGrant read = registry.grant(CERTIFIED, AGENT, null, "admin:1");
+
+        registry.revoke(read, "first", "admin:a");
+        AuthorityRegistryException twice = assertThrows(AuthorityRegistryException.class, () -> registry.revoke(read, "second", "admin:b"));
+        assertEquals(AuthorityRegistryException.STALE_UPDATE, twice.reason());
+
+        this.clock.advance(Duration.ofMinutes(1));
+        TrustMarkGrant again = registry.grant(CERTIFIED, AGENT, null, "admin:2");
+        assertEquals(AuthorityRegistryException.STALE_UPDATE, assertThrows(AuthorityRegistryException.class,
+                () -> registry.revoke(read, "stale", "admin:c")).reason(), "the grant given again is not the one read");
+        assertEquals(TrustMarkGrant.Status.REVOKED, registry.revoke(again, "current", "admin:d").status());
+        assertEquals(List.of(TrustMarkAuditEntry.GRANTED, TrustMarkAuditEntry.REVOKED, TrustMarkAuditEntry.GRANTED, TrustMarkAuditEntry.REVOKED),
+                registry.auditTrail(CERTIFIED, AGENT).stream().map(TrustMarkAuditEntry::eventCode).toList());
+        assertEquals(AuthorityRegistryException.NOT_FOUND, assertThrows(AuthorityRegistryException.class,
+                () -> registry.revoke(new TrustMarkGrant(AUDITED, AGENT, TrustMarkGrant.Status.ACTIVE, this.clock.instant(), null, null, null, null),
+                        "none", null)).reason());
+    }
 }

@@ -47,6 +47,15 @@ public interface HostedEntityRegistry {
      */
     void setStatus(String entityId, EntityStatus status, String reason, String actor) throws AuthorityRegistryException;
 
+    /**
+     * Moves the entity to {@code status} only from {@code expected} - the status the caller read and decided on. Any
+     * other status now, the target included, is {@link AuthorityRegistryException#STALE_UPDATE} and writes nothing: the
+     * entity changed since the caller read it (plan item H-FED-3). The admin API decides on what it read, so it uses
+     * this; {@link #setStatus(String, EntityStatus, String, String)} decides on what it reads itself.
+     */
+    void setStatus(String entityId, EntityStatus expected, EntityStatus status, String reason, String actor)
+            throws AuthorityRegistryException;
+
     default void setStatus(String entityId, EntityStatus status, String reason) throws AuthorityRegistryException {
         this.setStatus(entityId, status, reason, null);
     }

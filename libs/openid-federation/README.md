@@ -217,9 +217,11 @@ before it a resolution could hold one for up to 24 requests of 15 s each.
   same transaction as the change; JSON stored as text rather than as a database-specific JSON type. A status change
   applies only to the status it read (`UPDATE ... WHERE entity_id = ? AND status = ?`, the row count checked): of two
   operators suspending, reactivating or revoking one entity at once, the second to commit is refused `STALE_UPDATE`
-  (409 `stale_update` at the admin API) and writes nothing, its audit line included (plan item H-FED-3). Asking for
-  the status an entity already has changes nothing and succeeds, as before. The in-memory registry holds a lock from
-  what it reads to what it writes, so its changes never overlap.
+  (409 `stale_update` at the admin API) and writes nothing, its audit line included (plan item H-FED-3). The admin
+  API decides on the entity it read and passes that status in (`setStatus(id, expected, status, ...)`), so of two
+  operators who both read it active and revoke it, the second is refused however far apart the two requests
+  arrive. Asking for the status an entity already has changes nothing and succeeds, as before. The in-memory registry
+  holds a lock from what it reads to what it writes, so its changes never overlap.
   Numbered V100 so it never collides with `agent-registry`'s V200 on the shared classpath (both land on
   `servlets/attestation-issuer`); `device-instance` uses a separate, non-Flyway IDM/SCIM migration
   scheme, so it isn't part of this numbering at all.
@@ -244,7 +246,8 @@ before it a resolution could hold one for up to 24 requests of 15 s each.
   (`trust_mark_grant` plus an append-only `trust_mark_audit_log`, each change and its audit line in one
   transaction). Granting again starts a grant afresh. Revoking, and granting again, apply only to the grant read
   (its status and `granted_at` in the `WHERE`), and a first grant racing another finds the row there: the second of two
-  such changes is `STALE_UPDATE` and writes nothing (plan item H-FED-3). `standing(type, subject, now)` reads the
+  such changes is `STALE_UPDATE` and writes nothing (plan item H-FED-3); the admin API revokes the grant it read
+  (`revoke(expected, ...)`), so a revocation decided on a grant revoked or given again since is refused too. `standing(type, subject, now)` reads the
   grants of a type that stand, to one subject or to anyone, in one query. **`TrustMarkSupport`** holds the process-wide
   one.
 - **`TrustMarkIssuer`** — the issuing decisions behind `FederationService`: a mark only under a grant that stands
@@ -265,7 +268,8 @@ before it a resolution could hold one for up to 24 requests of 15 s each.
   `db/migration/V103__federation_key_history.sql`. A rotation - the old key retired, the new one recorded - is one step;
   a retired key that signs again is no longer history, and a revoked one is refused. A revocation applies only to a key
   still unrevoked when read (`WHERE revoked_at IS NULL`): of two at once, the second is `STALE_UPDATE` and the first's
-  reason stands (plan item H-FED-3). **`KeyHistorySupport`** holds the process-wide store.
+  reason stands (plan item H-FED-3). `KeyHistory.revoke` returns a key already revoked as it is, announcing nothing,
+  and revokes one it read unrevoked only while it still is (`revokeUnrevoked`). **`KeyHistorySupport`** holds the process-wide store.
 - **`KeyHistory`** — what the endpoint publishes, the rotation check made at start-up (a retired key stays valid for a
   grace period, so what it signed can be checked until it expires), and revocation.
 

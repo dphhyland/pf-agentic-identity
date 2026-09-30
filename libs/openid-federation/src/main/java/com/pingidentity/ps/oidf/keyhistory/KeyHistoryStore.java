@@ -31,6 +31,14 @@ public interface KeyHistoryStore {
      */
     HistoricalKey revoke(String kid, Instant revokedAt, String reason) throws AuthorityRegistryException;
 
+    /**
+     * Revokes a retired key that is not revoked yet: one already revoked is {@link AuthorityRegistryException#STALE_UPDATE}
+     * and nothing changes (plan item H-FED-3), for a caller that read it unrevoked.
+     *
+     * @throws AuthorityRegistryException {@link AuthorityRegistryException#NOT_FOUND} for a key that was never retired
+     */
+    HistoricalKey revokeUnrevoked(String kid, Instant revokedAt, String reason) throws AuthorityRegistryException;
+
     /** The retired keys, oldest first. */
     List<HistoricalKey> retired() throws AuthorityRegistryException;
 }

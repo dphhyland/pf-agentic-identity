@@ -64,7 +64,22 @@ public final class InMemoryHostedEntityRegistry implements HostedEntityRegistry 
     @Override
     public synchronized void setStatus(String entityId, EntityStatus status, String reason, String actor)
             throws AuthorityRegistryException {
+        this.setStatusFrom(entityId, null, status, reason, actor);
+    }
+
+    @Override
+    public synchronized void setStatus(String entityId, EntityStatus expected, EntityStatus status, String reason, String actor)
+            throws AuthorityRegistryException {
+        this.setStatusFrom(entityId, java.util.Objects.requireNonNull(expected, "expected"), status, reason, actor);
+    }
+
+    private void setStatusFrom(String entityId, EntityStatus expected, EntityStatus status, String reason, String actor)
+            throws AuthorityRegistryException {
         HostedEntity current = require(entityId);
+        if (expected != null && current.status() != expected) {
+            throw new AuthorityRegistryException(AuthorityRegistryException.STALE_UPDATE,
+                    "entity " + entityId + " changed status while this change was being made; read it again");
+        }
         if (current.status() == status) {
             // Idempotent — covers a retried REVOKED -> REVOKED just as much as ACTIVE -> ACTIVE, which
             // is why this check must run before the "already revoked" guard below, not after it.

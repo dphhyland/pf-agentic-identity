@@ -68,9 +68,23 @@ public final class InMemoryTrustMarkRegistry implements TrustMarkRegistry {
 
     @Override
     public synchronized TrustMarkGrant revoke(String type, String subject, String reason, String actor) throws AuthorityRegistryException {
+        return this.revokeFrom(type, subject, null, reason, actor);
+    }
+
+    @Override
+    public synchronized TrustMarkGrant revoke(TrustMarkGrant expected, String reason, String actor) throws AuthorityRegistryException {
+        return this.revokeFrom(expected.type(), expected.subject(), expected, reason, actor);
+    }
+
+    private TrustMarkGrant revokeFrom(String type, String subject, TrustMarkGrant expected, String reason, String actor)
+            throws AuthorityRegistryException {
         TrustMarkGrant current = this.grants.get(key(type, subject));
         if (current == null) {
             throw new AuthorityRegistryException(AuthorityRegistryException.NOT_FOUND, "no grant of " + type + " to " + subject);
+        }
+        if (expected != null && !TrustMarkGrant.sameGrant(current, expected)) {
+            throw new AuthorityRegistryException(AuthorityRegistryException.STALE_UPDATE,
+                    "the grant of " + type + " to " + subject + " changed while this change was being made; read it again");
         }
         if (current.status() == TrustMarkGrant.Status.REVOKED) {
             return current;

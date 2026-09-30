@@ -160,18 +160,31 @@ public final class JdbcTrustMarkRegistry implements TrustMarkRegistry {
     @Override
     public TrustMarkGrant revoke(String type, String subject, String reason, String actor) throws AuthorityRegistryException {
         Instant now = this.clock.instant();
-        TrustMarkGrant revoked = this.inTransaction("revoke a Trust Mark", c -> revokeIn(c, type, subject, reason, actor, now));
+        TrustMarkGrant revoked = this.inTransaction("revoke a Trust Mark", c -> revokeIn(c, type, subject, null, reason, actor, now));
         HostedEntityConfigurationCache.changed(subject);
         return revoked;
     }
 
-    private static TrustMarkGrant revokeIn(Connection c, String type, String subject, String reason, String actor, Instant now)
-        throws SQLException, AuthorityRegistryException {
+    @Override
+    public TrustMarkGrant revoke(TrustMarkGrant expected, String reason, String actor) throws AuthorityRegistryException {
+        Instant now = this.clock.instant();
+        TrustMarkGrant revoked = this.inTransaction("revoke a Trust Mark",
+                c -> revokeIn(c, expected.type(), expected.subject(), expected, reason, actor, now));
+        HostedEntityConfigurationCache.changed(expected.subject());
+        return revoked;
+    }
+
+    /** {@code expected} null: the grant as read; otherwise only {@code expected}, unchanged. */
+    private static TrustMarkGrant revokeIn(Connection c, String type, String subject, TrustMarkGrant expected, String reason, String actor,
+            Instant now) throws SQLException, AuthorityRegistryException {
         Optional<TrustMarkGrant> found = find(c, type, subject);
         if (found.isEmpty()) {
             throw new AuthorityRegistryException(AuthorityRegistryException.NOT_FOUND, "no grant of " + type + " to " + subject);
         }
         TrustMarkGrant current = found.get();
+        if (expected != null && !TrustMarkGrant.sameGrant(current, expected)) {
+            throw stale(type, subject);
+        }
         if (current.status() == TrustMarkGrant.Status.REVOKED) {
             return current;
         }

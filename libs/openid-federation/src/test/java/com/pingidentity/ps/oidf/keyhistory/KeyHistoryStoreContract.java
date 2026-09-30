@@ -121,4 +121,19 @@ abstract class KeyHistoryStoreContract {
         HistoricalKey revoked = store.retired().get(0);
         assertTrue(outcomes.contains(revoked), "the key stored is the one a caller was answered with");
     }
+
+    /** H-FED-3: a revocation decided on a key read unrevoked is stale once the key is revoked, and changes nothing. */
+    @Test
+    void aKeyRevokedSinceItWasReadIsStale() throws Exception {
+        KeyHistoryStore store = this.newStore();
+        store.rotateTo(K1, T0, T0.plusSeconds(60));
+        store.rotateTo(K2, T1, T1.plusSeconds(60));
+
+        HistoricalKey first = store.revokeUnrevoked("k1", T1, "compromised");
+        assertEquals(AuthorityRegistryException.STALE_UPDATE,
+                assertThrows(AuthorityRegistryException.class, () -> store.revokeUnrevoked("k1", T2, "superseded")).reason());
+        assertEquals(List.of(first), store.retired(), "the first revocation's time and reason stand");
+        assertEquals(AuthorityRegistryException.NOT_FOUND,
+                assertThrows(AuthorityRegistryException.class, () -> store.revokeUnrevoked("k9", T2, null)).reason());
+    }
 }

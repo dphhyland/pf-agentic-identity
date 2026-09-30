@@ -145,13 +145,25 @@ public final class JdbcHostedEntityRegistry implements HostedEntityRegistry {
 
     @Override
     public void setStatus(String entityId, EntityStatus status, String reason, String actor) throws AuthorityRegistryException {
-        this.inTransaction("set hosted entity status", c -> setStatusIn(c, entityId, status, reason, actor));
+        this.inTransaction("set hosted entity status", c -> setStatusIn(c, entityId, null, status, reason, actor));
         HostedEntityConfigurationCache.changed(entityId);
     }
 
-    private static Void setStatusIn(Connection c, String entityId, EntityStatus status, String reason, String actor)
-            throws SQLException, AuthorityRegistryException {
+    @Override
+    public void setStatus(String entityId, EntityStatus expected, EntityStatus status, String reason, String actor)
+            throws AuthorityRegistryException {
+        Objects.requireNonNull(expected, "expected");
+        this.inTransaction("set hosted entity status", c -> setStatusIn(c, entityId, expected, status, reason, actor));
+        HostedEntityConfigurationCache.changed(entityId);
+    }
+
+    /** {@code expected} null: from whatever status is read; otherwise only from {@code expected}. */
+    private static Void setStatusIn(Connection c, String entityId, EntityStatus expected, EntityStatus status, String reason,
+                                    String actor) throws SQLException, AuthorityRegistryException {
         HostedEntity current = find(c, entityId).orElseThrow(() -> notFound(entityId));
+        if (expected != null && current.status() != expected) {
+            throw stale(entityId);
+        }
         if (current.status() == status) {
             // Idempotent — covers a retried REVOKED -> REVOKED just as much as ACTIVE -> ACTIVE,
             // which is why this must run before the "already revoked" guard below, not after it.
@@ -165,8 +177,7 @@ public final class JdbcHostedEntityRegistry implements HostedEntityRegistry {
         // committed first, finds no row in the status it read and changes nothing - no status, no audit line.
         if (update(c, "UPDATE hosted_entity SET status = ? WHERE entity_id = ? AND status = ?", status.name(), entityId,
                 current.status().name()) != 1) {
-            throw new AuthorityRegistryException(AuthorityRegistryException.STALE_UPDATE,
-                    "entity " + entityId + " changed status while this change was being made; read it again");
+            throw stale(entityId);
         }
         String code = status == EntityStatus.REVOKED ? AuthorityAuditEntry.ENTITY_REVOKED : AuthorityAuditEntry.ENTITY_STATUS_CHANGED;
         appendAudit(c, entityId, code, status + ": " + reason, actor);
@@ -292,6 +303,11 @@ public final class JdbcHostedEntityRegistry implements HostedEntityRegistry {
             ps.setString(5, actor);
             ps.executeUpdate();
         }
+    }
+
+    private static AuthorityRegistryException stale(String entityId) {
+        return new AuthorityRegistryException(AuthorityRegistryException.STALE_UPDATE,
+                "entity " + entityId + " changed status while this change was being made; read it again");
     }
 
     private static AuthorityRegistryException notFound(String entityId) {

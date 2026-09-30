@@ -275,6 +275,11 @@ class TrustMarkIssuerTest {
             }
 
             @Override
+            public TrustMarkGrant revoke(TrustMarkGrant expected, String reason, String actor) throws AuthorityRegistryException {
+                throw new AuthorityRegistryException(AuthorityRegistryException.STORAGE_FAILURE, "down");
+            }
+
+            @Override
             public List<TrustMarkAuditEntry> auditTrail(String type, String subject) throws AuthorityRegistryException {
                 throw new AuthorityRegistryException(AuthorityRegistryException.STORAGE_FAILURE, "down");
             }

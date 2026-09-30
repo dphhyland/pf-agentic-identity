@@ -366,6 +366,11 @@
                                         <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.onRoute(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.SubordinateStatementCache.PendingWrites.commitOnly(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.policy.AuthZenFederationPolicyDecisionPoint.discovered(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.InMemoryHostedEntityRegistry.setStatusFrom(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkGrant.sameGrant(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.InMemoryTrustMarkRegistry.revokeFrom(*</include>
+                                        <include>com.pingidentity.ps.oidf.keyhistory.InMemoryKeyHistoryStore.revokeUnrevoked(*</include>
+                                        <include>com.pingidentity.ps.oidf.keyhistory.JdbcKeyHistoryStore.revokeUnrevoked(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

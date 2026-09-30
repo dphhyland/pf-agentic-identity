@@ -47,6 +47,15 @@ public interface TrustMarkRegistry {
      */
     TrustMarkGrant revoke(String type, String subject, String reason, String actor) throws AuthorityRegistryException;
 
+    /**
+     * Revokes {@code expected} - the grant the caller read and decided on - only while it stands unchanged: the same
+     * status (active) and {@code granted_at}. Anything else is {@link AuthorityRegistryException#STALE_UPDATE} and writes
+     * nothing (plan item H-FED-3).
+     *
+     * @throws AuthorityRegistryException {@link AuthorityRegistryException#NOT_FOUND} when there is no such grant
+     */
+    TrustMarkGrant revoke(TrustMarkGrant expected, String reason, String actor) throws AuthorityRegistryException;
+
     /** The history of one grant, oldest first. */
     List<TrustMarkAuditEntry> auditTrail(String type, String subject) throws AuthorityRegistryException;
 }

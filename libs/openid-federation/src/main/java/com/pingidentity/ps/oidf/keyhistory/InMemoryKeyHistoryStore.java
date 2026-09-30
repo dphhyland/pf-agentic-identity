@@ -47,11 +47,24 @@ public final class InMemoryKeyHistoryStore implements KeyHistoryStore {
 
     @Override
     public synchronized HistoricalKey revoke(String kid, Instant revokedAt, String reason) throws AuthorityRegistryException {
+        return this.revoke(kid, revokedAt, reason, false);
+    }
+
+    @Override
+    public synchronized HistoricalKey revokeUnrevoked(String kid, Instant revokedAt, String reason) throws AuthorityRegistryException {
+        return this.revoke(kid, revokedAt, reason, true);
+    }
+
+    private HistoricalKey revoke(String kid, Instant revokedAt, String reason, boolean unrevokedOnly) throws AuthorityRegistryException {
         HistoricalKey key = this.retired.get(kid);
         if (key == null) {
             throw new AuthorityRegistryException(AuthorityRegistryException.NOT_FOUND, "no retired key " + kid);
         }
         if (key.revokedAt() != null) {
+            if (unrevokedOnly) {
+                throw new AuthorityRegistryException(AuthorityRegistryException.STALE_UPDATE,
+                        "key " + kid + " was revoked while this revocation was being made; read it again");
+            }
             return key;
         }
         HistoricalKey revoked = new HistoricalKey(kid, key.publicJwk(), key.issuedAt(), key.expiresAt(), revokedAt, reason);
