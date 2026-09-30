@@ -50,6 +50,11 @@
         <filter-name>ClientAttestationAuth</filter-name>
         <url-pattern>/as/token.oauth2</url-pattern>
         <url-pattern>/as/par.oauth2</url-pattern>
+        <url-pattern>/as/bc-auth.ciba</url-pattern>
+        <url-pattern>/as/device_authz.oauth2</url-pattern>
+        <url-pattern>/as/introspect.oauth2</url-pattern>
+        <url-pattern>/as/revoke_token.oauth2</url-pattern>
+        <url-pattern>/as/authorization.oauth2</url-pattern>
     </filter-mapping>
 
     <servlet>

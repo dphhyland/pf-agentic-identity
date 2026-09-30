@@ -1,6 +1,6 @@
 /*
  * attest_jwt_client_auth adapter: makes the OAuth-Client-Attestation headers the client's only
- * credential at PingFederate's token endpoint.
+ * credential at PingFederate's token, PAR, CIBA, device authorization, introspection and revocation endpoints.
  */
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
@@ -21,6 +21,7 @@ import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
+import com.pingidentity.ps.oidf.rar.model.Omission;
 import com.pingidentity.ps.oidf.rar.model.RarModelException;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationResult;
@@ -35,6 +36,7 @@ import com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPoli
 import com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy;
 import com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils;
 import com.pingidentity.ps.oidf.servlet.clientregistration.utils.SubjectTokenVerifier;
+import com.pingidentity.ps.oidf.servlet.oauth.FederationErrorPage;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -64,9 +66,18 @@ import org.jose4j.jwt.JwtClaims;
 
 /**
  * Implements {@code attest_jwt_client_auth} (draft-ietf-oauth-attestation-based-client-auth) in front of
- * PingFederate's token endpoint, which has no native support and no SDK extension point for it. Map this
- * filter over {@code /as/token.oauth2} in {@code pf-runtime.war}'s web.xml (the assemble script does it,
- * the same mechanism that registers {@code SsfLogoutSignal}).
+ * PingFederate's endpoints that authenticate a client, which have no native support and no SDK extension point for
+ * it: the token endpoint, PAR, CIBA's backchannel endpoint, the device authorization endpoint, introspection and
+ * revocation ({@link AttestedEndpoint}; {@code build/pingfederate/filters.xml} maps it, the war assembler checks the
+ * mapping and its order). It is also mapped over the authorization endpoint, where it verifies nothing and only
+ * refuses details an attestation-required client did not push ({@link PushedDetailsRule}).
+ *
+ * <p><b>The details PingFederate stores are the ones granted.</b> PingFederate issues what was stored at PAR, CIBA
+ * and the device authorization endpoint whatever a token request then says (U-0019, the rig, 2026-09-30), so a
+ * request's {@code authorization_details} are held to the attestation's where they arrive: the filter grants
+ * {@code authorize(requested, ceiling, INHERIT)} and forwards the granted details, marked with the verified agent, in
+ * place of the client's ({@link GrantedDetails}). A request that asks for none forwards none. A signed request object
+ * cannot be rewritten, so its details must be within the attestation's as they stand. Plan item S4d, F-0032.
  *
  * <p>When a request carries an {@code OAuth-Client-Attestation} header, the filter verifies the
  * attestation and its PoP with the same {@link ClientAttestationVerifier} the OGNL issuance criterion
@@ -136,6 +147,9 @@ public final class ClientAttestationAuthFilter implements Filter {
     private final ClientStore clientStore;
     private final AttestationPolicyResolver policies;
     private final SubjectTokenVerifier subjectTokens;
+    private final PushedDetailsRule pushedDetails;
+    /** The page a refusal at the authorization endpoint is answered with, read on first use. */
+    private volatile FederationErrorPage errorPage;
 
     public ClientAttestationAuthFilter() {
         this(ClientAttestationAuthFilter::defaultIssuer, ClientAttestationUtils::configuredTokenEndpointBaseUrl,
@@ -170,6 +184,7 @@ public final class ClientAttestationAuthFilter implements Filter {
         this.clientStore = clientStore;
         this.policies = policies;
         this.subjectTokens = subjectTokens;
+        this.pushedDetails = new PushedDetailsRule(policies, this::errorPage);
     }
 
     /** A client store with no clients, for the test seams. */
@@ -299,6 +314,15 @@ public final class ClientAttestationAuthFilter implements Filter {
         }
         HttpServletRequest httpRequest = (HttpServletRequest) request;
         HttpServletResponse httpResponse = (HttpServletResponse) response;
+        String path = ClientAttestationUtils.endpointPath(httpRequest);
+        AttestedEndpoint endpoint = AttestedEndpoint.of(path);
+        if (!endpoint.authenticates()) {
+            // The authorization endpoint: nothing to verify, only details that should have been pushed to refuse.
+            if (!this.bridgeConfigured || !this.pushedDetails.refused(httpRequest, httpResponse)) {
+                chain.doFilter(request, response);
+            }
+            return;
+        }
 
         String attestation;
         String pop;
@@ -331,13 +355,19 @@ public final class ClientAttestationAuthFilter implements Filter {
         // The client the attestation names, read before it is verified so that it is verified under that client's
         // policy (ABCA-10 §4: sub is the client_id), and held to the verified sub afterwards.
         String claimedClient = ClientAttestationAuthFilter.unverifiedSubject(attestation);
+        // RFC 6749 §3.2: "Request and response parameters MUST NOT be included more than once." The filter forwards one
+        // value in place of the client's, so which of several PingFederate would have read is never left to it.
+        String repeated = ClientAttestationAuthFilter.repeatedParameter(httpRequest);
+        if (repeated != null) {
+            this.refuse(httpResponse, claimedClient, 400, "invalid_request", repeated + " must not be sent more than once");
+            return;
+        }
         try {
             String opIssuer = this.issuerResolver.apply(httpRequest);
             // What this server calls the endpoint, from its configuration: the issuer (the PoP audience) and the
             // URL PingFederate advertises for the endpoint under it (the DPoP htu). Never getRequestURL(), which
             // the container rebuilds from the Host header the client wrote.
             String tokenBase = this.tokenEndpointBaseUrl.get();
-            String path = ClientAttestationUtils.endpointPath(httpRequest);
             String endpointUrl = ClientAttestationUtils.endpointUrl(opIssuer, tokenBase, path);
             ClientAttestationConfig policy;
             try {
@@ -355,12 +385,17 @@ public final class ClientAttestationAuthFilter implements Filter {
                     AttestationSupport.replayCache(),
                     AttestationSupport.challengeService(),
                     this.rarModels);
-            String authorizationDetails = httpRequest.getParameter("authorization_details");
-            if (authorizationDetails == null || authorizationDetails.isBlank()) {
-                authorizationDetails = httpRequest.getParameter("oidf_requested_access");
-            }
+            // What is asked for, and how an omitted constrained field is read. authorization_details is forwarded as
+            // the details granted (INHERIT: the attestation's value fills the field); oidf_requested_access is
+            // forwarded as sent, so it is held to the attestation as it stands (STRICT). Introspection and revocation
+            // carry no details, and whatever was sent there under the name is not forwarded.
+            String sentDetails = endpoint.carriesDetails() ? httpRequest.getParameter(GrantedDetails.PARAMETER) : null;
+            boolean rewrite = sentDetails != null && !sentDetails.isBlank();
+            String checkedDetails = rewrite ? sentDetails
+                    : endpoint.carriesDetails() ? httpRequest.getParameter(REQUESTED_ACCESS) : null;
             ClientAttestationResult result = verifier.verify(attestation, pop, dpop, httpRequest.getMethod(),
-                    endpointUrl, httpRequest.getParameter("client_id"), authorizationDetails);
+                    endpointUrl, httpRequest.getParameter("client_id"), checkedDetails,
+                    rewrite ? Omission.INHERIT : Omission.STRICT);
 
             String clientId = result.clientId();
             String changed = ClientAttestationAuthFilter.subjectChanged(claimedClient, clientId);
@@ -391,6 +426,20 @@ public final class ClientAttestationAuthFilter implements Filter {
                 LOGGER.warn((Object) ("attest_jwt_client_auth: " + standing));
                 this.refuse(httpResponse, clientId, 401, "invalid_client", standing);
                 return;
+            }
+            // What cannot be rewritten is held to the attestation as it stands: a signed request object at PAR and CIBA.
+            // RFC 9126 §2.1 forbids request_uri at PAR ("The \"request_uri\" authorization request parameter is one
+            // exception, and it MUST NOT be provided"); refused here so a request object by reference is never one whose
+            // details this filter did not see.
+            if (endpoint.takesRequestObjects()) {
+                if (endpoint == AttestedEndpoint.PAR && ClientAttestationAuthFilter.present(httpRequest.getParameter("request_uri"))) {
+                    this.refuse(httpResponse, clientId, 400, "invalid_request", "request_uri must not be provided at the PAR endpoint");
+                    return;
+                }
+                String requestObject = httpRequest.getParameter("request");
+                if (ClientAttestationAuthFilter.present(requestObject)) {
+                    GrantedDetails.requestObjectWithin(this.rarModels, requestObject, attestation);
+                }
             }
             // Publish what we just verified, so the issuance criterion does not verify the same request a
             // second time. verify() consumes the challenge and burns the PoP jti; doing it twice destroys
@@ -429,7 +478,9 @@ public final class ClientAttestationAuthFilter implements Filter {
                         + "; authenticating to PF via bridge private_key_jwt"));
             }
             AttestationEvents.verified(AttestationEvents.FILTER, clientId, result.attesterIssuer());
-            chain.doFilter(new BridgeAuthRequest(httpRequest, clientId, bridgeAssertion, result.agentId()), response);
+            String forwarded = rewrite ? GrantedDetails.forwarded(result.grantedAuthorizationDetails(),
+                    GrantedDetails.requested(sentDetails), result.agentId()) : null;
+            chain.doFilter(new BridgeAuthRequest(httpRequest, clientId, bridgeAssertion, forwarded), response);
         } catch (ClientAttestationException e) {
             LOGGER.info((Object) ("attest_jwt_client_auth: rejected [" + e.error() + "]: " + e.getMessage()
                     + ClientAttestationUtils.refusalDetail(e)));
@@ -564,38 +615,44 @@ public final class ClientAttestationAuthFilter implements Filter {
     /** Each authorization_details entry's agent marker - the name the RAR processor reads (AGENT_DETAIL_KEY). */
     static final String AGENT_MARKER = "_agent_id";
 
-    /**
-     * {@code authorization_details} with every entry carrying the agent instance this filter verified, and
-     * nothing a client wrote under the marker's name. PingFederate stores a PAR request's parameters and
-     * consults its RAR processor later, from the authorisation endpoint, where the attestation is gone; the
-     * entries themselves are the only thing that survives. An unverified request carries no marker at all.
-     * A value that is not a JSON array is returned untouched: PingFederate refuses it anyway.
-     */
-    @SuppressWarnings("unchecked")
-    static String markAgent(String authorizationDetails, String agentId) {
-        Object parsed;
-        try {
-            parsed = org.jose4j.json.JsonUtil.parseJson("{\"v\":" + authorizationDetails + "}").get("v");
-        } catch (org.jose4j.lang.JoseException e) {
-            return authorizationDetails;
-        }
-        if (!(parsed instanceof List)) {
-            return authorizationDetails;
-        }
-        List<Object> marked = new java.util.ArrayList<>();
-        for (Object entry : (List<Object>) parsed) {
-            if (entry instanceof Map) {
-                Map<String, Object> copy = new LinkedHashMap<>((Map<String, Object>) entry);
-                copy.remove(AGENT_MARKER);
-                if (agentId != null && !agentId.isBlank()) {
-                    copy.put(AGENT_MARKER, agentId);
-                }
-                marked.add(copy);
-            } else {
-                marked.add(entry);
+    /** The harness's older name for the requested details: checked as sent, forwarded as sent. */
+    static final String REQUESTED_ACCESS = "oidf_requested_access";
+
+    /** The first of the details parameters the request carries more than once, or null. */
+    static String repeatedParameter(HttpServletRequest request) {
+        for (String name : List.of(GrantedDetails.PARAMETER, REQUESTED_ACCESS, "request", "request_uri")) {
+            String[] values = request.getParameterValues(name);
+            if (values != null && values.length > 1) {
+                return name;
             }
         }
-        return org.jose4j.json.internal.json_simple.JSONValue.toJSONString(marked);
+        return null;
+    }
+
+    private static boolean present(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    /**
+     * The page a refusal at the authorization endpoint is answered with: the operator's
+     * ({@link FederationRuntimeConfig#FEDERATION_ERROR_PAGE_ENV}), the one the front-channel registration filter shows,
+     * or the built-in page when none is set or it cannot be read (said once, at ERROR).
+     */
+    FederationErrorPage errorPage() {
+        FederationErrorPage page = this.errorPage;
+        if (page == null) {
+            String named = null;
+            try {
+                named = FederationRuntimeConfig.get().autoRegistration().errorPage();
+                page = FederationErrorPage.from(named);
+            } catch (IOException | RuntimeException e) {
+                LOGGER.error((Object) ("attest_jwt_client_auth: the error page " + named + " cannot be read; the built-in page"
+                        + " answers refusals at the authorization endpoint"), e);
+                page = FederationErrorPage.builtIn();
+            }
+            this.errorPage = page;
+        }
+        return page;
     }
 
     /**
@@ -703,8 +760,9 @@ public final class ClientAttestationAuthFilter implements Filter {
     }
 
     /**
-     * The HTTP status a verification failure answers with: 400 for a challenge the client must fetch and for
-     * {@code authorization_details} the token gate refuses, 503 when the challenge or replay store could not
+     * The HTTP status a verification failure answers with: 400 for a challenge the client must fetch, for
+     * {@code authorization_details} the token gate refuses and for a request object that cannot be held to the
+     * attestation ({@code invalid_request_object}, RFC 9101 §6.3's code), 503 when the challenge or replay store could not
      * answer ({@code temporarily_unavailable}, RFC 6749 §4.1.2.1's code for the condition, used at this endpoint
      * by plan item S3a: an outage of ours, never reported as a replay), 401 for everything else the client got
      * wrong.
@@ -717,7 +775,8 @@ public final class ClientAttestationAuthFilter implements Filter {
      */
     static int statusFor(ClientAttestationException e) {
         if (ClientAttestationException.USE_ATTESTATION_CHALLENGE.equals(e.error())
-                || ClientAttestationException.INVALID_AUTHORIZATION_DETAILS.equals(e.error())) {
+                || ClientAttestationException.INVALID_AUTHORIZATION_DETAILS.equals(e.error())
+                || GrantedDetails.INVALID_REQUEST_OBJECT.equals(e.error())) {
             return 400;
         }
         if (ClientAttestationException.TEMPORARILY_UNAVAILABLE.equals(e.error())) {
@@ -757,18 +816,19 @@ public final class ClientAttestationAuthFilter implements Filter {
     /**
      * The forwarded request: the verified client's {@code client_id} plus the bridge
      * {@code client_assertion} replace whatever credential parameters the workload sent
-     * ({@code client_secret} is dropped so a stale secret can neither help nor conflict).
+     * ({@code client_secret} is dropped so a stale secret can neither help nor conflict), and
+     * {@code authorization_details} is the granted details or absent - never what the client sent.
      */
-    private static final class BridgeAuthRequest extends HttpServletRequestWrapper {
+    static final class BridgeAuthRequest extends HttpServletRequestWrapper {
         private final Map<String, String[]> parameters;
 
-        BridgeAuthRequest(HttpServletRequest request, String clientId, String assertion, String agentId) {
+        BridgeAuthRequest(HttpServletRequest request, String clientId, String assertion, String grantedDetails) {
             super(request);
             Map<String, String[]> merged = new LinkedHashMap<>(request.getParameterMap());
             merged.remove("client_secret");
-            String details = request.getParameter("authorization_details");
-            if (details != null && !details.isBlank()) {
-                merged.put("authorization_details", new String[]{markAgent(details, agentId)});
+            merged.remove(GrantedDetails.PARAMETER);
+            if (grantedDetails != null) {
+                merged.put(GrantedDetails.PARAMETER, new String[]{grantedDetails});
             }
             merged.put("client_id", new String[]{clientId});
             merged.put("client_assertion_type", new String[]{ASSERTION_TYPE});
