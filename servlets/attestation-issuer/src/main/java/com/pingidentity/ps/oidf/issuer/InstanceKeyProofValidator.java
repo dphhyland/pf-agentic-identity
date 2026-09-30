@@ -211,8 +211,10 @@ public final class InstanceKeyProofValidator {
             throw IssuanceException.invalidInstanceProof(WINDOW_REFUSED);
         }
         long now = this.clock.millis() / 1000L;
-        // Compared by differences, and the one difference that two absurd claims could overflow is checked, so an
-        // iat far in the past and an exp far in the future are refused rather than wrapped into a short window.
+        // No comparison here subtracts one claim from now: a claim near Long.MIN_VALUE would wrap. The window's
+        // width is the one difference of two claims, and it is taken with subtractExact, so an iat far in the past
+        // and an exp far in the future are refused rather than wrapped into a short window. now and the skew are
+        // both non-negative, so now - skew cannot wrap, and iat - now is taken only when iat is after now.
         long window;
         try {
             window = Math.subtractExact(exp, iat);
@@ -221,7 +223,7 @@ public final class InstanceKeyProofValidator {
         }
         boolean windowShape = window > 0L && window <= this.maxWindowSeconds;
         boolean started = iat <= now || iat - now <= this.allowedClockSkewSeconds;
-        boolean ended = exp < now && now - exp > this.allowedClockSkewSeconds;
+        boolean ended = exp < now - this.allowedClockSkewSeconds;
         if (!windowShape || !started || ended) {
             throw IssuanceException.invalidInstanceProof(WINDOW_REFUSED);
         }

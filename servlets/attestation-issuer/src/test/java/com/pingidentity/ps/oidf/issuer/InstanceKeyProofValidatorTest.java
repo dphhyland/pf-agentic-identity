@@ -131,6 +131,9 @@ class InstanceKeyProofValidatorTest {
         assertWindowRefused(at(T), sign(text));
         // A window that wraps: exp - iat overflows to a small negative number.
         assertWindowRefused(at(T), proof(Long.MIN_VALUE + 10, Long.MAX_VALUE - 10));
+        // A well-shaped window near Long.MIN_VALUE: now - exp would wrap and read as not yet ended.
+        assertWindowRefused(at(T), proof(Long.MIN_VALUE + 10, Long.MIN_VALUE + 110));
+        assertWindowRefused(at(T), proof(Long.MIN_VALUE, Long.MIN_VALUE + 1));
     }
 
     @Test
