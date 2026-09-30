@@ -5,7 +5,7 @@ area: build
 source: design
 status: closed
 plan_items: [R-I3]
-prs: [75, 99]
+prs: [75, 98]
 verification: >
   2026-10-01 on the conformance rig (slot 4, PingFederate 13.1.3, the rig's image rebuilt with data.zip.age in the
   drop-in directory, OIDF_DEPLOYMENT_PROFILE=production, the identity from PF_ARCHIVE_AGE_KEY_FILE). Reproduced with
