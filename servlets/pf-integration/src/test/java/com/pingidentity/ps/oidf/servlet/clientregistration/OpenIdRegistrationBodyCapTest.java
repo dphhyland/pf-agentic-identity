@@ -1,5 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert;
+import com.pingidentity.ps.oidf.servlet.oauth.RefusalLog;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -77,10 +79,13 @@ class OpenIdRegistrationBodyCapTest {
         CountingBody body = new CountingBody(8_193);
         OpenIdRegistrationServlet servlet = new OpenIdRegistrationServlet(service, req -> OP, 8_192);
 
-        String written = refuse(servlet, post(body, 8_193), 413);
+        try (RefusalLog log = RefusalLog.open()) {
+            String written = refuse(servlet, post(body, 8_193), 413);
 
-        assertEquals(0, body.read.get());
-        assertTrue(written.contains("invalid_request") && written.contains("8192"), written);
+            assertEquals(0, body.read.get());
+            PublicErrorsAssert.assertGeneric("invalid_request", written);
+            log.assertDetail("8192");
+        }
         verifyNoInteractions(service);
     }
 
@@ -191,8 +196,11 @@ class OpenIdRegistrationBodyCapTest {
             @Override public void setReadListener(ReadListener l) { }
         });
 
-        String written = refuse(servlet, req, 400);
+        try (RefusalLog log = RefusalLog.open()) {
+            String written = refuse(servlet, req, 400);
 
-        assertTrue(written.contains("invalid_request") && written.contains("not a JWT"), written);
+            PublicErrorsAssert.assertGeneric("invalid_request", written);
+            log.assertDetail("not a JWT");
+        }
     }
 }

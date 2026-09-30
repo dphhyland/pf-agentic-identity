@@ -11,11 +11,10 @@ import com.pingidentity.ps.oidf.platform.settings.Sources;
 import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import com.pingidentity.ps.oidf.servlet.fapi2.Fapi2RequestPolicy.Violation;
+import com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter;
 import java.io.IOException;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import jakarta.servlet.Filter;
@@ -28,7 +27,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.jose4j.json.JsonUtil;
 
 /**
  * A FAPI 2.0 authorization server does two things PingFederate cannot be configured to do for its FAPI
@@ -132,10 +130,12 @@ public final class Fapi2ProfileFilter implements Filter {
         }
         if (!this.clients.isEmpty() && request instanceof HttpServletRequest && response instanceof HttpServletResponse) {
             HttpServletRequest http = (HttpServletRequest) request;
-            Violation violation = violationIn(http);
-            if (violation != null) {
+            Refusal refusal = violationIn(http);
+            if (refusal != null) {
+                Violation violation = refusal.violation();
                 LOGGER.info((Object) ("FAPI 2.0: refused " + http.getMethod() + " " + http.getServletPath() + " - "
                         + violation.error + ": " + violation.description));
+                FapiEvents.refused(http, FapiEvents.PROFILE_FILTER, rule(violation), violation.error, refusal.client());
                 refuse(http, (HttpServletResponse) response, violation);
                 return;
             }
@@ -183,7 +183,11 @@ public final class Fapi2ProfileFilter implements Filter {
         return client != null && listed.contains(client);
     }
 
-    private Violation violationIn(HttpServletRequest request) {
+    /** A refused request: what it broke, and the client it was attributed to ({@code null} when none could be). */
+    record Refusal(Violation violation, String client) {
+    }
+
+    private Refusal violationIn(HttpServletRequest request) {
         // A form parameter, so this reads the body the way PingFederate is about to - which the
         // container allows, and which TokenEndpointAutoRegistrationFilter already relies on.
         String[] assertions = request.getParameterValues("client_assertion");
@@ -193,7 +197,7 @@ public final class Fapi2ProfileFilter implements Filter {
         // token endpoint, it would be the one examined if this read the first value and whatever
         // authenticates the client read another. RFC 6749 §3.2 forbids repeating a parameter anyway.
         if (assertions != null && assertions.length > 1) {
-            return new Violation("invalid_request", "client_assertion must not be repeated");
+            return new Refusal(new Violation("invalid_request", REPEATED_ASSERTION), null);
         }
         String assertion = assertions == null || assertions.length == 0 ? null : assertions[0];
 
@@ -208,7 +212,7 @@ public final class Fapi2ProfileFilter implements Filter {
                 // Nobody to attribute it to, so no list to look it up in - and an assertion is never
                 // waved past unexamined because its owner could not be worked out. PingFederate would
                 // refuse it as well: it names nobody to authenticate.
-                return new Violation("invalid_client", "client assertion is not a JWT this server can read, or has no sub");
+                return new Refusal(new Violation("invalid_client", UNREADABLE_ASSERTION), null);
             }
         }
         if (!appliesTo(client)) {
@@ -220,11 +224,38 @@ public final class Fapi2ProfileFilter implements Filter {
         for (String proof : Collections.list(headers(request, "DPoP"))) {
             Violation violation = Fapi2RequestPolicy.checkDpopProof(proof);
             if (violation != null) {
-                return violation;
+                return new Refusal(violation, client);
             }
         }
-        return assertion == null ? null
+        Violation audience = assertion == null ? null
                 : Fapi2RequestPolicy.checkClientAssertion(assertion, this.issuerResolver.apply(request));
+        return audience == null ? null : new Refusal(audience, client);
+    }
+
+    static final String REPEATED_ASSERTION = "client_assertion must not be repeated";
+    static final String UNREADABLE_ASSERTION = "client assertion is not a JWT this server can read, or has no sub";
+
+    /**
+     * The {@code rule} field of {@code fapi.request.refused}: which of the profile's rules {@code violation} broke. Read
+     * from the violation's error code and wording, which {@link Fapi2RequestPolicy} and this filter fix.
+     */
+    static String rule(Violation violation) {
+        String description = violation.description == null ? "" : violation.description;
+        if ("invalid_dpop_proof".equals(violation.error)) {
+            return description.contains("not a JWT") ? "unreadable_dpop_proof" : "dpop_algorithm";
+        }
+        if (REPEATED_ASSERTION.equals(description)) {
+            return "repeated_client_assertion";
+        }
+        return description.contains("not a JWT") ? "unreadable_client_assertion" : "client_assertion_audience";
+    }
+
+    /**
+     * The client a JWT access token in an {@code Authorization} header of either scheme says it was issued to, unverified,
+     * or {@code null}: the attribution {@link #violationIn} makes at UserInfo, for {@code FapiResourceServerFilter}.
+     */
+    public static String clientOfAccessToken(String authorization) {
+        return Fapi2RequestPolicy.clientOfAccessToken(authorization);
     }
 
     /** Whether {@code client} - {@code null} when the request does not say - is a FAPI 2.0 client here. */
@@ -249,13 +280,10 @@ public final class Fapi2ProfileFilter implements Filter {
             response.setHeader("WWW-Authenticate", "DPoP error=\"invalid_dpop_proof\", algs=\""
                     + String.join(" ", new java.util.TreeSet<>(Fapi2RequestPolicy.ALLOWED_ALGORITHMS)) + "\"");
         }
-        response.setStatus(proofAtResource || "invalid_client".equals(violation.error) ? 401 : 400);
-        response.setContentType("application/json");
-        response.setHeader("Cache-Control", "no-store");
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("error", violation.error);
-        body.put("error_description", violation.description);
-        response.getWriter().write(JsonUtil.toJson(body));
+        // The client has not been authenticated yet: the error code's fixed description and a correlation id, with the
+        // violation's wording logged under the id (H-FED-4).
+        OAuthErrorWriter.write(response, proofAtResource || "invalid_client".equals(violation.error) ? 401 : 400,
+                violation.error, violation.description);
     }
 
     /** By request URI: what {@code getServletPath()} holds depends on how PingFederate maps its servlets. */

@@ -323,7 +323,35 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientLookup.registeredByFederation(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.doFilter(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.interactionIdFor(*</include>
-                                        <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.carriesTokenInQuery(*</include>
+                                        <!-- H-FED-6: whose request the resource-server rules hold (fapiClient, clients), how a token
+                                             in the query is found (tokensInQuery, decoded), and which responses the description
+                                             filter holds and how a sendError or reset ends one (ErrorsOnly). -->
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.fapiClient(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.clients(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.tokensInQuery(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.decoded(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.isError(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.ErrorsOnly.decide(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.ErrorsOnly.write(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.ErrorsOnly.finish(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.ErrorsOnly.setContentLengthLong(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.ErrorsOnly.sendError(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.ErrorsOnly.reset(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.ErrorsOnly.resetBuffer(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.ErrorsOnly.flushBuffer(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.ErrorsOnly.isCommitted(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.ErrorsOnly.dropHeld(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.ErrorsOnly.charset(*</include>
+                                        <!-- H-FED-4: what a caller that has not authenticated is told, what an operator is, and the
+                                             line that holds the detail. O-2: the rule a FAPI refusal is recorded under. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.PublicErrors.generic(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.PublicErrors.refused(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.FederationErrorPage.write(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationErrors.writeToOperator(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationErrors.log(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.rule(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi2.FapiEvents.refused(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi2.FapiEvents.endpoint(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.doFilter(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.sanitise(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.withinSet(*</include>

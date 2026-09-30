@@ -170,7 +170,9 @@ request object's `exp`/`nbf` window is 720 minutes in 13.0.3 and 13.1.3 alike - 
 shipped for it - and the profile wants 60: a config-store file
 (`org.sourceid.openid.ciba.handlers.CibaHelper.xml`, overlay and archive like the cipher list).
 UserInfo, the one resource PF serves itself, sends no `x-fapi-interaction-id` and accepts
-`?access_token=`, both of which FAPI 1.0 Baseline §6.2.1 forbids: `FapiResourceServerFilter`. And a
+`?access_token=`, both of which FAPI 1.0 Baseline §6.2.1 forbids: `FapiResourceServerFilter`, which from 0.6.0 holds
+only the clients `OIDF_FAPI2_CLIENTS` and `OIDF_FAPI_RESOURCE_CLIENTS` name - `vars.env` puts the FAPI-CIBA clients
+on the second. And a
 refused request object's `error_description` is jose4j's whole explanation with a Java-formatted date
 in it - U+202F, the narrow no-break space, before "PM" - which RFC 6749 §5.2's character set excludes:
 `OAuthErrorDescriptionFilter` brings a 4xx's description inside the set and touches nothing else.

@@ -249,6 +249,35 @@ class FrontChannelAutoRegistrationFilterTest {
         verify(this.chain, never()).doFilter(any(), any());
     }
 
+    /** H-FED-4 (F-0046): the client the request named and the chain's messages reach neither the JSON nor the page. */
+    @Test
+    void aHostileMarkerNeverReachesTheResponse() throws Exception {
+        String marker = "hfede-marker-" + java.util.UUID.randomUUID();
+        String markedClient = "https://rp.example.com/" + marker;
+        for (boolean atPar : new boolean[] {true, false}) {
+            this.body.getBuffer().setLength(0);
+            when(this.response.getWriter()).thenReturn(new PrintWriter(this.body));
+            if (atPar) {
+                this.par();
+            } else {
+                when(this.request.getRequestURI()).thenReturn("/as/authorization.oauth2");
+                when(this.request.getMethod()).thenReturn("GET");
+            }
+            when(this.request.getParameter("client_id")).thenReturn(markedClient);
+            when(this.request.getParameter("redirect_uri")).thenReturn(markedClient + "/cb");
+            org.mockito.Mockito.doThrow(new RegistrationRejectedException(400, "invalid_trust_chain",
+                    "no route from " + markedClient + " <b>" + marker + "</b>", RegistrationRejectedException.Kind.TRUST, null))
+                    .when(this.service).admit(anyString(), anyList(), anyString(), any());
+
+            try (com.pingidentity.ps.oidf.servlet.oauth.RefusalLog log = com.pingidentity.ps.oidf.servlet.oauth.RefusalLog.open()) {
+                this.filter().doFilter(this.request, this.response, this.chain);
+                assertFalse(this.body.toString().contains(marker), this.body.toString());
+                assertTrue(this.body.toString().contains(com.pingidentity.ps.oidf.servlet.oauth.PublicErrors.generic("invalid_trust_chain")));
+                log.assertDetail(marker);
+            }
+        }
+    }
+
     @Test
     @Requirement({"OIDFED §12.1.3(2)", "OIDFED §12.1.3(3)"})
     void atTheAuthorizationEndpointARefusalIsAPageNeverARedirect() throws Exception {
@@ -264,7 +293,8 @@ class FrontChannelAutoRegistrationFilterTest {
         verify(this.response, never()).sendRedirect(anyString());
         verify(this.response, never()).setHeader(eq("Location"), anyString());
         assertTrue(this.body.toString().contains("invalid_metadata"));
-        assertTrue(this.body.toString().contains("&lt;script&gt;"), "the description is escaped");
+        assertFalse(this.body.toString().contains("script"), "the detail stays in the log (H-FED-4)");
+        assertTrue(this.body.toString().contains(com.pingidentity.ps.oidf.servlet.oauth.PublicErrors.generic("invalid_metadata")));
         assertFalse(this.body.toString().contains(RP + "/cb"), "the RP's redirect_uri appears nowhere");
         verify(this.chain, never()).doFilter(any(), any());
     }
