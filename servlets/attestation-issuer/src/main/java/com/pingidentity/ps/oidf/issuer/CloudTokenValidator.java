@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
@@ -140,7 +141,7 @@ public abstract class CloudTokenValidator implements InstanceAttestationValidato
             throw refused("config", "no trust bundle with a signing key is configured for this client");
         }
         String trustDomain = config.expectedTrustDomain();
-        if (trustDomain == null || trustDomain.isBlank()) {
+        if (trustDomain == null) {
             throw misconfigured("config", AttestationIssuanceConfig.P_TRUST_DOMAIN + " is required for " + this.id() + " evidence");
         }
         Policy policy = this.policy();
@@ -221,13 +222,7 @@ public abstract class CloudTokenValidator implements InstanceAttestationValidato
         }
         jws.setKey(this.verificationKey(keys, kid, alg));
         jws.setAlgorithmConstraints(new AlgorithmConstraints(AlgorithmConstraints.ConstraintType.PERMIT, alg));
-        boolean verified;
-        try {
-            verified = jws.verifySignature();
-        } catch (Exception e) {
-            verified = false;
-        }
-        if (!verified) {
+        if (!verifies(jws)) {
             throw refused("signature", "token signature did not verify against the trust bundle");
         }
         try {
@@ -237,10 +232,19 @@ public abstract class CloudTokenValidator implements InstanceAttestationValidato
         }
     }
 
+    /** Whether the signature verifies; a verification that throws does not. */
+    private static boolean verifies(JsonWebSignature jws) {
+        try {
+            return jws.verifySignature();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** The bundle key for {@code kid}, or the only key when there is none, provided it fits {@code alg}. */
     Key verificationKey(List<JsonWebKey> keys, String kid, String alg) throws IssuanceException {
         JsonWebKey chosen = null;
-        if (kid != null && !kid.isBlank()) {
+        if (kid != null) {
             for (JsonWebKey k : keys) {
                 if (kid.equals(k.getKeyId())) {
                     chosen = k;
@@ -288,11 +292,11 @@ public abstract class CloudTokenValidator implements InstanceAttestationValidato
             throws IssuanceException {
         List<String> audiences;
         try {
-            audiences = claims.getAudience();
+            audiences = Objects.requireNonNullElse(claims.getAudience(), List.of());
         } catch (Exception e) {
             throw refused("aud", "token 'aud' is malformed");
         }
-        if (audiences == null || !audiences.contains(config.issuer())) {
+        if (!audiences.contains(config.issuer())) {
             throw refused("aud", "token audience does not include this attester (" + AttestationIssuanceConfig.P_ISSUER + ")");
         }
         if (policy.requireSingleAudience() && audiences.size() > 1) {

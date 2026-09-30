@@ -214,6 +214,36 @@
                                         <include>com.pingidentity.ps.oidf.issuer.IssuedTtlCap.apply(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.IssuedTtlCap.fromEnvironment(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.IssuedTtlCap.IssuedTtlCap(*</include>
+                                        <!-- H-ATT-1: every check the six cloud-token validators share - the pinned issuer a
+                                             client may only narrow, the signing key and its fit to the algorithm, aud,
+                                             exp, nbf, iat and the lifetime - each type's own claims, the GCP binding
+                                             grammar, the settings' strict reads, and the JWKS use=sig filter. -->
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.verify(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.issuers(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.verifiedClaims(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.verificationKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.fits(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.audiences(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.times(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.time(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.kubernetes(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.IssuerRule.accepts(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.Policy.fromEnvironment(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.Policy.issuerList(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.Policy.list(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.Policy.issuersSetting(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.GkeTokenValidator.checkBindings(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.GkeTokenValidator.map(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.GcpSaTokenValidator.checkBindings(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.GcpSaTokenValidator.map(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.GcpSaTokenValidator.projectOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.GcpSaTokenValidator.checkAccountBindings(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.GcpSaTokenValidator.checkWorkloadBindings(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EksTokenValidator.map(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.AwsStsWebIdentityValidator.map(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.AksWorkloadIdentityValidator.map(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.AzureManagedIdentityValidator.map(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.RemoteJwksCache.signingKeys(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

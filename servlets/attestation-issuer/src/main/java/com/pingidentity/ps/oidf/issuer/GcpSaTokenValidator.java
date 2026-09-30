@@ -97,7 +97,8 @@ public final class GcpSaTokenValidator extends CloudTokenValidator {
             throw refused("subject", "token has no 'email' (service-account identity) claim");
         }
         Set<String> projects = policy.gcpProjects();
-        if (projects != null && !projects.contains(projectOf(email))) {
+        String project = projectOf(email);
+        if (projects != null && (project == null || !projects.contains(project))) {
             throw refused("project", "token's service account is not a user-managed account of a project "
                     + Policy.GCP_PROJECTS + " lists");
         }
