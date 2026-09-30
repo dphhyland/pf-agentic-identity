@@ -43,15 +43,19 @@ class DeclarationTest {
                         List.of("/as/authorization.oauth2", "/as/par.oauth2")),
                 new Declaration.Filter("OidfAutoRegistration", Fixtures.PFI + "clientregistration.TokenEndpointAutoRegistrationFilter",
                         List.of("/as/token.oauth2")),
+                new Declaration.Filter("IssuedDetailsBelt", Fixtures.PFI + "clientregistration.IssuedDetailsBelt",
+                        List.of("/as/token.oauth2")),
                 new Declaration.Filter("ClientAttestationAuth", Fixtures.PFI + "clientregistration.ClientAttestationAuthFilter",
                         List.of("/as/token.oauth2", "/as/par.oauth2", "/as/bc-auth.ciba", "/as/device_authz.oauth2",
                                 "/as/introspect.oauth2", "/as/revoke_token.oauth2", "/as/authorization.oauth2"))), d.filters);
         // The script's three checks: auto-registration before attestation; Fapi2Profile before auto-registration;
         // and front-channel registration after both Fapi2Profile and the description sanitiser. Then S4d's two:
-        // Fapi2Profile, and front-channel registration, before ClientAttestationAuth on every path they share.
+        // Fapi2Profile, and front-channel registration, before ClientAttestationAuth on every path they share. Then the
+        // response belt's, outside ClientAttestationAuth at the token endpoint (S4D3).
         assertEquals(List.of("OidfAutoRegistration<ClientAttestationAuth", "Fapi2Profile<OidfAutoRegistration",
                         "Fapi2Profile<OidfFrontChannelAutoRegistration", "OAuthErrorDescription<OidfFrontChannelAutoRegistration",
-                        "Fapi2Profile<ClientAttestationAuth", "OidfFrontChannelAutoRegistration<ClientAttestationAuth"),
+                        "Fapi2Profile<ClientAttestationAuth", "OidfFrontChannelAutoRegistration<ClientAttestationAuth",
+                        "IssuedDetailsBelt<ClientAttestationAuth"),
                 d.orders.stream().map(o -> o.earlier() + "<" + o.later()).toList());
         assertTrue(d.orders.stream().allMatch(o -> !o.reason().isBlank() && !o.reason().contains("\n")));
         assertEquals(List.of(Fixtures.LIFECYCLE_LISTENER), d.listeners, "F-2's lifecycle listener, and no other");

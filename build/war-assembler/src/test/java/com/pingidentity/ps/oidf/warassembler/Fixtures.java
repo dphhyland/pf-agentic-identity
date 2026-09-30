@@ -23,6 +23,7 @@ final class Fixtures {
         PFI + "oauth.OAuthErrorDescriptionFilter",
         PFI + "clientregistration.FrontChannelAutoRegistrationFilter",
         PFI + "clientregistration.TokenEndpointAutoRegistrationFilter",
+        PFI + "clientregistration.IssuedDetailsBelt",
         PFI + "clientregistration.ClientAttestationAuthFilter",
     };
     static final String SSF_FILTER = PFI + "ssf.LogoutEventFilter";
@@ -44,6 +45,16 @@ final class Fixtures {
             + "    <url-pattern>/as/bc-auth.ciba</url-pattern>\n    <url-pattern>/as/device_authz.oauth2</url-pattern>\n"
             + "    <url-pattern>/as/introspect.oauth2</url-pattern>\n    <url-pattern>/as/revoke_token.oauth2</url-pattern>\n"
             + "    <url-pattern>/as/authorization.oauth2</url-pattern>\n  </filter-mapping>\n";
+    /**
+     * The response belt's filter and mapping as the assembler writes them (plan item S4d, S4D3, 2026-09-30): inserted just
+     * before ClientAttestationAuth's filter, which the golden comparisons do to the shell's additions.
+     */
+    static final String ISSUED_DETAILS_BELT_BLOCK = "  <filter>\n    <filter-name>IssuedDetailsBelt</filter-name>\n"
+            + "    <filter-class>" + PFI + "clientregistration.IssuedDetailsBelt</filter-class>\n  </filter>\n"
+            + "  <filter-mapping>\n    <filter-name>IssuedDetailsBelt</filter-name>\n"
+            + "    <url-pattern>/as/token.oauth2</url-pattern>\n  </filter-mapping>\n";
+    /** Where ClientAttestationAuth's filter starts in the shell's additions: the belt goes in before it. */
+    static final String CLIENT_ATTESTATION_FILTER_START = "  <filter>\n    <filter-name>ClientAttestationAuth</filter-name>\n";
     static final long TIME = 1_790_000_000_000L;
 
     record Run(int exit, String out, String err) {

@@ -67,7 +67,7 @@ Tracked:
 
 | Path | Purpose |
 |---|---|
-| `Dockerfile` | stock `pingidentity/pingfederate:13.1.3` + the staged modules, merged into `pf-runtime.war` at the **root** context (single classloader), with seven filters registered over PF's own endpoints in its `web.xml` - the list, and the order they must run in, is in `filters.xml`. `--build-arg STAGING_PROFILE=production\|conformance` (default `production`); targets `builder`, `capability` and `deployment` (the default) - see [Building](#building) |
+| `Dockerfile` | stock `pingidentity/pingfederate:13.1.3` + the staged modules, merged into `pf-runtime.war` at the **root** context (single classloader), with eight filters registered over PF's own endpoints in its `web.xml` - the list, and the order they must run in, is in `filters.xml`. `--build-arg STAGING_PROFILE=production\|conformance` (default `production`); targets `builder`, `capability` and `deployment` (the default) - see [Building](#building) |
 | `stage-modules.sh` | copies the reactor's module jars into `modules/` - the production profile's by default, and the CIBA simulator as well for `--profile conformance` - and writes the v2 `MANIFEST`, which names each one; and copies the war assembler into `assembler/` |
 | `filters.xml` | the filters registered in `pf-runtime.war`'s `web.xml`: each one's class and paths, the order pairs that must hold between them, and why |
 | `assemble-pf-runtime-war.sh` | merges `modules/` into the stock war and registers what `filters.xml` declares, after checking `modules/` against `MANIFEST` and the profile; also used inside the image build. A wrapper round the [war assembler](../war-assembler/README.md), which does the checking - see [The war assembler](#the-war-assembler) |
