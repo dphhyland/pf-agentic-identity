@@ -36,11 +36,13 @@ import org.apache.commons.logging.LogFactory;
  * <p>A value without the prefix is a clear header an earlier version stored: it is read as it is, and sealed on the
  * stream's next write. A sealed value neither key opens (the key it was sealed under is gone) is kept as it is - an
  * ERROR says so once per key id - so a write of the stream does not lose it; the receiver is then sent the sealed text
- * and refuses it, until the key is restored.
+ * and refuses it, until the key is restored. Only a value this cipher read from the store and could not open is kept
+ * that way: a header a receiver sends that merely starts with the prefix is sealed like any other, and opens back to
+ * what the receiver sent.
  *
- * <p>Without a key the production profile refuses to store a header ({@link KeyMissing}, naming the setting), and SSF
- * does not start while its store holds one ({@link #refuseStoredWithoutKey}); the development profile stores it in clear
- * with a WARN.
+ * <p>Without a key the production profile does not start SSF over a JDBC or {@code ldm} store ({@link #refuseWithoutKey},
+ * {@link KeyMissing} naming the setting, so SSF is {@code FAILED_CONFIG}), and {@link #seal} refuses as well; the
+ * development profile stores headers in clear with a WARN.
  */
 public final class PushHeaderCipher {
 
@@ -66,6 +68,10 @@ public final class PushHeaderCipher {
     private final Map<String, Key> byKid;
     private final boolean production;
     private final Set<String> reported = ConcurrentHashMap.newKeySet();
+    /** Stored values {@link #open} could not open: {@link #seal} keeps exactly these as they are. */
+    private final Set<String> unopened = ConcurrentHashMap.newKeySet();
+    /** A bound on {@link #unopened}: one entry per stream whose sealed header no key here opens. */
+    static final int UNOPENED_CAPACITY = 10_000;
     private volatile boolean warnedClear;
 
     private record Key(String kid, SecretKeySpec spec) {
@@ -144,13 +150,15 @@ public final class PushHeaderCipher {
     }
 
     /**
-     * What to store for stream {@code streamId}'s header: sealed under the current key; a value already sealed as it is;
-     * null as null. Without a key: refused under production, clear with a WARN under development.
+     * What to store for stream {@code streamId}'s header: sealed under the current key; a stored value {@link #open} could
+     * not open, as it is (so a write does not lose it); null as null. Anything else - a value a receiver sent that
+     * starts with the prefix included - is sealed. Without a key: refused under production, clear with a WARN under
+     * development.
      *
      * @throws KeyMissing under production with no key
      */
     public String seal(String streamId, String header) {
-        if (header == null || header.startsWith(PREFIX)) {
+        if (header == null || (header.startsWith(PREFIX) && this.unopened.contains(header))) {
             return header;
         }
         if (this.current == null) {
@@ -200,7 +208,7 @@ public final class PushHeaderCipher {
         Key key = this.byKid.get(kid);
         if (key == null) {
             report(kid, "was sealed under a key that neither " + KEY_SETTING + " nor " + PREVIOUS_KEY_SETTING + " holds");
-            return stored;
+            return keep(stored);
         }
         try {
             byte[] in = Base64.getUrlDecoder().decode(rest.substring(colon + 1));
@@ -210,8 +218,16 @@ public final class PushHeaderCipher {
             return new String(c.doFinal(in, NONCE_BYTES, in.length - NONCE_BYTES), StandardCharsets.UTF_8);
         } catch (GeneralSecurityException | RuntimeException e) {
             report(kid, "did not open (" + e.getClass().getSimpleName() + "): altered, or copied from another stream");
-            return stored;
+            return keep(stored);
         }
+    }
+
+    /** A stored value no key here opens: remembered, so its stream's next write keeps it rather than sealing it again. */
+    private String keep(String stored) {
+        if (this.unopened.size() < UNOPENED_CAPACITY) {
+            this.unopened.add(stored);
+        }
+        return stored;
     }
 
     private void report(String kid, String what) {
@@ -232,12 +248,14 @@ public final class PushHeaderCipher {
     }
 
     /**
-     * Refuses to start over a store that holds a push header when this cipher has no key under production: an
-     * earlier version's clear header, or one sealed under a key since removed. Called once the store is open.
+     * Refuses to start a JDBC or {@code ldm} store under production when this cipher has no key: any push stream a
+     * receiver creates may carry a header, and production does not keep one in clear. The message counts the headers
+     * the store already holds (an earlier version's clear ones, or ones sealed under a key since removed). Called once
+     * the store is open.
      *
      * @throws KeyMissing naming {@value #KEY_SETTING}, which the start turns into {@code FAILED_CONFIG}
      */
-    public void refuseStoredWithoutKey(SsfStore store) {
+    public void refuseWithoutKey(SsfStore store) {
         if (this.current != null || !this.production) {
             return;
         }
@@ -247,9 +265,7 @@ public final class PushHeaderCipher {
                 held++;
             }
         }
-        if (held > 0) {
-            throw new KeyMissing(held);
-        }
+        throw new KeyMissing(held);
     }
 
     /** The production profile refused to store a push header, or to start over stored ones, without the key. */
@@ -262,10 +278,10 @@ public final class PushHeaderCipher {
         }
 
         KeyMissing(int held) {
-            super(KEY_SETTING + " is not set and the SSF store holds " + held + " push stream(s) with an"
-                    + " authorization_header: the production profile does not keep them in clear. Set it (32 bytes,"
-                    + " base64: `openssl rand -base64 32`) and restart PingFederate; each is encrypted on its stream's next"
-                    + " write");
+            super(KEY_SETTING + " is not set: under the production profile the SSF store keeps a push stream's"
+                    + " authorization_header only encrypted" + (held > 0 ? ", and it holds " + held + " push stream(s) with"
+                    + " one already" : "") + ". Set it (32 bytes, base64: `openssl rand -base64 32`) and restart"
+                    + " PingFederate" + (held > 0 ? "; each is encrypted on its stream's next write" : ""));
         }
     }
 }

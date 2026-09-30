@@ -245,7 +245,7 @@ public final class LogoutEventFilter implements Filter {
         // Built lazily, on the first token: the PF lookups behind forThisDeployment (signing keys,
         // issuer) are runtime singletons, and a logout with no token to verify has no reason to
         // touch them.
-        return readHint(request, (jwt, now, maxAge) -> PfIdTokenVerifier.forThisDeployment(request).verify(jwt, now, maxAge),
+        return readVerifiedHint(request, (jwt, now, maxAge) -> PfIdTokenVerifier.forThisDeployment(request).verify(jwt, now, maxAge),
                 Holder.SETTINGS);
     }
 
@@ -256,11 +256,11 @@ public final class LogoutEventFilter implements Filter {
      */
     static Hint readHint(HttpServletRequest request, java.util.function.Function<HttpServletRequest, String> issuerOf,
                          PfIdTokenVerifier.KeySource keys, Settings settings) {
-        return readHint(request, PfIdTokenVerifier.forDeployment(keys, issuerOf.apply(request)), settings);
+        return readVerifiedHint(request, PfIdTokenVerifier.forDeployment(keys, issuerOf.apply(request)), settings);
     }
 
     /** Test seam: the same logic against a supplied verifier and settings. */
-    static Hint readHint(HttpServletRequest request, IdTokenVerifier verifier, Settings settings) {
+    static Hint readVerifiedHint(HttpServletRequest request, IdTokenVerifier verifier, Settings settings) {
         String token = request.getParameter("id_token_hint");
         if (token != null && !token.isBlank()) {
             Hint verified = verifier.verify(token, nowSeconds(), maxAgeSeconds(settings));

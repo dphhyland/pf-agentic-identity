@@ -6,10 +6,12 @@ package com.pingidentity.ps.oidf.servlet.ssf;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.platform.events.Event;
 import com.pingidentity.ps.oidf.platform.events.Events;
+import com.pingidentity.ps.oidf.platform.lifecycle.Lifecycle;
 import com.pingidentity.ps.oidf.ssf.AuditEventMapper;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.SsfSupportTestAccess;
@@ -50,6 +52,7 @@ class SsfAuditLogSourceLifecycleTest {
 
     @AfterEach
     void tearDown() {
+        SsfAuditLogSource.lifecycle = Lifecycle::current;
         SsfAuditLogSource.detach();
         ThreadContext.clearAll();
         this.ctx.reconfigure(); // back to the test class path's own configuration
@@ -132,6 +135,36 @@ class SsfAuditLogSourceLifecycleTest {
         assertTrue(this.captured.isEmpty());
         assertEquals(List.of("ssf.audit.source.attached/start/1", "ssf.audit.source.detached/undeploy"), auditEvents());
         SsfAuditLogSource.undeploy(); // twice is harmless
+    }
+
+    /**
+     * The same through platform's lifecycle, the way PingFederate's undeploy reaches it: the first attach registers the
+     * source, and the lifecycle's shutdown - what the webapp's listener runs at undeploy - detaches it and stops the
+     * listening, so a later reconfigure attaches nothing.
+     */
+    @Test
+    void theLifecyclesShutdownDetachesTheSource() throws Exception {
+        assertSame(Lifecycle.current(), SsfAuditLogSource.lifecycle.get(), "this loader's lifecycle by default");
+        java.lang.reflect.Constructor<Lifecycle> fresh = Lifecycle.class.getDeclaredConstructor();
+        fresh.setAccessible(true);
+        Lifecycle lifecycle = fresh.newInstance();
+        SsfAuditLogSource.lifecycle = () -> lifecycle;
+        SsfAuditLogSource.forgetUndeployRegistration();
+
+        SsfAuditLogSource.attachTo(this.ctx, SsfAuditLogSource.forTest(new AuditEventMapper(), "https://op.example.com", this.captured::add));
+        SsfAuditLogSource.detach(); // SSF restarting: attaches again, and registers no second time
+        SsfAuditLogSource.attachTo(this.ctx, SsfAuditLogSource.forTest(new AuditEventMapper(), "https://op.example.com", this.captured::add));
+        assertEquals(1, SsfAuditLogSource.attachedCount());
+        List<Lifecycle.Closed> closed = lifecycle.shutdown();
+        assertEquals(List.of("SSF audit source"), closed.stream().map(Lifecycle.Closed::name).toList(), "registered once");
+        assertEquals(Lifecycle.Outcome.CLOSED, closed.get(0).outcome());
+        assertEquals(0, SsfAuditLogSource.attachedCount());
+        this.ctx.reconfigure(pfLikeConfiguration(IDP_AUDIT));
+        assertEquals(0, SsfAuditLogSource.attachedCount(), "no listener left behind");
+        audit(IDP_AUDIT, "SRI_REVOKED", "bob", null);
+        assertTrue(this.captured.isEmpty());
+        assertEquals("ssf.audit.source.detached/undeploy", auditEvents().get(auditEvents().size() - 1));
+        SsfAuditLogSource.forgetUndeployRegistration();
     }
 
     @Test

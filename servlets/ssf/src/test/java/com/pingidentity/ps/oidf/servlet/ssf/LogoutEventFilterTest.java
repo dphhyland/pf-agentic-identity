@@ -95,7 +95,7 @@ class LogoutEventFilterTest {
         HttpServletRequest req = mock(HttpServletRequest.class);
         when(req.getParameter("id_token_hint")).thenReturn(
                 LogoutSubjectVerificationTest.idToken(pfKey, PF_ISSUER, "alice", LogoutEventFilter.nowSeconds()));
-        LogoutEventFilter f = filter(r -> LogoutEventFilter.readHint(r, PfIdTokenVerifier.withKeys(new JsonWebKeySet(pfKey), PF_ISSUER),
+        LogoutEventFilter f = filter(r -> LogoutEventFilter.readVerifiedHint(r, PfIdTokenVerifier.withKeys(new JsonWebKeySet(pfKey), PF_ISSUER),
                 LogoutSubjectVerificationTest.settings(Map.of())));
 
         f.doFilter(req, response(200, null), mock(FilterChain.class));
@@ -222,7 +222,7 @@ class LogoutEventFilterTest {
     void aLogoutTokenParameterIsNotRead() {
         HttpServletRequest req = mock(HttpServletRequest.class);
         when(req.getParameter("logout_token")).thenReturn("a.logout.token");
-        assertNull(LogoutEventFilter.readHint(req, (jwt, now, max) -> {
+        assertNull(LogoutEventFilter.readVerifiedHint(req, (jwt, now, max) -> {
             throw new AssertionError("nothing to verify");
         }, LogoutSubjectVerificationTest.settings(Map.of())));
     }

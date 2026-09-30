@@ -74,8 +74,9 @@ abstract class PushHeaderAtRestContract {
     }
 
     @Test
-    void productionWithoutAKeyStoresNoHeaderAndRefusesToStartOverOne() throws Exception {
+    void productionWithoutAKeyStoresNoHeaderAndRefusesToStart() throws Exception {
         SsfStore store = store(cipher(null, null));
+        assertThrows(PushHeaderCipher.KeyMissing.class, () -> cipher(null, null).refuseWithoutKey(store), "whatever the store holds");
         String id = SsfStoreContract.newId();
         assertThrows(PushHeaderCipher.KeyMissing.class, () -> store.createStream(pushWithHeader(id, HEADER)));
         assertTrue(store.getStream(id).isEmpty());
@@ -83,7 +84,7 @@ abstract class PushHeaderAtRestContract {
 
         String held = SsfStoreContract.newId();
         store(PushHeaderCipher.CLEAR).createStream(pushWithHeader(held, HEADER));
-        assertThrows(PushHeaderCipher.KeyMissing.class, () -> cipher(null, null).refuseStoredWithoutKey(store));
+        assertThrows(PushHeaderCipher.KeyMissing.class, () -> cipher(null, null).refuseWithoutKey(store));
     }
 
     @Test

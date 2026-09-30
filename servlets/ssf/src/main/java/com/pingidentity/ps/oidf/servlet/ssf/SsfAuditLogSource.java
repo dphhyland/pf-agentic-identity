@@ -88,6 +88,8 @@ public final class SsfAuditLogSource extends AbstractAppender {
     /** The configuration the source is hooked into: log4j also fires PROPERTY_CONFIG for updateLoggers on it. */
     private static volatile Configuration hookedInto;
     private static boolean lifecycleRegistered;
+    /** The lifecycle that detaches the source at undeploy: this loader's; a test's own, to run its shutdown. */
+    static Supplier<Lifecycle> lifecycle = Lifecycle::current;
 
     private final AuditEventMapper mapper;
     private final String issuer;
@@ -255,7 +257,7 @@ public final class SsfAuditLogSource extends AbstractAppender {
     private static void registerForUndeploy() {
         if (!lifecycleRegistered) {
             lifecycleRegistered = true;
-            Lifecycle.current().register("SSF audit source", SsfAuditLogSource::undeploy);
+            lifecycle.get().register("SSF audit source", SsfAuditLogSource::undeploy);
         }
     }
 
@@ -286,6 +288,11 @@ public final class SsfAuditLogSource extends AbstractAppender {
         attached = null;
         attachedTo = List.of();
         SsfEvents.auditDetached(trigger);
+    }
+
+    /** Forgets the undeploy registration, so the next attach registers with {@link #lifecycle} again (tests). */
+    static synchronized void forgetUndeployRegistration() {
+        lifecycleRegistered = false;
     }
 
     /** How many loggers the source is attached to now (tests, and the rig check). */

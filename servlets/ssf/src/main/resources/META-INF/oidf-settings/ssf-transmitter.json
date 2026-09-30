@@ -2093,7 +2093,7 @@
       "description": "32 bytes, base64 (openssl rand -base64 32): the AES-256-GCM key that encrypts a push stream's authorization_header in the SSF store; a value sealed under it carries its key id",
       "when_wrong": {
         "effect": "doesnt-start",
-        "detail": "Not 32 bytes of base64: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. Unset under the production profile with a JDBC or ldm store: SSF is FAILED_CONFIG naming the setting if the store holds a push header, and a new stream's authorization_header is refused (500, with an ERROR naming the setting); under development headers are stored in clear, with a WARN. Changed without the old key in OIDF_SSF_SECRET_KEY_PREVIOUS: headers sealed under the old key stay sealed, an ERROR names its key id, and those streams' pushes are refused by their receivers"
+        "detail": "Not 32 bytes of base64: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. Unset under the production profile with a JDBC or ldm store: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting (and counting the push headers the store already holds); under development headers are stored in clear, with a WARN. Changed without the old key in OIDF_SSF_SECRET_KEY_PREVIOUS: headers sealed under the old key stay sealed, an ERROR names its key id, and those streams' pushes are refused by their receivers"
       },
       "profile": "any",
       "security": true,

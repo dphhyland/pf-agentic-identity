@@ -10,8 +10,8 @@ verification: >
   Closed 2026-10-01 by package HSSF3 (PR #97). A push stream's authorization_header is sealed at rest by both
   JDBC stores with AES-256-GCM under OIDF_SSF_SECRET_KEY (ssfenc:v1:<kid>:..., the stream id bound as additional data);
   OIDF_SSF_SECRET_KEY_PREVIOUS opens values during a rotation, a clear value from an earlier version is read and sealed
-  on the stream's next write, and production refuses to store a header without the key (and is FAILED_CONFIG naming it
-  when the store holds one). Tested on PostgreSQL on both stores (JdbcPushHeaderOnPostgresTest, LdmPushHeaderOnPostgresTest,
+  on the stream's next write, and under production SSF over a JDBC or ldm store without the key is FAILED_CONFIG naming
+  it; a header a receiver sends with the ssfenc:v1: prefix is sealed like any other. Tested on PostgreSQL on both stores (JdbcPushHeaderOnPostgresTest, LdmPushHeaderOnPostgresTest,
   the IOM fixture). Kafka: security.protocol defaults to SSL, PLAINTEXT and SASL_PLAINTEXT are forbidden-in-production in
   the catalogue and refused again by KafkaSetPublisher through ProfileRefusals; the ssl.* truststore, keystore and
   host-name settings are catalogued and passed through; every JAAS value is quoted for Kafka's StreamTokenizer

@@ -40,9 +40,10 @@
    (`openssl rand -base64 32`) and set `OIDF_SSF_SECRET_KEY` (or `OIDF_SSF_SECRET_KEY_FILE`) on every node that runs
    the SSF transmitter with a JDBC or `ldm` store. Why: a push stream's `authorization_header` is the credential the
    transmitter presents at the receiver's endpoint, and until 0.6.0 the store kept it in clear. How to tell: under the
-   production profile, a stream create or update that carries an `authorization_header` without the key answers 500
-   with an ERROR naming `OIDF_SSF_SECRET_KEY`, and SSF is `FAILED_CONFIG` naming it (its endpoints 503) when the store
-   already holds a push stream with a header; a key that is not 32 bytes of base64 is `FAILED_CONFIG` too. What to
+   production profile, SSF over a JDBC or `ldm` store without the key is `FAILED_CONFIG` (its endpoints 503), with an
+   ERROR in server.log naming `OIDF_SSF_SECRET_KEY` and counting the push headers the store already holds - whether or
+   not it holds any, since any push stream a receiver creates may carry one; a key that is not 32 bytes of base64 is
+   `FAILED_CONFIG` too. What to
    change: set the key and restart. Existing headers are read as they are and encrypted on each stream's next write -
    to encrypt them all at once, have each receiver post its current status to `/ssf/status`, or pause and re-enable
    each stream. To rotate later, move the old key to `OIDF_SSF_SECRET_KEY_PREVIOUS` and set a new one. Keep the key:
@@ -56,7 +57,7 @@
    profile, `PLAINTEXT` or `SASL_PLAINTEXT` set anywhere refuses SSF (`REFUSED`, its endpoints 503, the start-up audit
    and an ERROR naming `OIDF_SSF_KAFKA_SECURITY_PROTOCOL`), and so does `OIDF_SSF_KAFKA_SSL_HOSTNAME_VERIFICATION=false`;
    a deployment that set no protocol now connects with TLS, so against a plaintext listener each publish fails and is
-   logged (the streams still get their SETs; not run against a broker here, U-0410). A send now blocks the thread that raised the event for at most
+   logged and counted (`ssf.set.dropped`, reason `kafka`) (the streams still get their SETs; not run against a broker here, U-0410). A send now blocks the thread that raised the event for at most
    `OIDF_SSF_KAFKA_MAX_BLOCK_MS` (2 s) rather than Kafka's minute. What to change: the protocol and the `ssl.*`
    settings; a SASL user name or password with quotes, backslashes or semicolons in it now works as written.
    Development-profile escape: `PLAINTEXT`, `SASL_PLAINTEXT` and host-name verification off are used with a WARN.
@@ -74,9 +75,12 @@
    delivers session-established, credential-change or account-purged now gets them when PingFederate audits a new
    authentication session (`AUTHN_SESSION_CREATED`), a local identity's password change (`PWD_CHANGE`) or its deletion
    (`ACCOUNT_DELETE`), and session-revoked for `AUTHN_SESSIONS_DELETED`; every SET now carries `txn`. Why: plan item
-   H-SSF-5 asks for every PingFederate audit event that maps to a CAEP or RISC event without ambiguity. How to tell:
-   `ssf.set.emitted` counts them by event type. What to change: to keep an event out, remove its mapping
-   (`OIDF_SSF_AUDIT_EVENT_MAP=AUTHN_SESSION_CREATED=`) or leave it out of the stream's `events_requested`; a mapping to
+   H-SSF-5 asks for every PingFederate audit event that maps to a CAEP or RISC event without ambiguity. The cost:
+   every login now passes through the transmitter on the thread writing its audit record - a query listing the
+   streams, and for each stream that subscribes to the subject, signing a SET, queueing it and, with Kafka on, a send
+   that can block for up to `OIDF_SSF_KAFKA_MAX_BLOCK_MS`. How to tell: `ssf.set.emitted` counts them by event type.
+   What to change: to keep an event out, remove its mapping (`OIDF_SSF_AUDIT_EVENT_MAP=AUTHN_SESSION_CREATED=`, which
+   also takes the per-login work away) or leave it out of the stream's `events_requested`; a mapping to
    `credential-change` now names its CAEP credential type (`PWD_SET=credential-change:password:update`), and one that names
    none sends nothing. Development-profile escape: none; this is not a profile rule.
 

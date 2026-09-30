@@ -89,7 +89,7 @@ class LogoutSubjectVerificationTest {
     }
 
     private static LogoutEventFilter.Hint read(HttpServletRequest req, LogoutEventFilter.IdTokenVerifier verifier) {
-        return LogoutEventFilter.readHint(req, verifier, DEFAULTS);
+        return LogoutEventFilter.readVerifiedHint(req, verifier, DEFAULTS);
     }
 
     @Test
@@ -151,7 +151,7 @@ class LogoutSubjectVerificationTest {
         RsaJsonWebKey pfKey = key("pf-1");
         Settings hour = settings(Map.of(LogoutEventFilter.MAX_AGE_SETTING, "3600"));
         String twoHours = idToken(pfKey, PF_ISSUER, "alice", now() - 7_200);
-        assertEquals(LogoutEventFilter.HINT_TOO_OLD, LogoutEventFilter.readHint(request(twoHours, null),
+        assertEquals(LogoutEventFilter.HINT_TOO_OLD, LogoutEventFilter.readVerifiedHint(request(twoHours, null),
                 PfIdTokenVerifier.withKeys(new JsonWebKeySet(pfKey), PF_ISSUER), hour).refusal());
         assertEquals(3_600L, LogoutEventFilter.maxAgeSeconds(hour));
         assertEquals(LogoutEventFilter.DEFAULT_MAX_AGE_SECONDS, LogoutEventFilter.maxAgeSeconds(DEFAULTS));
@@ -311,12 +311,23 @@ class LogoutSubjectVerificationTest {
         Settings allowed = settings(Map.of("OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM", "true"));
         LogoutEventFilter.IdTokenVerifier verifier = (jwt, now, maxAge) -> LogoutEventFilter.Hint.refused(LogoutEventFilter.HINT_INVALID);
 
-        LogoutEventFilter.Hint hint = LogoutEventFilter.readHint(request(null, "alice"), verifier, allowed);
+        LogoutEventFilter.Hint hint = LogoutEventFilter.readVerifiedHint(request(null, "alice"), verifier, allowed);
         assertEquals(SubjectId.opaque("alice"), hint.subject(), "the dev-rig escape hatch still works when deliberately switched on");
         assertNull(hint.replayKey());
-        assertEquals(SubjectId.opaque("bob"), LogoutEventFilter.readHint(request("not-a-jwt", "bob"), verifier, allowed).subject(),
+        assertEquals(SubjectId.opaque("bob"), LogoutEventFilter.readVerifiedHint(request("not-a-jwt", "bob"), verifier, allowed).subject(),
                 "a refused hint falls back to the sub parameter only when it is allowed");
-        assertNull(LogoutEventFilter.readHint(request(null, " "), verifier, allowed));
+        assertNull(LogoutEventFilter.readVerifiedHint(request(null, " "), verifier, allowed));
+        assertNull(LogoutEventFilter.readVerifiedHint(request(null, null), verifier, allowed), "allowed, and no sub: nothing");
+    }
+
+    /** A blank hint is no hint, and a verifier that answers nothing is not a subject, with or without the escape hatch. */
+    @Test
+    void aBlankHintOrNoAnswerNamesNoOne() {
+        LogoutEventFilter.IdTokenVerifier nothing = (jwt, now, maxAge) -> null;
+        assertNull(LogoutEventFilter.readVerifiedHint(request(" ", null), (jwt, now, maxAge) -> {
+            throw new AssertionError("a blank hint is not verified");
+        }, DEFAULTS));
+        assertNull(LogoutEventFilter.readVerifiedHint(request("a.b.c", "victim"), nothing, DEFAULTS));
     }
 
     /** Plan item ST-5: the switch is read through its catalogue, strictly; a value that does not parse takes nothing. */

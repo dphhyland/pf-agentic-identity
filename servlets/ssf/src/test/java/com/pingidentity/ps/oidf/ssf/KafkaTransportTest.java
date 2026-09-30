@@ -263,4 +263,51 @@ class KafkaTransportTest {
         assertEquals("SSL", KafkaSetPublisher.protocolOf(new SsfConfiguration.Builder().issuer("https://op.example.com")
                 .kafkaSecurityProtocol(" ").build()));
     }
+
+    /** Kafka's Callback, as the producer declares it: onCompletion(RecordMetadata, Exception). */
+    public interface Completion {
+        void onCompletion(Object metadata, Exception exception);
+    }
+
+    /** A record the producer fails after send() returned (delivery.timeout.ms) reaches the callback, and is counted. */
+    @Test
+    void aFailureTheProducerReportsLaterIsCounted() {
+        List<Event> events = new CopyOnWriteArrayList<>();
+        Events.configure(events::add);
+        List<Completion> callbacks = new CopyOnWriteArrayList<>();
+        new KafkaSetPublisher("t", new KafkaSetPublisher.Sender() {
+            @Override
+            public void send(String topic, String key, String value) {
+                throw new AssertionError("the publisher sends with a callback");
+            }
+
+            @Override
+            public void send(String topic, String key, String value, java.util.function.Consumer<Exception> failed) {
+                callbacks.add((Completion) KafkaSetPublisher.callback(Completion.class, failed));
+            }
+        }).publish(SsfEventTypes.CAEP_SESSION_REVOKED, "k", "jws", 1L);
+        assertEquals(1, callbacks.size());
+        assertTrue(events.isEmpty(), "nothing counted while the record is in flight");
+        callbacks.get(0).onCompletion("metadata", null);
+        assertTrue(events.isEmpty(), "acknowledged: nothing counted");
+        callbacks.get(0).onCompletion(null, new IOException("Expiring 1 record(s): 30000 ms has passed since batch creation"));
+        assertEquals(1, events.size());
+        assertEquals("ssf.set.dropped", events.get(0).code());
+        assertEquals("kafka", events.get(0).reason());
+        Object callback = callbacks.get(0);
+        assertEquals(callback, callback);
+        assertFalse(callback.equals(new Object()));
+        assertEquals(System.identityHashCode(callback), callback.hashCode());
+        assertEquals("SSF Kafka callback", callback.toString());
+    }
+
+    @Test
+    void theDefaultSendWithACallbackSendsWithout() throws Exception {
+        List<String> sent = new CopyOnWriteArrayList<>();
+        KafkaSetPublisher.Sender plain = (topic, key, value) -> sent.add(value);
+        plain.send("t", "k", "v", e -> {
+            throw new AssertionError(e);
+        });
+        assertEquals(List.of("v"), sent);
+    }
 }

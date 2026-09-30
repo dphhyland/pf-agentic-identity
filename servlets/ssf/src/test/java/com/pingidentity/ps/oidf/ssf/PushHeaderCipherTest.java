@@ -71,7 +71,42 @@ class PushHeaderCipherTest {
         PushHeaderCipher newOnly = PushHeaderCipher.of(KEY_2, null, true);
         assertEquals(sealedOld, newOnly.open("s", sealedOld), "the old key gone: left sealed, reported once");
         assertEquals(sealedOld, newOnly.open("s", sealedOld));
-        assertEquals(sealedOld, newOnly.seal("s", sealedOld), "a value already sealed is written back as it is");
+        assertEquals(sealedOld, newOnly.seal("s", sealedOld), "a stored value no key opens is written back as it is");
+    }
+
+    /** The memory of unopened values is bounded: past it, a value is sealed again rather than kept (still not lost). */
+    @Test
+    void theMemoryOfUnopenedValuesIsBounded() {
+        PushHeaderCipher c = PushHeaderCipher.of(KEY_1, null, true);
+        for (int i = 0; i < PushHeaderCipher.UNOPENED_CAPACITY; i++) {
+            c.open("s", "ssfenc:v1:lostkey:" + i);
+        }
+        String kept = "ssfenc:v1:lostkey:0";
+        assertEquals(kept, c.seal("s", kept));
+        String past = "ssfenc:v1:lostkey:past";
+        assertEquals(past, c.open("s", past));
+        String sealed = c.seal("s", past);
+        assertNotEquals(past, sealed);
+        assertEquals(past, c.open("s", sealed), "sealed again, and opens back to the stored text");
+    }
+
+    /**
+     * Only a value read from the store and not opened is written back as it is: a header a receiver sends that merely
+     * starts with the prefix is sealed like any other, and opens back to what it sent.
+     */
+    @Test
+    void aReceiverCannotSkipTheSealWithThePrefix() {
+        PushHeaderCipher c = PushHeaderCipher.of(KEY_1, null, true);
+        String forged = "ssfenc:v1:AAAAAAAAAAAAAAAA:Bearer receiver-secret";
+        String stored = c.seal("s", forged);
+        assertNotEquals(forged, stored);
+        assertTrue(stored.startsWith("ssfenc:v1:" + c.kid() + ":"), stored);
+        assertFalse(stored.contains("receiver-secret"));
+        assertEquals(forged, c.open("s", stored), "opens back to exactly what the receiver sent");
+
+        PushHeaderCipher production = PushHeaderCipher.of(null, null, true);
+        assertThrows(PushHeaderCipher.KeyMissing.class, () -> production.seal("s", forged),
+                "the prefix does not get past production's refusal either");
     }
 
     /** A clear value an earlier version stored reads as it is, and is sealed on the stream's next write. */
@@ -116,23 +151,30 @@ class PushHeaderCipherTest {
         assertTrue(PushHeaderCipher.of(urlSafe, null, true).hasKey(), "base64url is taken too");
     }
 
-    /** Production with no key refuses to start over a store that holds a header; with none, or a key, it starts. */
+    /** Production with no key does not start a store, whatever it holds; with a key, or under development, it starts. */
     @Test
-    void productionWithoutAKeyRefusesAStoreThatHoldsAHeader() {
+    void productionWithoutAKeyRefusesTheStore() {
         InMemorySsfStore store = new InMemorySsfStore();
-        PushHeaderCipher.of(null, null, true).refuseStoredWithoutKey(store);
+        PushHeaderCipher.KeyMissing empty = assertThrows(PushHeaderCipher.KeyMissing.class,
+                () -> PushHeaderCipher.of(null, null, true).refuseWithoutKey(store));
+        assertTrue(empty.getMessage().startsWith("OIDF_SSF_SECRET_KEY is not set: under the production profile"),
+                empty.getMessage());
+        assertFalse(empty.getMessage().contains("holds"), empty.getMessage());
+        PushHeaderCipher.of(null, null, false).refuseWithoutKey(store);
         store.createStream(Stream.builder().id("p").audience("https://r").deliveryMethod(DeliveryMethod.PUSH)
                 .pushEndpointUrl("https://r/events").eventsRequested(java.util.List.of()).eventsDelivered(java.util.List.of())
                 .status(StreamStatus.ENABLED).build());
-        PushHeaderCipher.of(null, null, true).refuseStoredWithoutKey(store);
+        assertThrows(PushHeaderCipher.KeyMissing.class, () -> PushHeaderCipher.of(null, null, true).refuseWithoutKey(store),
+                "a push stream without a header: still refused, since the next may carry one");
         store.createStream(Stream.builder().id("q").audience("https://r").deliveryMethod(DeliveryMethod.PUSH)
                 .pushEndpointUrl("https://r/events").pushAuthorizationHeader("Bearer x").eventsRequested(java.util.List.of())
                 .eventsDelivered(java.util.List.of()).status(StreamStatus.ENABLED).build());
         PushHeaderCipher.KeyMissing e = assertThrows(PushHeaderCipher.KeyMissing.class,
-                () -> PushHeaderCipher.of(null, null, true).refuseStoredWithoutKey(store));
+                () -> PushHeaderCipher.of(null, null, true).refuseWithoutKey(store));
         assertTrue(e.getMessage().contains("holds 1 push stream(s)"), e.getMessage());
-        PushHeaderCipher.of(KEY_1, null, true).refuseStoredWithoutKey(store);
-        PushHeaderCipher.of(null, null, false).refuseStoredWithoutKey(store);
+        assertTrue(e.getMessage().endsWith("each is encrypted on its stream's next write"), e.getMessage());
+        PushHeaderCipher.of(KEY_1, null, true).refuseWithoutKey(store);
+        PushHeaderCipher.of(null, null, false).refuseWithoutKey(store);
     }
 
     @Test

@@ -44,7 +44,7 @@ public final class PfJdbcStoreFactory implements SsfSupport.StoreFactory {
                 ? new DriverManagerDataSource(config.jdbcUrl(), config.jdbcUsername(), config.jdbcPassword())
                 : new PfManagedDataSource(config.dataStoreId());
         checkDatabase(ds, source);
-        // H-SSF-7: a push stream's authorization_header is sealed at rest; production refuses to keep one without the key.
+        // H-SSF-7: a push stream's authorization_header is sealed at rest; production does not start the store without the key.
         PushHeaderCipher headers = config.pushHeaderCipher(DeploymentProfile.current().isProduction());
         SsfStore store;
         if ("ldm".equals(config.storeDialect())) {
@@ -56,7 +56,7 @@ public final class PfJdbcStoreFactory implements SsfSupport.StoreFactory {
             tables.ensureSchema();
             store = tables;
         }
-        headers.refuseStoredWithoutKey(store);
+        headers.refuseWithoutKey(store);
         return store;
     }
 

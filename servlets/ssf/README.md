@@ -101,7 +101,7 @@ development profile reads a switch's legacy spelling (`yes`, `no`, `1`, `0`, `on
 | Receiver auth | `receiverScope` (`ssf.manage`), `provisionerScope` (unset - nobody may use SCIM; suggested `ssf.provision`, must differ from `receiverScope` or SSF is `FAILED_CONFIG`), `allowedAudiences` (`clientA=aud1,aud2;clientB=aud3` - the `aud` values a client may name on create besides its own id, see [What the transmitter signs](#what-the-transmitter-signs)), `unownedStreamOwner` (unset - see [Stream ownership](#stream-ownership)), `introspectionEndpoint` (`<issuer>/as/introspect.oauth2`), `introspectionClientId`/`introspectionClientSecret` (deployed as secrets), `introspectionInsecureTls` (false; `true` trusts any certificate chain on the introspection call through libs/platform's `InsecureTls`, which warns once - the host name is still checked; refused in production) |
 | Receiver | `receiverExpectedIssuer` (turns the receiver on), `receiverJwksUrl`, `receiverAudience` and `receiverEndpointAuthToken` (**both required once the receiver is on** - missing either, `SSF_RECEIVER` is `FAILED_CONFIG` and an ERROR says which),  `receiverJwksCacheSeconds` (300), `receiverInsecureTls` (false; `true` trusts any certificate chain on the JWKS fetch, the poll and the stream calls through libs/platform's `InsecureTls`, which warns once - the host name is still checked; refused in production), `receiverPollUrl`/`receiverPollIntervalSeconds` (10), `receiverPollToken` (development only; refused in production), `receiverTokenEndpoint`/`receiverClientId`/`receiverClientSecret` or `receiverClientKey`/`receiverClientScope` (the receiver's token by client credentials), `receiverTransmitterConfigurationUrl`/`receiverPushEndpointUrl`/`receiverEventsRequested` (the receiver's own stream), `receiverSubjectIssuers`, `receiverActionsEnabled` (true) - see [The receiver](#the-receiver) |
 | Sources | `auditEventsEnabled` (true), `auditEventMap` ([The audit source](#the-audit-source)); the logout filter's `OIDF_SSF_LOGOUT_HINT_MAX_AGE_SECONDS` (86400) and `OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM` (false), in their own catalogue ([docs/configuration/ssf-logout-signal.md](../../docs/configuration/ssf-logout-signal.md)) |
-| Push headers | `secretKey` (`OIDF_SSF_SECRET_KEY`, 32 bytes base64; production needs it before a push header is stored), `secretKeyPrevious` (during a rotation) - [Push headers at rest](#push-headers-at-rest) |
+| Push headers | `secretKey` (`OIDF_SSF_SECRET_KEY`, 32 bytes base64; production does not start the tables or `ldm` store without it), `secretKeyPrevious` (during a rotation) - [Push headers at rest](#push-headers-at-rest) |
 | Kafka | `kafkaEnabled` (false), `kafkaBootstrapServers`, `kafkaTopic` (`sse-events`), `kafkaSecurityProtocol` (`SSL`; `PLAINTEXT` and `SASL_PLAINTEXT` refused in production), `kafkaSaslMechanism`/`kafkaSaslUsername`/`kafkaSaslPassword`, `kafkaSslTruststoreLocation`/`Password`/`Type`, `kafkaSslKeystoreLocation`/`Password`/`Type`, `kafkaSslKeyPassword`, `kafkaSslHostnameVerification` (true; false refused in production), `kafkaRequestTimeoutMs` (10000), `kafkaDeliveryTimeoutMs` (30000), `kafkaMaxBlockMs` (2000) - [Kafka](#kafka) |
 
 ## Push delivery
@@ -579,9 +579,13 @@ ciphertext>`, the stream's id bound in as additional data, so a sealed value cop
   update of the stream: the receiver's `PATCH` or `PUT` of its configuration, or a `POST` to `/ssf/status`. To seal
   every one at once, have each receiver post its current status (`{"stream_id": ..., "status": "enabled"}`), or pause
   and re-enable each stream.
-- **Production without the key**: a stream write that carries a header is refused (500, an ERROR naming
-  `OIDF_SSF_SECRET_KEY`), and SSF is `FAILED_CONFIG` naming it when the store already holds a header. Under
-  development a header is stored in clear, with a WARN.
+- **Production without the key**: SSF over a tables or `ldm` store does not start - it is `FAILED_CONFIG`, its
+  endpoints answer 503, and an ERROR names `OIDF_SSF_SECRET_KEY` and counts the headers the store already holds -
+  since any push stream a receiver creates may carry a header. Under development a header is stored in clear, with a
+  WARN.
+- **Only a stored value is kept sealed as it is.** A header a receiver sends that happens to start with `ssfenc:v1:` is
+  sealed like any other and opens back to what it sent; only a value read from the store that no key opens is written
+  back unchanged.
 - A value neither key opens stays sealed - so writing the stream does not lose it - and is what the receiver is sent,
   which it refuses; an ERROR names the key id once. The in-memory store keeps headers in memory only, unsealed.
 - A sealed header is a third longer than the clear one, plus about 64 characters; the tables store's column holds 4096,
@@ -677,7 +681,7 @@ push endpoint itself no longer has an open state: no configured token, no delive
 - **An https issuer** in production, **a cap on streams per receiver** (10), **`OIDF_SSF_BASE_PATH` removed** and
   **SCIM `PUT` replaces** (a provisioner that sent part of a user must send all of it): [Stream management](#stream-management)
   and [SCIM](#scim).
-- **`OIDF_SSF_SECRET_KEY`** before a push stream's `authorization_header` is stored in production, **Kafka over TLS**
+- **`OIDF_SSF_SECRET_KEY`** for SSF over a tables or `ldm` store in production, **Kafka over TLS**
   (`SSL` is the default; `PLAINTEXT` and `SASL_PLAINTEXT` are refused in production), **the logout signal** only for a
   recent, verified ID token hint, once, and **a wider audit vocabulary**: [Push headers at rest](#push-headers-at-rest),
   [Kafka](#kafka), [The logout signal](#the-logout-signal) and [The audit source](#the-audit-source).

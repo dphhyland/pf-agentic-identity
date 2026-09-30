@@ -7,10 +7,14 @@ package com.pingidentity.ps.oidf.ssf;
 import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.platform.profile.ProfileRefusals;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.util.Locale;
 import java.util.Properties;
 import java.util.Set;
+import java.util.function.Consumer;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -20,7 +24,9 @@ import org.apache.commons.logging.LogFactory;
  * driven entirely by reflection against {@code org.apache.kafka.clients.producer.*}, so this module needs no
  * {@code kafka-clients} at compile time and — because {@link #create} is only called when {@code kafkaEnabled}
  * is true — triggers no Kafka classloading when the connector is off. Publishing is best-effort: a send failure
- * is logged and counted ({@code ssf.set.dropped} {@code kafka}), never propagated.
+ * is logged and counted ({@code ssf.set.dropped} {@code kafka}), never propagated - one {@code send()} raises itself
+ * (metadata or buffer space not had within {@code max.block.ms}), and one the producer reports later through the send's
+ * callback (the record not acknowledged within {@code delivery.timeout.ms}).
  *
  * <p><b>Transport</b> (plan items H-SSF-7 and PR-2, finding F-0058). {@code security.protocol} is {@code SSL} unless
  * {@code OIDF_SSF_KAFKA_SECURITY_PROTOCOL} says otherwise; {@code PLAINTEXT} and {@code SASL_PLAINTEXT} are refused under
@@ -52,6 +58,11 @@ public final class KafkaSetPublisher implements SetPublisher {
     /** The producer send, isolated for testing: (topic, key, value) -> fire-and-forget. */
     public interface Sender {
         void send(String topic, String key, String value) throws Exception;
+
+        /** The same, with {@code failed} told of a failure the producer reports after the send returned. */
+        default void send(String topic, String key, String value, Consumer<Exception> failed) throws Exception {
+            send(topic, key, value);
+        }
 
         default void close() {
         }
@@ -103,11 +114,16 @@ public final class KafkaSetPublisher implements SetPublisher {
     public void publish(String eventType, String subjectKey, String setJws, long iat) {
         String value = KafkaEnvelope.json(eventType, subjectKey, setJws, iat);
         try {
-            this.sender.send(this.topic, subjectKey, value);
+            this.sender.send(this.topic, subjectKey, value, e -> failed(eventType, e));
         } catch (Exception e) {
-            LOGGER.warn((Object) ("Kafka publish failed for event " + eventType + ": " + e.getMessage()));
-            SsfEvents.setDropped(eventType, null, SsfEvents.KAFKA);
+            failed(eventType, e);
         }
+    }
+
+    /** A SET Kafka did not take: logged and counted, whether send() raised it or the producer reported it later. */
+    private static void failed(String eventType, Exception e) {
+        LOGGER.warn((Object) ("Kafka publish failed for event " + eventType + ": " + e.getMessage()));
+        SsfEvents.setDropped(eventType, null, SsfEvents.KAFKA);
     }
 
     @Override
@@ -121,16 +137,26 @@ public final class KafkaSetPublisher implements SetPublisher {
         try {
             Class<?> producerCls = Class.forName("org.apache.kafka.clients.producer.KafkaProducer");
             Class<?> recordCls = Class.forName("org.apache.kafka.clients.producer.ProducerRecord");
+            Class<?> callbackCls = Class.forName("org.apache.kafka.clients.producer.Callback");
             Object producer = producerCls.getConstructor(Properties.class).newInstance(producerProps(config));
             Constructor<?> recordCtor = recordCls.getConstructor(String.class, Object.class, Object.class);
-            Method sendMethod = producerCls.getMethod("send", recordCls);
+            Method sendMethod = producerCls.getMethod("send", recordCls, callbackCls);
             Method closeMethod = producerCls.getMethod("close");
             LOGGER.info((Object) ("Kafka SET publisher: topic '" + config.kafkaTopic() + "' via "
                     + config.kafkaBootstrapServers() + " (" + protocolOf(config) + ")"));
             return new Sender() {
                 @Override
                 public void send(String topic, String key, String value) throws Exception {
-                    sendMethod.invoke(producer, recordCtor.newInstance(topic, key, value));
+                    send(topic, key, value, e -> LOGGER.warn((Object) ("Kafka publish failed: " + e.getMessage())));
+                }
+
+                @Override
+                public void send(String topic, String key, String value, Consumer<Exception> failed) throws Exception {
+                    try {
+                        sendMethod.invoke(producer, recordCtor.newInstance(topic, key, value), callback(callbackCls, failed));
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause() instanceof Exception cause ? cause : e;
+                    }
                 }
 
                 @Override
@@ -148,6 +174,34 @@ public final class KafkaSetPublisher implements SetPublisher {
         } catch (Exception e) {
             throw new IllegalStateException("failed to create Kafka producer: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * A {@code Callback} for {@code callbackType} (Kafka's {@code org.apache.kafka.clients.producer.Callback}, whose one
+     * method is {@code onCompletion(RecordMetadata metadata, Exception exception)}) that hands a non-null exception to
+     * {@code failed}: the producer calls it on its I/O thread when a record is acknowledged or has failed.
+     */
+    static Object callback(Class<?> callbackType, Consumer<Exception> failed) {
+        InvocationHandler handler = (proxy, method, args) -> {
+            switch (method.getName()) {
+                case "onCompletion" -> {
+                    if (args != null && args.length == 2 && args[1] instanceof Exception e) {
+                        failed.accept(e);
+                    }
+                    return null;
+                }
+                case "equals" -> {
+                    return proxy == args[0];
+                }
+                case "hashCode" -> {
+                    return System.identityHashCode(proxy);
+                }
+                default -> {
+                    return "SSF Kafka callback";
+                }
+            }
+        };
+        return Proxy.newProxyInstance(callbackType.getClassLoader(), new Class<?>[] {callbackType}, handler);
     }
 
     /**
