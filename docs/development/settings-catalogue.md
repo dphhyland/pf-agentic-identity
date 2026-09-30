@@ -267,8 +267,8 @@ package that converts that reader asks `ProfileRefusals` under that name.
 | `ssf-transmitter` | `SSF`, `SSF_RECEIVER` |
 <!-- end components table -->
 The table is coarse on purpose where one catalogue serves several components: a switch in `federation-runtime`
-refuses `FEDERATION`, `AUTO_REGISTRATION` and `ATTESTATION_AUTH` together until ST5F, which owns that catalogue,
-narrows each entry. `deployment-profile` and `pf-audit` refuse every component: the profile and the audit switch
+refuses `FEDERATION`, `AUTO_REGISTRATION` and `ATTESTATION_AUTH` together; its entries carry no per-entry
+`components` in 0.6.0 ([F-0297](../findings/F-0297.yaml), open for 0.7.0), where `ssf-transmitter`'s do. `deployment-profile` and `pf-audit` refuse every component: the profile and the audit switch
 govern the whole process.
 
 ## Enforcement

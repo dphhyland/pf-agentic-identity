@@ -376,7 +376,8 @@ consumes its challenges - the authorization server's with the token-endpoint hoo
 attester - across classloaders. With no Redis URL it is per-node LRU+TTL
 (`InMemoryAttestationChallengeService` / `InMemoryAttestationReplayCache` /
 `InMemoryEvidenceBindingStore`, defaults 8192 entries / 300 s). With one, `RedisAttestationStore`
-implements the three interfaces over `MiniRedisClient`, a dependency-free RESP client: issue is
+implements the three interfaces over platform's `RedisClient` (`platform.redis`, plan item C-2; client-attestation's
+`MiniRedisClient` until 0.5.0), a dependency-free RESP client: issue is
 `SET … EX`, consume is `DEL`, first-seen is `SET … NX EX`, bind is `SET … NX PX` then `GET` and compare.
 One view per namespace - `oidf:as:*`, `oidf:cas:*`, `oidf:fed:endpoint:*`, `oidf:admin:dpop:*` - over one
 shared client. `rediss://` verifies the server's certificate and name (the HTTPS algorithm, SNI) and
@@ -559,7 +560,7 @@ are the thin part.
 | ~~`TokenEndpointAutoRegistrationFilter` — no tests~~ **CLOSED** | 5 tests now, including a `client_assertion` with no `trust_chain` header and one with a blank subject — neither reaches `RegistrationService` |
 | ~~`ClientAttestationUtils` — 3 tests, all on actor preference~~ **Stale, not a gap.** `validateClientAttestation` is covered by `VerifyOnceTest` (the single-verify contract); `attestationClaim`/`delegationActChain` by `AttestationClaimSourceTest` (omission with no verified context, flat and workload-nested reads, the attacker-controlled-header case rejected). `ClientAttestationAuthFilterTest`'s `doFilter` tests exercise the same path again, end to end | These are what actually gate token issuance, and they are exercised — this row was simply out of date |
 | No end-to-end test spanning issuance → token endpoint | Every test is unit-level. `AttestationMinterTest` does verify a minted attestation through `ClientAttestationVerifier`, which is the closest thing to a seam test, but nothing exercises the HTTP path |
-| `MiniRedisClient` `rediss://` (TLS) | The plain path is well covered by `FakeRedisServer`; the TLS path is not |
+| ~~`MiniRedisClient` `rediss://` (TLS)~~ **Closed.** The client is platform's `RedisClient` since 0.5.0; `RedisClientTlsTest` and the TLS half of `RedisLiveTest`, which CI runs against a TLS Redis, test the `rediss://` path | Recorded as F-0183 and closed in 0.6.0 |
 | ~~Signature verification in the OGNL claim hooks~~ **Half-closed.** `attestationClaim` no longer base64-decodes the header — it reads `VERIFIED_ATTESTATION_ATTRIBUTE`, published only once the filter has verified (see [the design doc](attestation-client-auth-design.md), Change 3). `delegationActChain`'s `act` claim is still an unverified read of the caller's `subject_token`, by design: the token-exchange processor validates that token separately, before any issuance | The one remaining unverified read is deliberate and documented, not an oversight |
 | **`OpenIdFederationClientResolver`** | `OpenIdFederationClientResolverTest` runs a real federation from the test kit: a chain that validates to the pinned anchor resolves; an entity the anchor does not vouch for, or a configuration that is not an entity statement, is refused; the answer is kept for its TTL; an outage serves the last answer; an entity the anchor stops vouching for loses its clients within one TTL; malformed bindings are skipped. `attestationClients` and `parse` are gated. `AttesterResolversTest` pins the federation → CIMD → PF order and that a federation entity with no pinned anchor stops the attester starting |
 | ~~`PfIssuanceClientResolver` — no test class~~ **CLOSED** | `PfIssuanceClientResolverTest` (8 tests): unknown/disabled clients excluded, a client missing `attestation_issuer` skipped, one misconfigured client doesn't take the rest of the store down with it |
@@ -865,7 +866,8 @@ statement to expire. The wallet-provider path reads the same anchor set.
   request.~~ **Already covered** — `VerifyOnceTest` predates this slice.
 - ~~`AttesterResolvers` has no test file at all, and `OpenIdFederationClientResolverTest` covers only the
   statement checks.~~ **Done** with slice 1.
-- Still open: `MiniRedisClient`'s `rediss://` path is untested; no test spans issuance → token endpoint end to end.
+- Still open: no test spans issuance → token endpoint end to end. (The Redis client's `rediss://` path, once
+  untested, is tested by `RedisClientTlsTest` and `RedisLiveTest` since 0.5.0.)
 
 ### Slice 5 — Deploy hygiene
 

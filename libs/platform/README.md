@@ -338,7 +338,8 @@ PingFederate image's JDK (OpenJDK 21.0.12.1, BellSoft) on 2026-09-28:
 
 An `SSLSocket` (or `HttpsURLConnection`'s socket layer) given the same context and no endpoint identification
 would check no name at all (`anSslSocketWithTheSameContextChecksNoName`), which is why the context is not handed
-out. No site here uses one: `MiniRedisClient` builds its own `SSLSocket`, verifying, with the algorithm set.
+out. No site here uses one: the Redis client's `RedisConnection` builds its own `SSLSocket`, verifying, with the
+algorithm set.
 
 Every site, with the semantics it had before and keeps:
 
@@ -349,8 +350,8 @@ Every site, with the semantics it had before and keeps:
 | ssf `SetVerifier`, `PollReceiverClient`, `ReceiverStreamClient` | `OIDF_SSF_RECEIVER_INSECURE_TLS` (init-param `receiverInsecureTls`) | any chain | checked |
 | ssf `PfIntrospectionReceiverAuthenticator` | `OIDF_SSF_INTROSPECTION_INSECURE_TLS` (init-param `introspectionInsecureTls`) | any chain | checked |
 | device-enrolment `HostedEntityRegistrar` | `PF_AUTHORITY_INSECURE_TLS` | any chain | checked; as for oidf-jose |
-| harness `AttestationFlowHarness` | `OIDF_HARNESS_INSECURE_TLS`, and the JVM property set on every run | any chain when the switch is on | never checked (F-0162) |
-| gm-api `examples/java/GrantManagementClient.java` | `--insecure` | any chain | checked; exempt from the scan: a single-file example outside the reactor that cannot import platform (F-0163) |
+| harness `AttestationFlowHarness` | `OIDF_HARNESS_INSECURE_TLS`, which since 0.6.0 also sets the JVM property, and only then (F-0162, closed) | any chain when the switch is on | not checked when the switch is on |
+| gm-api `examples/java/GrantManagementClient.java` | none since 0.6.0: `--insecure` is gone, and `--cacert` names the certificate to trust (F-0163, closed) | the JDK's, or the named certificate | checked |
 
 Each site's test runs it against a certificate for the wrong name. The alternative this plan does not take: a
 trusted CA bundle (`OIDF_*_CA_FILE`, as `OIDF_REDIS_CA_FILE` already is) in place of every ignore-TLS switch
@@ -767,7 +768,7 @@ included.
 ## http
 
 Outbound HTTP that connects only to an address it checked (plan item S5a; findings
-[F-0010](../../docs/findings/F-0010.yaml), open until S5d moves the call sites that bypass it, and
+[F-0010](../../docs/findings/F-0010.yaml), closed in 0.6.0 once S5D moved the call sites that bypassed it, and
 [F-0070](../../docs/findings/F-0070.yaml), closed when S5AR moved oidf-jose onto it). oidf-jose's `JdkHttpClient`, and
 so every federation fetch, entity statement, JWKS, trust mark status and AuthZEN PDP call made through it, sends here.
 

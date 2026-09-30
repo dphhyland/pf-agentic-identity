@@ -3,8 +3,8 @@
 From 0.6.0 the production profile is enforced (plan item PR-5). A switch that production forbids, a risky switch
 whose risk the deployment has not accepted, an `OIDF_*` name no settings catalogue declares, and the JVM-wide
 hostname flag each refuse the components they belong to: those components answer 503 on their own surfaces and
-readiness is 503, while PingFederate's own SSO and OAuth endpoints keep serving - with one exception until 0.6.0's
-surface rules land, below. Nothing is refused under the development profile: the same list is logged as a warning.
+readiness is 503, while PingFederate's own SSO and OAuth endpoints keep serving - with one exception for FAPI's own
+clients, below. Nothing is refused under the development profile: the same list is logged as a warning.
 
 `OIDF_DEPLOYMENT_PROFILE` chooses the profile. `development` - trimmed, in any case - is development; unset, blank,
 `production` and any other value are production, so a typo lands on the safe side. A rig or a demo sets
@@ -69,8 +69,9 @@ governed value: production cannot tell what it meant.
 the start-up audit under `code refusals`.
 
 **At read.** An init-param, a plugin's field and a client's extended property are not in the environment, so the
-start-up sweep cannot see them. Each is refused when its reader reads it through the settings catalogue - from the
-0.6.0 package that converts that reader - and its component is then `REFUSED` in the same way.
+start-up sweep cannot see them. Each is refused when its reader reads it through the settings catalogue - in 0.6.0
+the federation servlet's init-params (ST5F), the RAR plugin's fields (PLG) and the instance registry's JDBC URL field
+(ST5S) - and its component is then `REFUSED` in the same way.
 
 ## What a refusal looks like
 
@@ -93,10 +94,12 @@ available"}`, ready answered 503, and live, `/pf/heartbeat.ping`, `/.well-known/
 `client_credentials` request at `/as/token.oauth2` answered 200. With `OIDF_ACCEPTED_RISKS=resolve-any` the next
 boot logged the risk as accepted, refused nothing, and the Entity Configuration answered 200.
 
-**The exception: FAPI.** Until 0.6.0's surface rules (plan item S-9's second half) narrow it, a `FAPI` component that
-is not serving answers 503 to every request at the token endpoint ([F-0270](../findings/F-0270.yaml)). A violation
-that refuses every component - the JVM-wide hostname flag, `OIDF_EVENTS_AUDIT=false` without `audit-off` - therefore
-closes PingFederate's token endpoint too: on the rig with `-Djdk.internal.httpclient.disableHostnameVerification=false`
+**The exception: FAPI.** A `FAPI` component that is not serving answers 503 at the endpoints its filter covers to the
+clients `OIDF_FAPI2_CLIENTS` names (to every client when it is `*`), and passes every other client's request to
+PingFederate: package S9B has the filter read its client list apart from the rest of its start
+([F-0270](../findings/F-0270.yaml), closed). A violation that refuses every component - the JVM-wide hostname flag,
+`OIDF_EVENTS_AUDIT=false` without `audit-off` - therefore closes PingFederate's token endpoint to those clients. Before
+S9B it closed it to every client: on the rig with `-Djdk.internal.httpclient.disableHostnameVerification=false`
 in `JAVA_OPTS` (2026-09-30), `ATTESTATION_ISSUER`, `AUTO_REGISTRATION`, `FAPI` and `FEDERATION` were `REFUSED`, the
 three components switched off stayed `DISABLED`, and the same `client_credentials` request answered 503 `FAPI is not
 available`. (`SSF` showed `READY` on that boot; see below.) A deployment that does not use FAPI sets `OIDF_FAPI_ENABLED=false`: a
@@ -105,15 +108,21 @@ component switched off is never refused.
 **Switch off what you do not run.** A violation refuses the components it names that are switched on or inferred;
 one switched off with `OIDF_<COMPONENT>_ENABLED=false` stays disabled and never counts against readiness.
 
-**The SSF servlets** report their state outside the component start until their settings move onto the catalogue
-(0.6.0, package ST5C), and have no gate on their endpoints. A refused `SSF` or `SSF_RECEIVER` part now stays
-`REFUSED` whatever its `init` reports - tested, not yet seen on the rig, where the boot above was made before that
-change and showed `SSF READY` - and takes readiness down, but its `init` still configures the transmitter and its
-endpoints keep serving until then ([F-0295](../findings/F-0295.yaml)).
+**The SSF servlets** start as `SSF`'s part since package ST5C, with a gate on every endpoint: a refused `SSF` or
+`SSF_RECEIVER` no longer configures the transmitter, and its endpoints answer 503 ([F-0295](../findings/F-0295.yaml),
+closed). The boot above was made before that change and showed `SSF READY`.
 
 ## Before you deploy: Preflight
 
-The same sweep runs on an env file before it reaches a server:
+The same sweep runs on an env file before it reaches a server. Use `oidf-preflight.jar`, a release asset with every
+catalogue of the release in it (package ST7; [preflight.md](preflight.md) says how to run it on a Docker env file, a
+Kubernetes ConfigMap and `run.properties`):
+
+```
+java -jar oidf-preflight.jar --env-file prod.env [--profile production]
+```
+
+The class the jar runs can also be run from the release's jars on a class path:
 
 ```
 java -cp '<the release's jars>/*' com.pingidentity.ps.oidf.platform.settings.Preflight --env-file prod.env [--profile production]
@@ -127,8 +136,9 @@ switches in the file: a component switched off is never refused, and a required 
 component switched on. A switch that does not parse is listed too, since it refuses its component in either
 profile. It exits 0 when nothing would be refused, 1 when a component would be, and 2 when it cannot read its
 arguments or the file. The
-profile is the file's `OIDF_DEPLOYMENT_PROFILE` unless `--profile` names one. A later 0.6.0 package ships it as
-`oidf-preflight.jar` with every catalogue in it.
+profile is the file's `OIDF_DEPLOYMENT_PROFILE` unless `--profile` names one. On a class path it judges only by the
+catalogues of the jars it is given, and a module left out has its rules left out without a word, which is why the
+jar is the one to run.
 
 ## The development profile
 
