@@ -4,7 +4,7 @@ area: docs
 source: design
 status: open
 plan_items: [D-1]
-prs: []
+prs: [104]
 recorded_in: tools/public-export/deny.txt
 verify_by: >
   David supplies the customer and prospect names that must never appear publicly. Add one line each to

@@ -5,7 +5,7 @@ area: docs
 source: design
 status: open
 plan_items: [D-1]
-prs: []
+prs: [104]
 verification: ''
 target_release: 0.7.0
 notes: >
