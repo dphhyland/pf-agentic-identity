@@ -3,10 +3,19 @@ title: Every release publishes the CIBA simulator to GitHub Packages
 severity: low
 area: ciba-sim, release
 source: pr-review
-status: open
+status: closed
 plan_items: [X-D02]
 prs: []
-verification: ''
+verification: >
+  Closed by SPB on 2026-10-01. plugins/ciba-sim/pom.xml sets <maven.deploy.skip>true</maven.deploy.skip>, so a
+  release's deploy step no longer publishes com.pingidentity.ps.oidf:ciba-sim to GitHub Packages; nothing in this
+  repository resolves it from a repository (the rig stages it from the reactor with stage-modules.sh, or from a
+  release with stage-from-release.sh). install and deploy still build it, so release.yml's rebuild comparisons still
+  cover its jar, which is now a release asset: tools/ci/assemble-dist.sh copies it into dist/ as
+  demo-only-ciba-sim.jar, the asset decision, so that a rig can be built from a release and nothing globbing
+  pf.plugins.* deploys it. Two installs of 0.7.0-SNAPSHOT on 2026-10-01 made byte-identical copies of the jar. The
+  name alone does not keep it out of PingFederate (U-0460): its gate does, refusing every request outside
+  OIDF_DEPLOYMENT_PROFILE=development.
 target_release: 0.7.0
 notes: >
   Found while verifying F-0014 for PR #33 on 2026-09-27. plugins/ciba-sim sets no maven.deploy.skip, so a

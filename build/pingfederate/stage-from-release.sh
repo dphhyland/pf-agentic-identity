@@ -22,8 +22,9 @@
 # that SHA256SUMS does not list is refused. Fetches send no credentials (release assets are anonymous; GH_TOKEN
 # is never read). The jars staged are exactly the ones the release's MANIFEST lists, under its sections, each
 # with the digest the MANIFEST gives; the conformance profile adds the CIBA simulator, which a release carries as
-# demo-only-ciba-sim.jar so that nothing globbing pf.plugins.* picks it up, staged under the name PingFederate
-# needs, pf.plugins.ciba-sim.jar. The production profile never stages it. A release with no
+# demo-only-ciba-sim.jar so that nothing globbing pf.plugins.* picks it up, staged under its own name,
+# pf.plugins.ciba-sim.jar (the name is a label: PingFederate 13.1.3 loads the jar under either, U-0460). The
+# production profile never stages it. A release with no
 # war-assembler-<version>.jar - everything before 0.7.0 - is refused: the image build cannot assemble without it.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"

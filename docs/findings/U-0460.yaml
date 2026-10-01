@@ -1,0 +1,26 @@
+id: U-0460
+title: That PingFederate 13.1.3 loads a plugin from server/default/deploy only when its file name starts pf.plugins.
+area: ciba-sim, image
+source: design
+status: closed
+plan_items: [X-D02]
+prs: []
+recorded_in: plugins/ciba-sim/README.md, What the rig does; build/pingfederate/README.md, Staging from a release; docs/releases/unreleased/SPB.md
+verify_by: Nothing further is needed.
+verification: >
+  False, checked 2026-10-01 on the conformance rig (slot 1, pfai-split-b, PingFederate 13.1.3, the conformance image
+  built from the reactor at 338a1067), whose live deploy directory is /opt/out/instance/server/default/deploy. The
+  admin API's GET /pf-admin-api/v1/oauth/outOfBandAuthPlugins/descriptors was read after four boots. With
+  pf.plugins.ciba-sim.jar there (the boot at 03:04Z) it listed PingOneMfaCibaAuthenticator and
+  com.pingidentity.ps.oidf.cibasim.SimOobAuthenticator. With the same jar renamed demo-only-ciba-sim.jar and the
+  container restarted (03:08:14Z) it listed both again. With the jar moved out of the directory (03:08:33Z), the
+  copy merged into pf-runtime.war still in place, it listed PingOneMfaCibaAuthenticator alone. With
+  demo-only-ciba-sim.jar put back (03:08:54Z) it listed both, and server.log logged "Configuring plugin cibaSim
+  (com.pingidentity.ps.oidf.cibasim.SimOobAuthenticator)" at 03:08:59,814. So a jar in the deploy directory is
+  loaded whatever its name, and the descriptor comes from the loose jar, not the war's copy.
+notes: >
+  Why it mattered: a release carries the CIBA simulator as demo-only-ciba-sim.jar, and the question was whether a
+  mis-dropped copy under that name is inert. It is not. What keeps it harmless outside a rig is the simulator's own
+  gate (plugins/ciba-sim/README.md): outside OIDF_DEPLOYMENT_PROFILE=development both halves refuse every request.
+  The pingfederate-java-extensions skill's rule that only pf.plugins.* files are loaded does not hold for this case
+  on 13.1.3; the skill lives outside this repository.
