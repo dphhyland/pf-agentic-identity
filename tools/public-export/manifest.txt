@@ -65,6 +65,8 @@ internal docs/device/**
 internal docs/reference/**
 internal docs/security/**
 internal docs/releases/unreleased/**
+# tools/coverage-report.py's page: git-ignored from 0.4.0, tracked before it (v0.3.0 links to it).
+internal docs/coverage-dashboard.*
 internal libs/**
 internal servlets/**
 internal plugins/**

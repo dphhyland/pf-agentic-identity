@@ -60,6 +60,7 @@ DOCS_ONLY = ("root", "docs")
 BINARY_EXTENSIONS = (".png", ".webp", ".jpg", ".jpeg", ".svg")
 BINARY_LIMIT = 5 * 1024 * 1024
 UNKNOWN_URL_TEXT = "the internal repository"
+REDACTED = "<redacted>"
 
 NO_SOURCE = [
     (re.compile(r"\.(java|kt|swift)$"), "source code"),
@@ -424,6 +425,9 @@ class Export:
                                                        urllib.parse.unquote(target.split("#", 1)[0])))
         if resolved in self.files or any(p.startswith(resolved.rstrip("/") + "/") for p in self.files):
             return "keep", raw
+        if self.at_ref:
+            self.notes.append(f"{pub}:{line}: {target} -> link dropped (not in the tree at {self.source.ref})")
+            return "delink", "internal"
         self.error("links", f"{EXPORT_DIR}/overlay/{pub}:{line}", f"{target} -> {resolved}, which the public tree "
                    f"does not have")
         return None
@@ -631,6 +635,21 @@ def read_deny(path):
     return deny
 
 
+def redact(pattern, line):
+    """A deny hit in a tag's file, which cannot be edited: the match, with the name it ends (the run of name
+    characters before it, so a host's first label goes too), becomes REDACTED."""
+    out, pos = [], 0
+    for m in pattern.finditer(line):
+        start = m.start()
+        while start > pos and re.match(r"[A-Za-z0-9-]", line[start - 1]):
+            start -= 1
+        out.append(line[pos:start])
+        out.append(REDACTED)
+        pos = m.end()
+    out.append(line[pos:])
+    return "".join(out)
+
+
 def is_text(data):
     if b"\0" in data:
         return False
@@ -663,11 +682,21 @@ def guard(export, deny, scan_text):
                 export.error("binaries", src or pub, f"{len(data)} bytes, over the {BINARY_LIMIT} byte limit")
             continue
         text = data.decode("utf-8")
-        for number, line in enumerate(text.split("\n"), 1):
+        lines = text.split("\n")
+        for number, line in enumerate(lines, 1):
             for pattern, reason, _ in deny:
-                if pattern.search(line):
-                    export.error("deny", f"{pub}:{number}" + (f" (from {src})" if src and src != pub else ""),
-                                 f"matches /{pattern.pattern}/ - {reason}")
+                if not pattern.search(line):
+                    continue
+                if export.at_ref:
+                    line = redact(pattern, line)
+                    export.notes.append(f"{pub}:{number}: matches `{pattern.pattern}` ({reason}) -> {REDACTED}")
+                    continue
+                export.error("deny", f"{pub}:{number}" + (f" (from {src})" if src and src != pub else ""),
+                             f"matches `{pattern.pattern}` - {reason}")
+            lines[number - 1] = line
+        if export.at_ref and lines != text.split("\n"):
+            text = "\n".join(lines)
+            export.files[pub] = (mode, text.encode("utf-8"), src)
         for number, kind in scan_text(text):
             export.error("secrets", f"{pub}:{number}" + (f" (from {src})" if src and src != pub else ""), kind)
 
@@ -732,7 +761,8 @@ def build(root, ref=None, version=None, docs_only=False):
     for pub in overlay:
         if pub.endswith(".md"):
             mode, data, _ = export.files[pub]
-            transform_markdown(data.decode("utf-8"), lambda raw, line, p=pub: export.overlay_target(p, raw, line))
+            text = transform_markdown(data.decode("utf-8"), lambda raw, line, p=pub: export.overlay_target(p, raw, line))
+            export.files[pub] = (mode, text.encode("utf-8"), None)
 
     guard(export, deny, load_secrets_scan().scan_text)
     return export

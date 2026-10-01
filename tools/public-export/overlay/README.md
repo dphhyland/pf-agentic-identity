@@ -63,6 +63,7 @@ licence, and PingFederate fetches an evaluation licence with them at boot.
 as they were tagged. They build from the private source repository, not from the release assets, so they do
 not run from this repository alone; v0.7.0 is the first release whose image and demo do.
 <!-- end:staging -->
+
 <!-- end:demo -->
 ## Documentation
 
