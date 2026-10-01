@@ -266,9 +266,10 @@ grant.
 
 ## 7. Try it now
 
-Against a deployed demo (two panels, consent vs entitlement, live decisions); the host is your deployment's:
+Against a deployed demo; the host is your deployment's:
 
 ```bash
+# The demo - two panels, consent vs entitlement, live decisions
 open https://<your-gm-demo-host>
 
 curl -X POST https://<your-gm-demo-host>/api/grants/grant-alice-accounts/evaluate \

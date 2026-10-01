@@ -98,13 +98,10 @@ authentication even for public reads, so the release assets are the auth-free pa
 with none of the security work in it, and nothing anywhere recording that it was behind.
 
 ```sh
-gh release download v<version> -R ID-Partners/pf-agentic-identity -D vendor/
+gh release download v<version> -R ID-Partners/pf-agentic-identity -D vendor/   # releases to 0.6.0 are mirrored there, checksums unchanged
 ( cd vendor && sha256sum -c SHA256SUMS )      # verify before use
 grep -E '^(commit|tag):' vendor/PROVENANCE.txt >> VENDORED.txt   # record it
 ```
-
-Releases are published at `ID-Partners/pf-agentic-identity`; releases up to 0.6.0 are mirrored there with
-their original assets, so their `SHA256SUMS` is unchanged.
 
 For PingFederate 13.1.3 that is v0.3.0 or later. Every v0.1.x release is a `javax.servlet` build for
 13.0.x, and moving from one means moving PingFederate in the same change.
