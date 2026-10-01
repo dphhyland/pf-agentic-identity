@@ -470,7 +470,7 @@ jobs:
           labels, env = config.get("Labels") or {}, dict(e.split("=", 1) for e in config.get("Env") or [])
           want = {
               "org.opencontainers.image.title": "pf-agentic-identity PingFederate",
-              "org.opencontainers.image.source": "https://github.com/dphhyland/pf-agentic-identity",
+              "org.opencontainers.image.source": "https://github.com/ID-Partners/pf-agentic-identity",
               "org.opencontainers.image.version": os.environ["OCI_VERSION"],
               "org.opencontainers.image.revision": os.environ["GITHUB_SHA"],
               "org.opencontainers.image.licenses": "Apache-2.0 AND BSD-3-Clause AND LicenseRef-PingIdentity-Proprietary",

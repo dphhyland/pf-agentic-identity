@@ -1,0 +1,85 @@
+# The public tree's allow-list: what tools/export-public.py copies into ID-Partners/pf-agentic-identity.
+# docs/development/public-export.md says what each class means and how to add a document.
+#
+# One rule per line:  <class> <source-glob> [-> <public-path>] [optional]
+#   class        root, docs, image, demo (exported); internal (not exported, links into it are de-linked);
+#                refuse (never exported: a rule of another class whose source matches one is an error)
+#   source-glob  a path relative to the repository root; * matches within one directory, ** across them
+#   public-path  where it lands; a path ending in / is a directory the glob's remainder is laid out under.
+#                Without one, the file keeps its source path.
+#   optional     the source may not exist yet (a file another pull request adds); without it, a rule that
+#                matches nothing is an error on HEAD
+# Rules are read in order and the first that matches a file wins, so an exclusion goes before its glob.
+
+# --- root ---
+root LICENSE
+root NOTICE
+root CHANGELOG.md
+
+# --- docs: the specifications, the architecture, and what an operator configures, deploys and upgrades ---
+docs docs/ai-agent-attestation-profile-1_0.md
+docs docs/openid-client-attestation-service-1_0.md
+docs docs/client-attestation-architecture.md
+docs docs/attestation-client-auth-design.md
+docs docs/claim-dictionary.md
+docs docs/extended-properties.json
+docs docs/configuration/**
+docs docs/operator/**
+docs docs/federation/**
+docs docs/releases/README.md
+docs docs/releases/[0-9]*.md
+docs docs/assets/**
+docs services/gm-api/docs/*.md -> docs/gm-api/
+
+# --- image: the PingFederate image build ---
+image build/pingfederate/Dockerfile -> image/
+image build/pingfederate/assemble-pf-runtime-war.sh -> image/
+image build/pingfederate/filters.xml -> image/
+image build/pingfederate/pf-entrypoint.sh -> image/
+image build/pingfederate/pf-healthcheck.sh -> image/
+image build/pingfederate/README.md -> image/
+image build/pingfederate/.gitignore -> image/
+# SPB's staging from a release; optional until that pull request merges, which removes the marker.
+image build/pingfederate/stage-from-release.sh -> image/ optional
+image build/pingfederate/stage-lib.sh -> image/ optional
+image build/pingfederate/overlay/** -> image/overlay/
+image build/pf-version.env -> image/pf-version.env
+
+# --- demo: the conformance rig, the PingAuthorize authoring scripts and the gm-api examples ---
+# fail-soft-matrix.sh tests the image's fail-soft behaviour from the reactor's jars; it is CI's, not a demo.
+internal conformance/fail-soft-matrix.sh
+# SPB's helper that resolves the image directory in either layout; optional until SPB merges.
+demo conformance/layout.sh -> demo/layout.sh optional
+demo conformance/** -> demo/
+demo plugins/rar-paz-plugin/paz/** -> demo/paz/
+demo services/gm-api/examples/README.md -> demo/gm-api/README.md
+
+# --- internal: stays in the private repository; a link from an exported document keeps its text ---
+internal docs/findings/**
+internal docs/development/**
+internal docs/unverified.md
+internal docs/PROVENANCE.md
+internal docs/DEMOS.md
+internal docs/pf-13_1-jakarta-migration-plan.md
+internal docs/device/**
+internal docs/reference/**
+internal docs/security/**
+internal docs/releases/unreleased/**
+internal libs/**
+internal servlets/**
+internal plugins/**
+internal services/**
+internal clients/**
+internal build/**
+internal tools/**
+internal README.md
+internal CONTRIBUTING.md
+internal SECURITY.md
+
+# --- refuse: never exported, whatever a rule above says ---
+refuse showcase/**
+refuse build/microsite/**
+refuse **/src/**
+refuse **/*.java
+refuse **/pom.xml
+refuse .github/**

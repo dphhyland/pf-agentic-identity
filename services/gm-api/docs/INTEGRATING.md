@@ -266,13 +266,12 @@ grant.
 
 ## 7. Try it now
 
-Nothing to install:
+Against a deployed demo (two panels, consent vs entitlement, live decisions); the host is your deployment's:
 
 ```bash
-# The hosted demo — two panels, consent vs entitlement, live decisions
-open https://demo-production-0792.up.railway.app
+open https://<your-gm-demo-host>
 
-curl -X POST https://demo-production-0792.up.railway.app/api/grants/grant-alice-accounts/evaluate \
+curl -X POST https://<your-gm-demo-host>/api/grants/grant-alice-accounts/evaluate \
   -H 'Content-Type: application/json' \
   -d '{"action":{"name":"read_balance"},"resource":{"type":"account","id":"222"}}'
 # → "You no longer have access to this account."
