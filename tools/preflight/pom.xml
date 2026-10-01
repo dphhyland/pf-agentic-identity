@@ -6,7 +6,7 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>oidf-preflight</artifactId>
-    <version>0.6.0</version>
+    <version>0.7.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>oidf-preflight</name>
@@ -28,7 +28,7 @@
         <maven.compiler.release>17</maven.compiler.release>
         <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
              sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
-        <project.build.outputTimestamp>2026-09-30T20:52:41Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
         <!-- The commit the manifest names (F-0190's property): the release and CI builds pass
              -Doidf.build.commit=$GITHUB_SHA; a build that passes nothing says unknown. -->
         <oidf.build.commit>unknown</oidf.build.commit>
@@ -43,7 +43,7 @@
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.6.0</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.7.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
