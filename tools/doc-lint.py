@@ -16,7 +16,9 @@ The rules are the style guide's (docs/development/style-guide.md), the ones a ma
                `authorization_details` are the specification's spelling and stay.
   scaffolding  "let's dive", "in conclusion", "I hope this helps", "delve".
   link         a relative link whose target does not exist (checked after the fragment is removed; a link to
-               a directory counts when the directory exists).
+               a directory counts when the directory exists). Not checked under tools/public-export/overlay/:
+               those files are written for the public tree's layout, and tools/export-public.py checks their
+               links in the tree they are written for. The other rules apply to them as to any document.
 
 What is left alone: fenced code blocks, inline code, HTML comments, URLs and link destinations (for the
 spelling rule), and text in double quotes - a verbatim quotation keeps whatever it was written with. Files under
@@ -44,6 +46,8 @@ BASELINE = "docs/development/doc-lint-baseline.txt"
 EXCLUDED = re.compile(r"(^|/)\.claude/")
 # Pages a generator writes, while they are tracked: docs/coverage-dashboard.md is tools/coverage-report.py's.
 GENERATED = ("docs/coverage-dashboard.md",)
+# Documents written for the public tree's layout, not this repository's: tools/export-public.py checks their links.
+PUBLIC_LAYOUT = "tools/public-export/overlay/"
 RULES = ("em-dash", "en-dash", "spelling", "scaffolding", "link")
 
 # American spelling -> the form the repo writes. Explicit and small on purpose: a word goes on this list
@@ -171,8 +175,8 @@ def looks_like_identifier(token, word):
     return False
 
 
-def check_text(path, text):
-    """Every hit in one document."""
+def check_text(path, text, links=True):
+    """Every hit in one document; links=False leaves out the link rule."""
     hits = []
     prose = without_code(text)
     unquoted = without_quotes(prose)
@@ -197,7 +201,8 @@ def check_text(path, text):
         for m in pattern.finditer(unquoted):
             line, col = position(text, m.start())
             hits.append(Hit(path, line, col, "scaffolding", f"'{label}' is scaffolding; say the thing"))
-    hits.extend(check_links(path, prose))
+    if links:
+        hits.extend(check_links(path, prose))
     hits.sort(key=lambda h: (h.line, h.col, h.rule))
     return hits
 
@@ -284,7 +289,7 @@ def run(root, files, baseline_path, update, today):
         except (OSError, UnicodeDecodeError) as e:
             unreadable.append(f"{rel}: {e}")
             continue
-        hits_by_file[rel] = check_text(full, text)
+        hits_by_file[rel] = check_text(full, text, links=not rel.replace(os.sep, "/").startswith(PUBLIC_LAYOUT))
     counts = {}
     for rel, hits in hits_by_file.items():
         for h in hits:

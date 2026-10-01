@@ -98,7 +98,7 @@ authentication even for public reads, so the release assets are the auth-free pa
 with none of the security work in it, and nothing anywhere recording that it was behind.
 
 ```sh
-gh release download v<version> -R dphhyland/pf-agentic-identity -D vendor/
+gh release download v<version> -R ID-Partners/pf-agentic-identity -D vendor/   # releases to 0.6.0 are mirrored there, checksums unchanged
 ( cd vendor && sha256sum -c SHA256SUMS )      # verify before use
 grep -E '^(commit|tag):' vendor/PROVENANCE.txt >> VENDORED.txt   # record it
 ```
