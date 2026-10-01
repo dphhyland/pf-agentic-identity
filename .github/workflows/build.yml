@@ -122,6 +122,13 @@ jobs:
         run: tools/ci/lint-terraform.sh
       - name: the tools' own tests
         run: python3 -m unittest discover -s tools/tests -v
+      - name: the public tree builds from the allow-list and passes every guard
+        # tools/export-public.py builds what ID-Partners/pf-agentic-identity would receive from this commit
+        # (tools/public-export/manifest.txt) and fails on source code, a link into a file it does not
+        # export or class internal, an unmapped dphhyland/pf-agentic-identity URL, a deny-list hit or a
+        # private key, so a change that breaks the public tree fails here rather than at release. release.yml's
+        # publishing job runs the same tool. docs/development/public-export.md describes the guards.
+        run: python3 tools/export-public.py --check
       - name: one project version across the reactor
         run: python3 tools/set-version.py --check
       - name: one PingFederate version across the repo
@@ -470,7 +477,7 @@ jobs:
           labels, env = config.get("Labels") or {}, dict(e.split("=", 1) for e in config.get("Env") or [])
           want = {
               "org.opencontainers.image.title": "pf-agentic-identity PingFederate",
-              "org.opencontainers.image.source": "https://github.com/dphhyland/pf-agentic-identity",
+              "org.opencontainers.image.source": "https://github.com/ID-Partners/pf-agentic-identity",
               "org.opencontainers.image.version": os.environ["OCI_VERSION"],
               "org.opencontainers.image.revision": os.environ["GITHUB_SHA"],
               "org.opencontainers.image.licenses": "Apache-2.0 AND BSD-3-Clause AND LicenseRef-PingIdentity-Proprietary",

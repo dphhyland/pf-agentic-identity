@@ -1,0 +1,8 @@
+# tools/export-public.py's deny list: a line of any exported text file that matches one of these, after the
+# link transform and with the overlay included, fails the export. One regex per line, `<regex> # <reason>`,
+# matched case-insensitively. A hit is fixed at its source or the file is classed internal in manifest.txt;
+# an exception is never added here.
+/(Users|home)/[a-z][a-z0-9._-]*/ # a home directory: someone's machine, not a path a reader has
+railway\.internal # Railway's private network names a deployment
+\.up\.railway\.app # a Railway host names a running deployment
+# Customer and prospect names go below, one per line, when David supplies them (U-0456).
