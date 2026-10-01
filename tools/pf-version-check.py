@@ -22,8 +22,12 @@ What is checked, and against which key:
                                          earlier stage is a stage, not an image
   .github/actions/pf-provided-jars       sources the env file; no image or version literal of its own
   .github/workflows/*.yml                append the env file to $GITHUB_ENV; no image literal
-  conformance/author.sh                  sources the env file; no image literal
-  conformance/apply.sh                   exports TF_VAR_pf_product_version from PF_TERRAFORM_PRODUCT_VERSION
+  conformance/author.sh                  sources $PFAI_VERSION_ENV from conformance/layout.sh; no image
+                                         literal
+  conformance/apply.sh                   sources $PFAI_VERSION_ENV from conformance/layout.sh, and exports
+                                         TF_VAR_pf_product_version from PF_TERRAFORM_PRODUCT_VERSION
+  conformance/layout.sh                  resolves PFAI_VERSION_ENV to build/pf-version.env in this repository
+                                         (the image directory's copy is the public tree's)
   conformance/terraform/provider.tf      product_version = var.pf_product_version
   conformance/terraform/variables.tf     pf_product_version's default      = PF_TERRAFORM_PRODUCT_VERSION
   every other file                       any pingidentity/pingfederate:<tag> reference matches PF_IMAGE,
@@ -144,9 +148,19 @@ def check_files(root, env, problems):
         if not re.search(r"pf-version\.env.*>>\s*\"?\$GITHUB_ENV", wf):
             problems.append(f".github/workflows/{name}: does not append {ENV_FILE} to $GITHUB_ENV")
 
-    author = _read(root, "conformance/author.sh")
-    if author is None or "pf-version.env" not in author:
-        problems.append(f"conformance/author.sh: does not source {ENV_FILE}")
+    # The rig's scripts run in this repository and in the public tree, so they take the env file's path
+    # from conformance/layout.sh; the check is in two halves: each script sources layout.sh and then
+    # $PFAI_VERSION_ENV, and layout.sh resolves that to build/pf-version.env here.
+    layout = _read(root, "conformance/layout.sh")
+    if layout is None or not re.search(r'^\s*PFAI_VERSION_ENV="\$[A-Za-z_]+/build/pf-version\.env"', layout, re.M):
+        problems.append(f"conformance/layout.sh: does not resolve PFAI_VERSION_ENV to {ENV_FILE}")
+    sources_layout = re.compile(r'^\s*(?:\.|source)\s+"\$HERE/layout\.sh"', re.M)
+    sources_env = re.compile(r'^\s*(?:\.|source)\s+"\$PFAI_VERSION_ENV"', re.M)
+    for name in ("author.sh", "apply.sh"):
+        script = _read(root, f"conformance/{name}")
+        if script is None or not sources_layout.search(script) or not sources_env.search(script) \
+                or sources_env.search(script).start() < sources_layout.search(script).start():
+            problems.append(f"conformance/{name}: does not source $PFAI_VERSION_ENV from conformance/layout.sh")
 
     apply_sh = _read(root, "conformance/apply.sh")
     if apply_sh is None or not re.search(r"TF_VAR_pf_product_version=\"?\$\{?PF_TERRAFORM_PRODUCT_VERSION", apply_sh):
