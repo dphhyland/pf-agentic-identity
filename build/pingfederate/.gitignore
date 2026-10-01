@@ -21,3 +21,6 @@ modules/
 # The war assembler stage-modules.sh stages from build/war-assembler (war-assembler.jar); filters.xml,
 # which it reads, is tracked beside this file.
 assembler/
+# The release cache stage-from-release.sh fetches a version into (.release/<version>/), verified against its
+# SHA256SUMS before anything is staged from it.
+.release/

@@ -157,6 +157,58 @@ PF_AGENTIC_IDENTITY_HOME=../pf-agentic-identity ../pf-agentic-identity/build/pin
 `filters.xml`, `pf-entrypoint.sh`, `pf-healthcheck.sh`, `modules/`, `assembler/` and `overlay/config-store/`
 from here.
 
+## Staging from a release
+
+`stage-from-release.sh` writes the same `modules/` and `assembler/` as `stage-modules.sh`, from a published
+release's assets instead of from the reactor: no Maven and no git, so a tree without the source (the public one)
+can build the image. The Dockerfile, the war assembler and `conformance/compose-context.sh` cannot tell the two
+stages apart; both write the `MANIFEST` and stage the assembler through `stage-lib.sh`.
+
+```sh
+build/pingfederate/stage-from-release.sh 0.7.0                          # production, fetched and cached
+build/pingfederate/stage-from-release.sh --profile conformance 0.7.0    # a rig: the CIBA simulator too
+build/pingfederate/stage-from-release.sh --profile conformance dist/    # a directory of a release's assets
+```
+
+What it checks before anything is staged:
+
+- **Every file against `SHA256SUMS`.** A version is fetched from
+  `https://github.com/<PFAI_RELEASE_REPO>/releases/download/v<version>/`: `SHA256SUMS` first, then every file it
+  lists, with `curl -q -fsSL --retry 3` over https only (redirects too) and no credentials (release assets are
+  anonymous, `GH_TOKEN` is never sent, and `-q` keeps a `~/.curlrc` from adding a header or a `.netrc`). Each
+  name `SHA256SUMS` lists must be a plain file name - no slash, no leading dot - or nothing is fetched. Nothing
+  is staged unless every file verifies. A directory source is held to the same check, and a file
+  in it that `SHA256SUMS` does not list is refused.
+- **The release's `MANIFEST`.** It must be a `MANIFEST/2` production header; exactly the jars it lists are staged,
+  under its sections, each with the digest it gives, and the new `MANIFEST` keeps the release's commit.
+- **A war assembler.** `war-assembler-<version>.jar` has been a release asset from 0.7.0, the first release this
+  script can stage. An older release has none, and is refused with that message: build it from its source.
+
+**The cache.** A fetched version is kept in `.release/<version>/` beside the script (git-ignored), with the URL
+it came from in `.release/<version>/.source`, and reused only while it still verifies against its `SHA256SUMS`
+and was fetched from the URL asked for now: a copy from a mirror or a local test server is fetched again rather
+than taken for the release. A release that is refused is not left there.
+
+**The two profiles.** `production` (the default) stages the release's `MANIFEST` and nothing else. `conformance`
+adds the CIBA simulator, which a release carries as `demo-only-ciba-sim.jar` so that nothing globbing
+`pf.plugins.*` deploys it, under its own name, `pf.plugins.ciba-sim.jar` ([plugins/ciba-sim](../../plugins/ciba-sim/README.md)).
+The production profile never stages it. The release name is a label, not a guard: PingFederate 13.1.3 loads the
+jar from `server/default/deploy` under either name ([U-0460](../../docs/findings/U-0460.yaml)).
+
+| Setting | Default | What it does |
+|---|---|---|
+| the argument | `PFAI_RELEASE` from `release.env` beside the script | a version (`0.7.0`; a leading `v` is dropped) or a directory of release assets. The public tree has a `release.env`; this repository does not, so here the argument is required |
+| `PFAI_RELEASE_REPO` | `release.env`'s, else `ID-Partners/pf-agentic-identity` | the repository whose releases are fetched |
+| `PFAI_RELEASE_BASE_URL` | `https://github.com/$PFAI_RELEASE_REPO/releases/download` | the URL the `v<version>/` directories sit under: a mirror, or a local server in a test |
+| `STAGE_DEST` | `modules/` beside the script | as for `stage-modules.sh`; `assembler/` goes beside it |
+
+Build's image job proves the equivalence on every change: it assembles a release's assets from the build with
+`tools/ci/assemble-dist.sh` (what `release.yml` publishes), stages both profiles from them, and holds each stage
+to the one the image was built from - every jar byte for byte, the `MANIFEST` but for its `built=` time, and the
+assembler. Then `test-stage-from-release.sh` serves fixture releases on 127.0.0.1 and checks that a tampered jar,
+a jar `SHA256SUMS` does not list, a `SHA256SUMS` naming a missing file, a release with no war assembler and an
+unknown profile are each refused, and that no request carries an `Authorization` header.
+
 ## Scanning the image
 
 Build's `image` job (`.github/workflows/build.yml`) builds `capability` for both profiles on every pull request
@@ -238,7 +290,9 @@ source-launched file, are in its README.
 
 ## The MANIFEST guard
 
-`stage-modules.sh` writes `modules/MANIFEST`, version 2:
+`stage-modules.sh` writes `modules/MANIFEST`, version 2, and so does `stage-from-release.sh`
+([Staging from a release](#staging-from-a-release)); both write it with `stage-lib.sh`'s `pfai_write_manifest`, so
+the two cannot drift apart:
 
 ```
 MANIFEST/2 profile=production built=2026-09-27T09:28:26Z commit=a440bc5f88d1
@@ -251,7 +305,8 @@ ca43ec7a6863eba7e8c1f0cd5a4c59135a2f9796ea9c513c0043ef83593c61fa  oidf.jar
 ```
 
 One header line - the format, the profile, when it was staged and from which commit (`-dirty` when tracked
-files had uncommitted changes; `unknown` outside a git checkout); a `[section]` per module group
+files had uncommitted changes; `unknown` outside a git checkout; from a release, the commit its own `MANIFEST`
+names); a `[section]` per module group
 (`servlets`, `libs`, and `plugins` in a conformance stage); and one `<sha256>  <file>` line per jar, in
 `sha256sum`'s own format, so the directory can be checked by hand:
 

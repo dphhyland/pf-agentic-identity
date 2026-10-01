@@ -22,7 +22,9 @@
 #   5. prints the evidence per flow, then removes what it configured and takes the rig down (KEEP_RIG=1 keeps it)
 #
 # Env:
-#   RAR_PLUGIN_JAR   the jar to lend the rig (default: the reactor's plugins/rar-paz-plugin/target build)
+#   RAR_PLUGIN_JAR   the jar to lend the rig (default: the reactor's plugins/rar-paz-plugin/target build; in
+#                    release mode, PF_RELEASE set or no pom.xml, the release's pf.plugins.pf-rar-paz-plugin.jar,
+#                    verified by stage-from-release.sh on every run, and fetched by it when absent)
 #   OLD_PLUGIN_JAR   an older release's jar (gh release download v0.3.0 -p 'pf.plugins.pf-rar-paz-plugin.jar'):
 #                    the rig boots on it, an instance is created under it, the archive exported, the container
 #                    restarted on RAR_PLUGIN_JAR, the archive imported and the instance saved again - the
@@ -38,10 +40,23 @@
 #                    the shared secret in the stub's request log is masked; the evidence is the printed lines.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; REPO="$(cd "$HERE/.." && pwd)"
+# shellcheck source=layout.sh
+. "$HERE/layout.sh"
 export PF_RIG_NAME="${PF_RIG_NAME:-pfai-rar}"
 export PF_PORT_HTTPS="${PF_PORT_HTTPS:-45031}" PF_PORT_HTTP="${PF_PORT_HTTP:-45080}" PF_PORT_ADMIN="${PF_PORT_ADMIN:-45999}"
 export PF_AUTHOR_ADMIN_PORT="${PF_AUTHOR_ADMIN_PORT:-44999}" PF_AUTHOR_RUNTIME_PORT="${PF_AUTHOR_RUNTIME_PORT:-44031}"
 export PF_AUTHOR_ENV="${PF_AUTHOR_ENV:-$HERE/.author.env}"
+if [[ -z "${RAR_PLUGIN_JAR:-}" && "$PFAI_MODE" == release ]]; then
+  [[ -n "$PFAI_RELEASE_DIR" ]] || { echo "ERROR: release mode, but no release named - set PF_RELEASE to a version or a directory" >&2; exit 1; }
+  # Every run checks the release first (a directory against its SHA256SUMS, a version's cache too, fetched when
+  # absent) by staging it into a scratch directory, so the jar lent to the rig is one the release vouches for
+  # and the rig's own modules/ is left as it is (SKIP_BUILD=1 keeps meaning what is staged there).
+  _rar_check="$(mktemp -d)"
+  STAGE_DEST="$_rar_check/modules" "$PFAI_IMAGE_DIR/stage-from-release.sh" --profile conformance ${PF_RELEASE:+"$PF_RELEASE"} >/dev/null \
+    || { rm -rf "$_rar_check"; echo "ERROR: the release in $PFAI_RELEASE_DIR did not verify (above)" >&2; exit 1; }
+  rm -rf "$_rar_check"
+  RAR_PLUGIN_JAR="$PFAI_RELEASE_DIR/pf.plugins.pf-rar-paz-plugin.jar"
+fi
 export RAR_PLUGIN_JAR="${RAR_PLUGIN_JAR:-$REPO/plugins/rar-paz-plugin/target/pf.plugins.pf-rar-paz-plugin.jar}"
 export COMPOSE_FILE="docker-compose.yml:docker-compose.rar-plugin.yml"
 # The compose project up.sh uses (its rule, repeated: the default rig keeps this directory's project name),
