@@ -3,10 +3,17 @@ title: The operator APIs' failed-authentication limit counts the container's rem
 severity: low
 area: platform-pf
 source: design
-status: open
+status: closed
 plan_items: [S8a, H-ATT-3]
-prs: [71]
-verification: ''
+prs: [71, 89]
+verification: >
+  Closed 2026-10-01 by the v0.6.0 release package on origin/main 600fa6b5: HATT2 (PR #89) built
+  platform.net.TrustedProxies (plan item H-ATT-3) and moved the operator limits onto it, as the finding's fix said.
+  OperatorAuthenticator.java line 350 takes the client address from
+  `TrustedProxies.current().clientAddress(request.getRemoteAddr(), ...)`, which believes X-Forwarded-For (or
+  Forwarded, with OIDF_TRUSTED_PROXIES_HEADERS=forwarded) only from the proxies OIDF_TRUSTED_PROXIES lists, so
+  behind a listed proxy each caller has its own failed-authentication counter; unset, no header is believed, as
+  before. HATT2's release note (docs/releases/0.6.0.md, "Name your proxies in `OIDF_TRUSTED_PROXIES`") says so.
 target_release: 0.6.0
 notes: >
   Found while building S8A (2026-09-30). OperatorAuthenticator refuses a client address that has failed

@@ -7,7 +7,7 @@ status: open
 plan_items: [D-8]
 prs: []
 verification: ''
-target_release: 0.6.0
+target_release: 1.0.0
 notes: |
   Found while PR #33 re-read the showcase and the device READMEs on 2026-09-27, and left for the packages that
   own the code, so that parallel pull requests do not collide:
@@ -33,3 +33,7 @@ notes: |
   services/device-enrolment's CaepEventHandler is still there for X-A18. The showcase is one line of JSON that every
   package edits by JSON path; its corrections belong to a pull request that owns it (plan item D-8), not to the
   release.
+
+  Retargeted from 0.6.0 to 1.0.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  the stale sentences left are in the showcase's DATA and in javadoc, which the release package does not edit, and
+  D-8 (Phase 7) is the plan item that owns documentation drift.

@@ -7,7 +7,7 @@ status: open
 plan_items: [X-D01]
 prs: [59]
 verification: ''
-target_release: 0.6.0
+target_release: 1.0.0
 notes: >
   Found while building XD01 (2026-09-28). XD01 moved demo-rs to libs/rs-validation and made services/demo-rs a
   relocation POM, but documents it did not own still describe the old module: docs/unverified.md item 10 ("demo-rs
@@ -16,3 +16,7 @@ notes: >
   docs/PROVENANCE.md's module table, docs/ai-agent-attestation-profile-1_0.md, the module lists in the READMEs of
   libs/platform, libs/oidf-jose and libs/client-attestation, and the javadoc of services/gm-api's TokenClaims. The fix
   is to re-point each to libs/rs-validation and to mark docs/unverified.md item 10 resolved, naming U-0011.
+
+  Retargeted from 0.6.0 to 1.0.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  the stale mentions of services/demo-rs span several documents and gm-api's TokenClaims javadoc, which the release
+  package does not edit (code). D-8 owns documentation drift.

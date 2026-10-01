@@ -7,7 +7,7 @@ status: open
 plan_items: [DB-1]
 prs: []
 verification: ''
-target_release: 0.6.0
+target_release: 0.7.0
 notes: >
   Found by the 0.5.0 release package on 2026-09-29, folding DB1's release note. DB1 (PR #44) took H2 off every
   test classpath and left bom/pom.xml's version.h2 property and its com.h2database:h2 entry, with a comment saying
@@ -17,3 +17,6 @@ notes: >
   because of it, and the stores refuse H2 URLs at start-up; the cost is a managed version Dependabot may keep
   bumping and a comment that is no longer true. The fix is deleting the property, the entry and the comment, in a
   pull request that changes the BOM (the release package changes the poms' version only).
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  bom/pom.xml still manages H2. DB-2 (Phase 4) owns the BOM's database entries.

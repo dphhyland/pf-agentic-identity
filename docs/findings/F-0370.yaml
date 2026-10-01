@@ -7,7 +7,7 @@ status: open
 plan_items: [PR-2]
 prs: [91]
 verification: ''
-target_release: 0.6.0
+target_release: 0.7.0
 notes: >
   Found by ST5F (2026-09-30) while wiring PR-2's store refusals. With OIDF_FEDERATION_TRUST_MARK_TYPES set and no
   authority store (neither OIDF_AUTHORITY_DATA_STORE_ID nor OIDF_AUTHORITY_JDBC_URL), the federation servlet is now
@@ -16,3 +16,9 @@ notes: >
   marks that live in one node's memory and are lost on restart. They are never issued while FEDERATION is refused,
   which is why this is low; the fix is to refuse the Trust Mark routes (or OPERATOR_API) on the same condition, a
   decision about the operator API's shape left to its owner. Who and when: not allocated - the release package decides.
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  FederationAdminServlet still wires TrustMarkSupport.shared(), so the admin API can grant Trust Marks into memory
+  while FEDERATION is refused for the same store. Whether to refuse the Trust Mark routes is a decision about the
+  operator API's shape, which the release package does not take. The programme plan gives it no later item of its
+  own, so David schedules it.

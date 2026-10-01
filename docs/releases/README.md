@@ -13,6 +13,9 @@ into the page when the release is cut.
   up, and one PingFederate node only until 0.7.0.
 - [0.5.0.md](0.5.0.md) - Phase 2: foundations - every module on the shared platform libraries, the configuration
   reference generated from the settings catalogues, PostgreSQL only, and the image built and scanned in CI.
+- [0.6.0.md](0.6.0.md) - Phase 3: secure by default - the production profile enforced, operator OAuth, components
+  that fail soft, attestation policy on the filter path, every high targeted at 0.6.0 closed; with its upgrade guide,
+  [0.5.0-to-0.6.0.md](../operator/upgrading/0.5.0-to-0.6.0.md).
 
 [CHANGELOG.md](../../CHANGELOG.md) is the one-paragraph-per-version history and links here; the operator guides
 for moving between releases are under [docs/operator/upgrading](../operator/upgrading/).

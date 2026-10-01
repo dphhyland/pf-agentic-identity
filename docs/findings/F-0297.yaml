@@ -7,7 +7,7 @@ status: open
 plan_items: [PR-5, ST-5, S9b]
 prs: [77]
 verification: ''
-target_release: 0.6.0
+target_release: 0.7.0
 notes: >
   Found by PR5 (2026-09-30). PR5 gives each of the 27 catalogues its components from a table
   (docs/development/settings-catalogue.md, Components) because it may add only governed members to the catalogues
@@ -17,3 +17,10 @@ notes: >
   which until S9B closes every token request (F-0270). Who and when: each catalogue's owner writes per-entry
   components when it converts its readers (ST5F for federation-runtime and federation-entity, ST5C for SSF), and
   S9B narrows the FAPI floor.
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  ST5C wrote per-entry components for ssf-transmitter (20 entries), but federation-runtime's entries carry none, so
+  a switch there still refuses FEDERATION, AUTO_REGISTRATION and ATTESTATION_AUTH together (the preflight on
+  2026-10-01: OIDF_PDP_FAIL_OPEN=true without its risk refuses all three). S9B narrowed the FAPI floor to FAPI's own
+  clients (F-0270, closed), so a process-wide violation no longer closes the token endpoint to every client. A
+  catalogue change. The programme plan gives it no later item of its own, so David schedules it.

@@ -11,7 +11,7 @@ item S8b; [operator-authentication.md](operator-authentication.md)).
 | `/agentic-identity/health/live` | none | 200 `{"status":"UP"}` while the webapp answers |
 | `/agentic-identity/health/ready` | none | 200 `{"status":"UP"}`, or 503 `{"status":"DOWN"}` |
 | `/agentic-identity/health` | an operator access token with `oidf.health.read` | the detail, with ready's status code |
-| `/agentic-identity/info` | the same | this repository's version, the commit (null for now), PingFederate's and the JVM's |
+| `/agentic-identity/info` | the same | this repository's version, the commit (recorded by the build since 0.6.0, F-0190), PingFederate's and the JVM's |
 
 ## Access
 
@@ -72,10 +72,11 @@ Things to know before routing on ready:
   keys are captured from serves through a load balancer that routes on ready ([F-0192](../findings/F-0192.yaml); seen
   on the rig on 2026-09-30). With automatic registration switched on and no keys pinned, `AUTO_REGISTRATION` is
   `FAILED_CONFIG` and ready is 503.
-- **An SSF transmitter whose settings do not parse is reported disabled**, as the transmitter itself treats it
-  ([F-0191](../findings/F-0191.yaml)); read server.log's "SSF transmitter not configured" line.
+- **An SSF transmitter whose settings do not parse is `FAILED_CONFIG`** since 0.6.0 (ST5C,
+  [F-0191](../findings/F-0191.yaml), closed): server.log's ERROR "SSF transmitter NOT started: ..." names the setting,
+  and ready is 503.
 - **Live is not PingFederate's heartbeat.** `/pf/heartbeat.ping` is PingFederate's own; live says only that this
-  webapp answers. R-I3 (Phase 3) makes the image's HEALTHCHECK use both.
+  webapp answers. The image's HEALTHCHECK checks both (R-I3, 0.6.0), and not ready.
 
 ## The detail
 

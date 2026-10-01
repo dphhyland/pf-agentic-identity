@@ -19,3 +19,13 @@ notes: >
   there (400 invalid_authorization_details), and the login on the verification page worked, but the confirmation
   page's submit was not driven headless (the poll stayed authorization_pending), so the token was never issued.
   If the premise is false the rewrite still holds what is stored; what is issued is S4D3's belt and criterion.
+
+  Driven further on 2026-10-01 AEST (2026-09-30T21:42Z UTC) by the v0.6.0 release package on the conformance rig
+  (development, attestation on, the RAR plugin lent, modules at origin/main 600fa6b5), confirmation step included: an
+  attested device authorization request with sales_agent [EMEA, AMER] up to 500, approved on the verification page,
+  redeemed with no authorization_details under the same ceiling, issued exactly those details in the token and the
+  response; redeemed under a narrower attestation it was refused 400 invalid_authorization_details by the belt
+  (criterion off) and 400 invalid_grant issued_details_refused by the criterion (on). So the device grant issues what
+  its endpoint stored when the token request names none, and is held to the ceiling. Still not driven: a redemption
+  that sends narrower authorization_details than were stored, which the title's 'whatever the token request says' is
+  about; the item stays open for it.

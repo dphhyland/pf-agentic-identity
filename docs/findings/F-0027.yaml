@@ -5,7 +5,7 @@ area: platform
 source: review-2026-09-26
 status: open
 plan_items: [O-1, O-2, O-3, O-4, O-5, O-6]
-prs: [43, 46, 49, 53]
+prs: [43, 46, 49, 53, 68, 71, 76, 77, 80, 84, 85, 92, 96, 97]
 verification: ''
 target_release: 0.7.0
 notes: >
@@ -22,3 +22,11 @@ notes: >
   attestation event codes are catalogued declaredOnly and not emitted (O-2), no Prometheus endpoint (O-5), DEBUG is
   still the image's default and there is no correlation id (O-6), and the PII classes are recorded but not applied
   (D-6).
+
+  Phase 3 (0.6.0, recorded 2026-10-01 by the release package): O-2 is delivered, each family in a catalogue its
+  package owns (decision 7): admin.* (S8A, PR #71), platform.* (PR5, PR #77), attestation.client.verified,
+  attestation.client.refused and attestation.policy.invalid (S4C, PR #76), attestation.issued.refused (S4D3, PR
+  #84), attestation.challenge.* (ST5A, PR #80), gm.* (ST5S, PR #85), rar.decision.* (PLG, PR #92), ssf.* (HSSF3, PR
+  #97) and fapi.request.refused (HFEDE, PR #96), which also gives each refusal to an unauthenticated caller a
+  reference that server.log carries. RI3 (PR #68) made INFO the image's default (part of O-6). Still open: a
+  Prometheus endpoint (O-5), the rest of O-6, and the PII classes applied (D-6).

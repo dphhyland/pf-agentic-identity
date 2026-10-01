@@ -7,7 +7,7 @@ status: open
 plan_items: [C-2]
 prs: [54]
 verification: ''
-target_release: 0.6.0
+target_release: 0.7.0
 notes: >
   Found by C2 (2026-09-28) while moving MiniRedisClient to platform.redis. 0.4.0 took the userinfo from
   URI.getUserInfo, which decodes the percent escapes, and then ran each part through URLDecoder, which is form
@@ -18,3 +18,7 @@ notes: >
   for a bad escape quoted two characters of the password, and RedisUrl.parse now refuses it with a message that
   quotes nothing. Decoding once (URI's own escapes only) is the fix; it changes the meaning of a password that
   relied on the double decoding, so it is a Before-you-deploy item in the release that takes it.
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  RedisUrl still decodes the userinfo twice (URI, then URLDecoder, RedisUrl.java line 56). C-4 and C-6 own the Redis
+  client in Phase 4 (Phase 3 PLAN.md, "What should move").

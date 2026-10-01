@@ -1,0 +1,31 @@
+id: F-0437
+title: The admin API cannot set a metadata_policy on a SELF_SIGNED hosted entity, because withMetadataPolicy drops the entity's own keys
+severity: low
+area: openid-federation, pf-integration
+source: design
+status: open
+plan_items: [H-FED-3]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found by the v0.6.0 release package on the conformance rig on 2026-10-01 AEST (2026-09-30T21:26Z-21:32Z UTC;
+  PingFederate 13.1.3.0, production profile, modules at origin/main 600fa6b5), in the operator route matrix: POST
+  /federation/admin/entities/metadata-policy with a DPoP-bound token holding oidf.admin.entities, for a SELF_SIGNED
+  hosted entity enrolled with its federationJwks, answered 400 invalid_metadata 'a SELF_SIGNED entity needs its own
+  federation keys (federationJwks)', on a fresh container and after a restart. Read at 600fa6b5:
+  HostedEntity.withMetadataPolicy (libs/openid-federation/.../authority/HostedEntity.java lines 141 to 144) calls the
+  ten-argument constructor, which passes null for federationJwks and entityConfiguration, where withStatus,
+  withMetadata, withHostingKeyRef and withEntityConfiguration pass both on; the canonical constructor (lines 90 to 94)
+  refuses a SELF_SIGNED entity without federationJwks. HostedEntityAdmin.metadataPolicy
+  (servlets/pf-integration/.../trustanchor/HostedEntityAdmin.java line 124) calls
+  requireComposable(entity.withMetadataPolicy(policy)) and answers that IllegalArgumentException 400, and
+  InMemoryHostedEntityRegistry.updateMetadataPolicy (line 112) would throw the same. The same code is in v0.5.0, so
+  0.6.0 did not introduce it. An AUTHORITY_SIGNED entity is not affected (no federationJwks to drop; not driven on the
+  rig, which has no OpenBao). Effect: an operator cannot set or change the metadata_policy of a self-signed hosted
+  entity through the admin API; the change is refused, nothing is written, and the entity keeps the policy it had
+  (OIDF_AUTHORITY_METADATA_POLICY's server-wide starting policy still applies). Low: it fails closed and weakens
+  nothing, but an operator who wants to narrow a self-signed agent's metadata has only suspension. The fix is one line
+  (pass this.federationJwks and this.entityConfiguration) and a test; it is code, which the release package does not
+  change. The programme plan gives the hosted-entity admin API no later item of its own (H-FED-3 is the nearest, the
+  hosted-entity state changes), so David schedules it; 0.7.0 is where it is next looked at.

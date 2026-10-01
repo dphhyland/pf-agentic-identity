@@ -5,7 +5,7 @@ anyway. One section per limit; each names the release expected to lift it.
 
 ## One PingFederate node, until 0.7.0
 
-0.5.0, like 0.4.0, supports **a single PingFederate engine node**. Several pieces of state the modules keep are per node - in
+0.6.0, like 0.4.0 and 0.5.0, supports **a single PingFederate engine node**. Several pieces of state the modules keep are per node - in
 memory, or behind a loop that assumes it is the only one - and the cluster story that makes them shared is
 Phase 4 of the production programme, release 0.7.0: Redis-backed state through one platform client, leases for
 background work such as SSF push, JDBC client storage, and a cluster verification suite run on reference
@@ -23,7 +23,10 @@ reactor build logged it again on 2026-09-29 (`SSF store: JDBC data store 'pf-ds'
 What goes wrong on two nodes today, read from the code on 2026-09-27 (origin/main `714e7ce`) and not driven on a
 cluster. Phase 2 (0.5.0) moved none of it: the platform Redis client (C-2) keeps 0.4.0's keys and adds nothing
 shared, and the managed executors' one-of-each-job claim (C-3) is per JVM, not per cluster, so each node still
-runs its own SSF push loop:
+runs its own SSF push loop. Phase 3 (0.6.0) moved none of it either: from 0.6.0 the production profile refuses a
+component whose security state would be kept in one node's memory unless `OIDF_ACCEPTED_RISKS` names
+`in-memory-state` (Phase 3 plan decision 9), which says the node is standalone and does not make the state shared,
+and HSSF2's verification limit and HSSF3's logout replay memory are per node too (F-0385, F-0402):
 
 | State | Where it lives in 0.4.0 | On two nodes |
 |---|---|---|

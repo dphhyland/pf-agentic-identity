@@ -56,3 +56,6 @@ notes: >
   with the assertion's sub as the principal, is therefore safe on the ID-JAG profile only, where PingFederate has
   verified the assertion first; on the plain profile validate runs before the assertion is verified and its sub
   cannot be trusted. Not built: it waits for David's choice.
+
+  David chose route (a), refusal, on 2026-09-30, as PR #79 built it (recorded 2026-10-01 by the v0.6.0 release
+  package).

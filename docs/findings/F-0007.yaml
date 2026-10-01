@@ -5,7 +5,7 @@ area: cluster
 source: review-2026-09-26
 status: open
 plan_items: [C-1, C-2, C-3, C-4, C-6, C-7, S-10]
-prs: [38, 43, 51, 54]
+prs: [38, 43, 51, 54, 71, 80, 82, 91]
 verification: ''
 target_release: 0.7.0
 notes: >
@@ -35,3 +35,10 @@ notes: >
   key prefixes, the lease and rate-limit commands and scripts C-4 and X-A11 need, and Sentinel, under which
   client-attestation's stores now run with 0.4.0's keys. Nothing takes a lease yet, so every item on
   docs/operator/deployment-limits.md still holds; 0.5.0 supports one PingFederate node only, as 0.4.0 did.
+
+  Phase 3 (0.6.0, recorded 2026-10-01 by the release package): decision 9 - security state held in one node's memory
+  now needs the in-memory-state accepted risk in production: S8A (PR #71) the operator authenticator's DPoP jtis,
+  ST5A (PR #80) the attestation replay caches, challenges, evidence bindings and the agent registry, ST5C (PR #82)
+  the SSF store, ST5F (PR #91) the federation registries, Trust Marks and key history. Rate-limit counters in memory
+  need no risk. Nothing clustered changed: no lease is taken and docs/operator/deployment-limits.md still holds, so
+  0.6.0 supports one PingFederate node only, as 0.5.0 did; C-1 (Phase 4) forbids in-memory state when clustered.

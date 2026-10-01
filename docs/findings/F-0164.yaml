@@ -7,7 +7,7 @@ status: open
 plan_items: [F-2, PR-5]
 prs: []
 verification: ''
-target_release: 0.6.0
+target_release: 0.7.0
 notes: >
   InsecureTls records each use in a static of the copy that was loaded (PR1, 2026-09-28), and statics are per
   loader (docs/development/classloaders.md). The RAR plugin shades and relocates platform, so when its "Skip
@@ -22,3 +22,10 @@ notes: >
   (docs/operator/startup-audit.md), read from the war's own copy of InsecureTls, so a plugin's use still reaches only
   server.log, as its WARN. PR-5 (0.6.0), which turns the audit into refused components, is where the audit has to
   learn of a plugin's use or say that it cannot.
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  PR5 (PR #77) turned the start-up audit into refused components but did not teach it a plugin's use of its
+  relocated InsecureTls; docs/operator/startup-audit.md still lists the war's own copy's uses, and a plugin's use
+  reaches only server.log as its WARN. In production the RAR plugin refuses "Skip TLS verification (dev only)" on
+  save and at configure (PLG, PR #92), so the gap is the development profile's. The programme plan gives it no later
+  item of its own, so David schedules it.

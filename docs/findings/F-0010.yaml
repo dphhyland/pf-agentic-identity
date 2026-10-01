@@ -3,10 +3,24 @@ title: 'No fetch deadline; registration starvation'
 severity: high
 area: openid-federation, oidf-jose
 source: review-2026-09-26
-status: open
+status: closed
 plan_items: [S-5, S5a, S5b, S5c, S5d]
-prs: [55, 60]
-verification: ''
+prs: [55, 60, 69, 70, 73, 75, 94, 100]
+verification: >
+  Closed 2026-10-01 by the v0.6.0 release package on origin/main 600fa6b5, the umbrella's last item having landed.
+  S5B (PR #69) threads one resolution budget - a wall clock, OIDF_FEDERATION_RESOLUTION_WALL_CLOCK_SECONDS (45 s),
+  and a request count - through the validator, the gateway and the Trust Mark checks; S5C (PR #73) bounds explicit
+  registration (the coordinator, a capped body, a 25 s registration deadline); S2C (PR #70) puts the RAR plugin's
+  PDP call on OutboundHttp with a 2.5 s deadline on the whole exchange; S8B (PR #75) moves SSF's introspection onto
+  TokenIntrospector (1 s to connect, 2.5 s in all); S5D (PR #94) moves SSF push, poll, stream and JWKS calls,
+  OpenBao, device-enrolment and gm-api onto OutboundHttp with a deadline on the whole exchange and a capped body;
+  ST6 (PR #100) makes CI refuse an outbound client outside platform.http. On origin/main 600fa6b5, `python3
+  tools/outbound-scan.py` and `--check-allow-list` are clean with 19 sites admitted by the 10 entries of
+  tools/outbound-allow.txt, none an HTTP client in shipped code outside platform: class-path reads of catalogues and
+  build facts, platform's Redis socket, InsecureTls's HttpClient.Builder hook (which only the harness calls) and
+  Kafka's producer, loaded by reflection. Residuals under their own ids: U-0195 (name resolution and request writes,
+  which no deadline bounds), U-0216 (whether a consumer's calls depend on a JVM proxy), F-0280 (a chain and its
+  Trust Marks spend two budgets, 0.7.0).
 target_release: 0.6.0
 notes: >
   The JDK's HttpRequest.timeout() stops at the response headers, so oidf-jose's readCapped has no deadline on
@@ -21,3 +35,8 @@ notes: >
   included, and a per-origin bulkhead of 32 (closing F-0070 and F-0205). Still open: the call sites that bypass
   oidf-jose - the SSF push delivery and the SSF receiver's JWKS fetch (JwksHttpSource) among them - move in S5d, and
   the resolution budget through the validator and gateway is S5b, both Phase 3.
+
+  Phase 3 (0.6.0, recorded 2026-10-01 by the release package): S5B #69 (the resolution budget), S5C #73 (explicit
+  registration bounded), S2C #70 (the RAR plugin's PDP call), S8B #75 (SSF introspection on TokenIntrospector), S5D
+  #94 (SSF push, poll, stream and JWKS, OpenBao, device-enrolment and gm-api on OutboundHttp) and ST6 #100 (no HTTP
+  client outside platform.http, in CI). Closed; U-0195, U-0216 and F-0280 stay open under their own ids.

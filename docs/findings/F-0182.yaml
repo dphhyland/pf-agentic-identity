@@ -7,7 +7,7 @@ status: open
 plan_items: [C-2]
 prs: [54]
 verification: ''
-target_release: 0.6.0
+target_release: 0.7.0
 notes: >
   Found by C2's review (2026-09-28). build.yml's java job fails when client-attestation's RedisLiveTest skips a
   test or runs none, but it does not read libs/platform's RedisLiveTest report, and that is the only test that runs
@@ -16,3 +16,7 @@ notes: >
   today: Build run 36345506046 shows 8 tests, 1 skipped (the Sentinel test, which needs a Sentinel CI does not
   start). build.yml was outside C2's files; whoever next owns the java job extends the guard to platform's report,
   allowing that one Sentinel skip.
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  build.yml's guard still reads only client-attestation's RedisLiveTest report. C-4 and C-6 own the Redis client in
+  Phase 4 (Phase 3 PLAN.md, "What should move").

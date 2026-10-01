@@ -41,3 +41,11 @@ notes: >
   whoever can write a data.zip into the drop-in directory can write the marker beside it. PingFederate's drop-in
   deployer ignores the data.zip.age the bootstrap now copies to /opt/out: it deploys data.zip only (seen on the rig).
   Every start now needs the identity, a restart included.
+
+  Seen again on the release code on 2026-10-01 AEST (2026-09-30T21:11Z-21:32Z UTC) by the v0.6.0 release package:
+  every production-profile case of its exit check (the baseline, the ignore-TLS switch, the JVM hostname flag, the
+  operator route matrix and the static-token boot; PingFederate 13.1.3.0, modules at origin/main 600fa6b5,
+  data.zip.age baked into the image, the identity from PF_ARCHIVE_AGE_KEY_FILE) was booted in a fresh container and
+  then restarted in place with docker restart. Each restart logged 'RUN_PLAN : RESTART' and 'pf-entrypoint: decrypting
+  .../drop-in-deployer/data.zip.age', the heartbeat answered 200 in 12 to 33 s, and every probe gave the same answer
+  as on the fresh boot.
