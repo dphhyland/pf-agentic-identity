@@ -4,7 +4,7 @@ area: ciba-sim, image
 source: design
 status: closed
 plan_items: [X-D02]
-prs: []
+prs: [105]
 recorded_in: plugins/ciba-sim/README.md, What the rig does; build/pingfederate/README.md, Staging from a release; docs/releases/unreleased/SPB.md
 verify_by: Nothing further is needed.
 verification: >

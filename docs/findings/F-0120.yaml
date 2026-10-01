@@ -5,7 +5,7 @@ area: ciba-sim, release
 source: pr-review
 status: closed
 plan_items: [X-D02]
-prs: []
+prs: [105]
 verification: >
   Closed by SPB on 2026-10-01. plugins/ciba-sim/pom.xml sets <maven.deploy.skip>true</maven.deploy.skip>, so a
   release's deploy step no longer publishes com.pingidentity.ps.oidf:ciba-sim to GitHub Packages; nothing in this

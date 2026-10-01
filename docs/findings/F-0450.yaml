@@ -5,7 +5,7 @@ area: war-assembler, image
 source: pr-review
 status: open
 plan_items: [R-I5]
-prs: []
+prs: [105]
 verification: ''
 target_release: 0.7.0
 notes: >
