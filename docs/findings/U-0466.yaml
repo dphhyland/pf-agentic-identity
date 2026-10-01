@@ -1,0 +1,26 @@
+id: U-0466
+title: That a public-preflight can prove PUBLIC_REPO_TOKEN can push to ID-Partners/pf-agentic-identity without pushing, and can read private vulnerability reporting.
+area: release
+source: design
+status: open
+plan_items: [R-CI9]
+prs: []
+recorded_in: here only, until the preflight job is built (see notes)
+verify_by: Cutover step 3, the release dry run with David's token - the preflight reports the token can push, and the same check fails with a Contents read-only token.
+verification: >
+  Partly checked 2026-10-01. git push --dry-run over HTTPS reads the receive-pack advertisement: GIT_TRACE_CURL on
+  git 2.47.1 showed "GET /dphhyland/pf-agentic-identity.git/info/refs?service=git-receive-pack" answered 401, while
+  the same repository's git-upload-pack advertisement answered 200 anonymously, so GitHub gates the receive-pack
+  advertisement separately from reads. GitHub's "Choosing permissions for a GitHub App" says "If you want your app
+  to use an installation or user access token to authenticate for HTTP-based Git access, you should request the
+  "Contents" repository permission." (github/docs, read 2026-10-01). That a token with Contents read only is
+  refused the receive-pack advertisement (rather than only the pack upload) was not observed: it needs a token.
+  GET /repos/{owner}/{repo}'s permissions object was not used, since its documentation does not say whether it
+  reports the token's grant or the user's role. GitHub's "Permissions required for fine-grained personal access
+  tokens" (read 2026-10-01) lists GET /repos/{owner}/{repo}/private-vulnerability-reporting under Repository
+  permissions for "Metadata" (read), which every fine-grained token carries, so the preflight can read it.
+notes: >
+  The publish-public and public-preflight jobs were not built in package SPC's first attempt: the edit to
+  .github/workflows/release.yml was refused by the session's permission classifier (2026-10-01), so the preflight
+  this finding describes waits for David's decision. GET /user with a fine-grained token (for the commit author's
+  noreply address) is not listed on the permissions page and is to be checked at the same cutover step.
