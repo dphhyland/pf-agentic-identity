@@ -224,6 +224,44 @@ class Guards(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("docs showcase/index.html - its source matches the refuse rule `showcase/**`", err)
 
+    def test_a_refuse_rule_holds_against_a_broader_rule_above_it(self):
+        # docs/guide/private/ is in no NO_SOURCE pattern: only the refuse rule keeps it out
+        root = repo(extra={"docs/guide/private/plan.md": "# plan\n"},
+                    manifest=MANIFEST + "refuse docs/guide/private/**\n")
+        err = self.failed(root)
+        self.assertIn("error: [no-source] docs/guide/private/plan.md: matches the refuse rule "
+                      "`docs/guide/private/**`", err)
+        self.assertIn("docs docs/guide/** matches it first", err)
+
+    def test_a_committed_symbolic_link(self):
+        root = repo()
+        os.symlink("b.md", os.path.join(root, "docs/guide/link.md"))
+        git(root, "add", "-A")
+        git(root, "commit", "-qm", "a link")
+        err = self.failed(root)
+        self.assertIn("error: [no-source] docs/guide/link.md: a symbolic link", err)
+
+    def test_a_tracked_file_turned_into_a_symbolic_link_is_refused(self):
+        root = repo()
+        outside = os.path.join(tempfile.mkdtemp(), "elsewhere.md")
+        write(os.path.dirname(outside), {"elsewhere.md": "# not the repository's\n"})
+        os.remove(os.path.join(root, "docs/guide/b.md"))
+        os.symlink(outside, os.path.join(root, "docs/guide/b.md"))
+        code, stdout, err = run(root, "--check")
+        self.assertEqual(code, 2, stdout + err)
+        self.assertIn("docs/guide/b.md: the working tree has a symbolic link where the index has a regular file", err)
+
+    def test_an_html_link_that_would_be_de_linked(self):
+        err = self.failed(repo(extra={"docs/guide/c.md": '<a href="../findings/F-1.yaml">F-1</a>\n'}))
+        self.assertIn("error: [links] docs/guide/c.md:1: ../findings/F-1.yaml in an HTML href or src would be "
+                      "de-linked", err)
+
+    def test_a_mixed_case_internal_url_or_slug(self):
+        err = self.failed(repo(extra={"build/img/Dockerfile": 'LABEL source="https://github.com/DPHHYLAND/'
+                                      'pf-agentic-identity"\nREPO=Dphhyland/Pf-Agentic-Identity\n'}))
+        self.assertIn("error: [urls] build/img/Dockerfile:1: https://github.com/DPHHYLAND/pf-agentic-identity", err)
+        self.assertIn("error: [urls] build/img/Dockerfile:2: dphhyland/pf-agentic-identity outside a URL", err)
+
     def test_a_dead_relative_link_and_an_unclassified_one(self):
         err = self.failed(repo(extra={"docs/guide/c.md": "[gone](gone.md) [odd](../../other/x.md)\n",
                                       "other/x.md": "x\n"}))
@@ -294,6 +332,11 @@ class Links(unittest.TestCase):
         self.assertEqual(text, "[One][a], two and gone.\n\n[a]: b.md#x\n[Release]: " + PUBLIC
                          + "/releases/tag/v0.5.0\n")
 
+    def test_an_html_href_or_src_to_an_exported_file_is_rewritten(self):
+        text, _ = self.doc('<a href="../../rig/README.md#x">rig</a> <img src="../../docs/assets/flow.svg"/>\n',
+                           path="svc/docs/c.md")
+        self.assertEqual(text, '<a href="../../demo/README.md#x">rig</a> <img src="../assets/flow.svg"/>\n')
+
     def test_fenced_code_and_inline_code_are_untouched(self):
         body = "```md\n[f](../findings/F-1.yaml)\n```\n`[g](../findings/F-1.yaml)`\n~~~\n[h](nowhere.md)\n~~~\n"
         text, _ = self.doc(body)
@@ -327,10 +370,15 @@ class Links(unittest.TestCase):
             ("bare https://github.com/dphhyland/idp-agentic-demo.", "bare idp-agentic-demo."),
             ("[public](https://github.com/dphhyland/pf-oidf-modules/blob/main/x.tf)",
              "[public](https://github.com/dphhyland/pf-oidf-modules/blob/main/x.tf)"),
+            ("[R](https://github.com/DPHHYLAND/PF-Agentic-Identity/releases/tag/v0.6.0)",
+             f"[R]({PUBLIC}/releases/tag/v0.6.0)"),
+            ("[P](https://github.com/Dphhyland/pf-agentic-identity/pull/3)", "P"),
+            ("gh release list -R DPHHYLAND/pf-agentic-identity", "gh release list -R ID-Partners/pf-agentic-identity"),
+            ("[S](https://github.com/DPHHYLAND/Grant-Evaluation-API)", "S"),
         ]
         text, stdout = self.doc("".join(src + "\n" for src, _ in rows))
         self.assertEqual(text.split("\n")[:-1], [want for _, want in rows])
-        self.assertIn("docs/guide/c.md: 7 rewritten, 9 de-linked (internal), 2 de-linked (private)", stdout)
+        self.assertIn("docs/guide/c.md: 9 rewritten, 10 de-linked (internal), 3 de-linked (private)", stdout)
 
     def test_the_url_table_applies_inside_fenced_code_and_outside_markdown(self):
         text, _ = self.doc("```sh\ngh release download v0.6.0 -R dphhyland/" + "pf-agentic-identity\n```\n")
@@ -395,18 +443,34 @@ class Overlay(unittest.TestCase):
                          "See [the guide](docs/guide/a.md).\n")
         self.assertNotIn("image/release.env", listing(out))
 
-    def test_docs_only(self):
-        code, out, _, err = export(repo(extra={"build/img/stage-from-release.sh": "#!/bin/sh\n"}),
+    DOCS = ["LICENSE", "README.md", "docs/assets/flow.svg", "docs/guide/a.md", "docs/guide/b.md",
+            "docs/releases/0.1.0.md", "docs/svc/api.md"]
+
+    def test_docs_only_keeps_the_public_image_and_demo_in_view(self):
+        code, out, _, err = export(repo(extra={"build/img/stage-from-release.sh": "#!/bin/sh\n"},
+                                        overlay=OVERLAY + "[demo](demo/README.md)\n"),
                                    "--docs-only", "--version", "0.7.0")
         self.assertEqual(code, 0, err)
-        self.assertEqual(listing(out), ["LICENSE", "README.md", "docs/assets/flow.svg", "docs/guide/a.md", "docs/guide/b.md",
-                                        "docs/releases/0.1.0.md", "docs/svc/api.md"])
+        self.assertEqual(listing(out), self.DOCS)
+        self.assertEqual(read(out, "README.md"),
+                         "# Public 0.7.0\n\nTag v0.7.0 on PingFederate 13.1.3.\nDEMO\nSTAGING\n"
+                         "See [the guide](docs/guide/a.md).\n[demo](demo/README.md)\n")
+
+    def test_docs_alone_leaves_the_image_and_demo_out(self):
+        code, out, stdout, err = export(repo(extra={"build/img/stage-from-release.sh": "#!/bin/sh\n"}),
+                                        "--docs-alone", "--version", "0.7.0")
+        self.assertEqual(code, 0, err)
+        self.assertIn("(docs alone)", stdout)
+        self.assertEqual(listing(out), self.DOCS)
         self.assertEqual(read(out, "README.md"),
                          "# Public 0.7.0\n\nTag v0.7.0 on PingFederate 13.1.3.\nSee [the guide](docs/guide/a.md).\n")
 
-    def test_a_docs_only_link_into_the_demo_keeps_its_text(self):
-        code, out, _, err = export(repo(extra={"docs/guide/c.md": "[rig](../../rig/README.md)\n"}), "--docs-only")
-        self.assertEqual(read(out, "docs/guide/c.md"), "rig\n")
+    def test_a_docs_only_link_into_the_demo_follows_it_and_a_docs_alone_one_keeps_its_text(self):
+        root = repo(extra={"docs/guide/c.md": "[rig](../../rig/README.md) and [dir](../../rig/)\n"})
+        code, out, _, err = export(root, "--docs-only")
+        self.assertEqual(read(out, "docs/guide/c.md"), "[rig](../../demo/README.md) and [dir](../../demo/)\n")
+        code, out, _, err = export(root, "--docs-alone")
+        self.assertEqual(read(out, "docs/guide/c.md"), "rig and dir\n")
 
     def test_an_overlay_link_must_resolve_in_the_public_tree(self):
         code, stdout, err = run(repo(overlay=OVERLAY + "[x](demo/missing.md)\n"), "--check")

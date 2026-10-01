@@ -33,8 +33,8 @@ Then check every file against `SHA256SUMS` before you use it, and record what yo
 grep -E '^(commit|tag):' vendor/PROVENANCE.txt >> VENDORED.txt
 ```
 
-`PROVENANCE.txt` names the source commit and the tag the release was built from. Releases from v0.3.0 to v0.6.0
-were mirrored here from the source repository with their original assets, so their checksums are unchanged.
+`PROVENANCE.txt` names the source commit and the tag the release was built from. Every release here, from
+v0.3.0, carries the assets it was first published with in the source repository, so its checksums are unchanged.
 
 This release runs on PingFederate {{PF_VERSION}}. Every release here is a `jakarta.servlet` build for
 PingFederate 13.1.x; the v0.1.x releases, built for 13.0.x, are not published here.

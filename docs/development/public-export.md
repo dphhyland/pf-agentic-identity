@@ -52,10 +52,13 @@ The classes:
 | `image` | yes | the PingFederate image build, under `image/` |
 | `demo` | yes | the rig and examples, under `demo/` |
 | `internal` | no | stays here; a link into it keeps its text and loses the link |
-| `refuse` | never | `showcase/**`, `build/microsite/**`, `**/src/**`, `**/*.java`, `**/pom.xml`, `.github/**`; a rule of another class whose source matches one is a manifest error |
+| `refuse` | never | `showcase/**`, `build/microsite/**`, `**/src/**`, `**/*.java`, `**/pom.xml`, `.github/**`; a rule of another class whose source matches one is a manifest error, and a file a broader rule above would export fails the no-source guard |
 
-`--docs-only` writes only `root` and `docs` (the public repository keeps its `image/` and `demo/` until a
-release's jars catch up with them).
+`--docs-only` writes only `root` and `docs`, for a release that keeps the public repository's `image/` and `demo/`
+until a release's jars catch up with them: links into those directories are rewritten as the full export lays
+them out, and the overlay keeps its image and demo sections. `--docs-alone` writes the same files for a public
+tree that has no `image/` or `demo/` (the v0.3.0 to v0.5.0 mirrors): links into them are de-linked and the
+overlay's image and demo section goes.
 
 The overlay, `tools/public-export/overlay/`, holds files that exist only publicly: `README.md`, `SECURITY.md` and
 `.gitignore`. Only tracked files there are exported. They are templated: `{{VERSION}}`, `{{TAG}}` and
@@ -80,6 +83,7 @@ python3 tools/export-public.py OUTDIR                           # write HEAD's t
 python3 tools/export-public.py --version 0.7.0 OUTDIR           # with the overlay's version filled in
 python3 tools/export-public.py --source-ref v0.6.0 --check      # a tag's tree
 python3 tools/export-public.py --docs-only --version 0.7.0 OUTDIR
+python3 tools/export-public.py --source-ref v0.4.0 --docs-alone OUTDIR
 ```
 
 It reads tracked files only: on HEAD the index's paths with their working-tree content, at `--source-ref` the
@@ -94,10 +98,14 @@ Each failure names its guard, the file and the line. A hit is fixed at its sourc
 in the manifest; an exception is never added to the deny list.
 
 **no-source.** A `*.java`, `*.kt` or `*.swift` file, a `pom.xml`, a `src/` path segment, `.github/`,
-`showcase/` or `build/microsite/`, by source or public path; a symbolic link.
+`showcase/` or `build/microsite/`, by source or public path; a file a `refuse` rule matches, whatever rule above
+it matched first; a symbolic link. On HEAD a tracked file whose working-tree copy has turned into a symbolic link
+(or the other way round) stops the export with a usage error, so `open()` never follows a link out of the
+repository.
 
 ```
 error: [no-source] docs/guide/Main.java: source code is never exported
+error: [no-source] docs/secret/plan.md: matches the refuse rule `docs/secret/**` (manifest.txt:9) and is never exported, although manifest.txt:3: docs docs/** matches it first
 ```
 
 Fix: narrow the glob that reached it, or put an `internal` rule above it.
@@ -106,7 +114,9 @@ Fix: narrow the glob that reached it, or put an `internal` rule above it.
 code) is resolved against the source file. If the target is exported, the link is rewritten relative to the
 public path of the file it sits in, anchor kept: `services/gm-api/docs/INTEGRATING.md`'s `../examples` becomes
 `../../demo/gm-api` under `docs/gm-api/`. If the target is `internal`, the text stays and the link
-goes. Anything else fails:
+goes. A relative `href` or `src` in HTML inside a Markdown file goes through the same classes; one that would be
+de-linked fails instead, because an HTML element cannot lose its link cleanly, so write it as a Markdown link.
+Anything else fails:
 
 ```
 error: [links] docs/operator/x.md:12: ../gone.md -> docs/gone.md, which does not exist
@@ -116,7 +126,8 @@ error: [links] docs/operator/x.md:14: ../../other/x.md -> other/x.md, which the 
 Fix: correct the link, or classify the target.
 
 **urls.** Every exported file, Markdown or not, goes through the rewrite table for
-`https://github.com/dphhyland/pf-agentic-identity` and the bare slug:
+`https://github.com/dphhyland/pf-agentic-identity` and the bare slug, matched without regard to case as GitHub
+matches owner and repository names:
 
 | Internal | Public |
 |---|---|

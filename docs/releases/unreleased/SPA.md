@@ -21,7 +21,9 @@ What is exported: `LICENSE`, `NOTICE`, `CHANGELOG.md`, the two specifications, t
 guides (`docs/`); the PingFederate image build (`image/`); and the conformance rig, the PingAuthorize authoring
 scripts and the gm-api examples (`demo/`). Source code, tests, workflows, findings, developer documents, the
 showcase and the microsite are not. `docs/development/public-export.md` describes the manifest and the guards:
-no-source, links, urls, deny, secrets and binaries.
+no-source, links, urls, deny, secrets and binaries. `--docs-only` writes only the root files and `docs/` for a
+release that keeps the public `image/` and `demo/`; `--docs-alone` does the same for a public tree without them
+(the v0.3.0 to v0.5.0 mirrors).
 
 Links from exported files into what stays private keep their text and lose the link. On 2026-10-01 the check over
 HEAD de-links 310 links and rewrites 29 across 134 files; `docs/releases/0.6.0.md` loses 47 links and

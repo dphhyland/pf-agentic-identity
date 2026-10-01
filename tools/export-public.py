@@ -5,12 +5,14 @@
                                                         guard, print the summary, remove it
   tools/export-public.py OUTDIR                         build it into OUTDIR (absent, or empty apart from .git)
   tools/export-public.py --source-ref v0.6.0 OUTDIR     from a tag's tree instead of the index
-  tools/export-public.py --version 0.7.0 --docs-only OUTDIR
+  tools/export-public.py --version 0.7.0 --docs-only OUTDIR   root and docs only; the public image/ and demo/ stay
+  tools/export-public.py --source-ref v0.4.0 --docs-alone OUTDIR   root and docs, for a tree with no image/ or demo/
 
 What goes out is tools/public-export/manifest.txt's business: one rule per line, `<class> <source-glob>
 [-> <public-path>] [optional]`, first match wins. The classes root, docs, image and demo are exported; internal
 is not, and a link into it from an exported document keeps its text and loses the link; refuse is never
-exported, and a rule of another class whose source matches a refuse rule is a manifest error. Files under
+exported: a rule of another class whose source matches a refuse rule is a manifest error, and a file a refuse
+rule matches fails the no-source guard whatever rule above it matched first. Files under
 tools/public-export/overlay/ exist only publicly and are templated ({{VERSION}}, {{TAG}}, {{PF_VERSION}} and
 three conditional sections, `<!-- if:demo -->`, `<!-- if:staging -->` and `<!-- unless:staging -->`, each
 closed by `<!-- end:demo -->` or `<!-- end:staging -->`). image/release.env is written when image/ is exported
@@ -21,8 +23,9 @@ ref's tree (git ls-tree, git cat-file). An untracked or git-ignored file can nev
 
 The guards, each named in its failure:
   no-source   a *.java, *.kt or *.swift, a pom.xml, a src/ path segment, .github/, showcase/ or
-              build/microsite/, by source or public path; a symbolic link
-  links       a relative Markdown link to anything neither exported nor internal (a typo, a dead file)
+              build/microsite/, by source or public path; a file a refuse rule matches; a symbolic link
+  links       a relative Markdown link to anything neither exported nor internal (a typo, a dead file), and a
+              relative HTML href or src in Markdown that would be de-linked
   urls        a dphhyland/pf-agentic-identity URL or slug the rewrite table does not cover (HEAD only; at
               --source-ref it becomes "the internal repository" and is listed)
   deny        a line matching tools/public-export/deny.txt, after the transform, overlay included
@@ -242,11 +245,19 @@ class Source:
             return self._cache[path]
         if self.ref:
             data = git(self.root, "cat-file", "blob", self._blobs[path])
-        elif self.modes[path] == "120000":
-            data = os.readlink(os.path.join(self.root, path)).encode("utf-8")
         else:
-            with open(os.path.join(self.root, path), "rb") as f:
-                data = f.read()
+            # The index says what the file is; a working tree whose file differs in type (a tracked file turned
+            # into an unstaged symbolic link, which open() would follow out of the repository) is refused.
+            full = os.path.join(self.root, path)
+            link = os.path.islink(full)
+            if link != (self.modes[path] == "120000"):
+                raise UsageError(f"{path}: the working tree has {'a symbolic link' if link else 'a regular file'} where "
+                                 f"the index has {'a regular file' if link else 'a symbolic link'}; commit or restore it")
+            if link:
+                data = os.readlink(full).encode("utf-8")
+            else:
+                with open(full, "rb") as f:
+                    data = f.read()
         self._cache[path] = data
         return data
 
@@ -260,11 +271,12 @@ def git(root, *args):
 
 # --- the URL and slug table ---
 
-URL_RE = re.compile(r"https?://github\.com/dphhyland/pf-agentic-identity(?P<rest>(?:/[^\s)>\]\"'`<]*)?)")
-PRIVATE_URL_RE = re.compile(r"https?://github\.com/(?P<repo>" + "|".join(re.escape(r) for r in PRIVATE_REPOS)
-                            + r")(?:[/#?][^\s)>\]\"'`<]*)?")
-SLUG_FLAG_RE = re.compile(r"(--repo[= ]+|-R[= ]*)" + re.escape(INTERNAL_SLUG) + r"\b")
-SLUG_RE = re.compile(re.escape(INTERNAL_SLUG) + r"\b")
+# GitHub owner and repository names are case-insensitive, so the owner/repo part is matched without case.
+URL_RE = re.compile(r"https?://github\.com/(?i:dphhyland/pf-agentic-identity)(?P<rest>(?:/[^\s)>\]\"'`<]*)?)")
+PRIVATE_URL_RE = re.compile(r"https?://github\.com/(?P<repo>(?i:" + "|".join(re.escape(r) for r in PRIVATE_REPOS)
+                            + r"))(?:[/#?][^\s)>\]\"'`<]*)?")
+SLUG_FLAG_RE = re.compile(r"(--repo[= ]+|-R[= ]*)(?i:" + re.escape(INTERNAL_SLUG) + r")\b")
+SLUG_RE = re.compile(r"(?i:" + re.escape(INTERNAL_SLUG) + r")\b")
 RELEASE_RE = re.compile(r"^/releases/(?:tag|download)/v(\d+)\.(\d+)\.(\d+)(?:[/#?].*)?$")
 DELINK_RE = re.compile(r"^/(actions|compare|blob|tree|pull|pulls|issues|commit|commits)(/|$|#|\?)")
 
@@ -294,8 +306,13 @@ def trim_url(url):
 # --- the export ---
 
 class Export:
-    def __init__(self, root, source, rules, docs_only):
-        self.root, self.source, self.rules, self.docs_only = root, source, rules, docs_only
+    def __init__(self, root, source, rules, docs_only, docs_alone=False):
+        self.root, self.source, self.rules = root, source, rules
+        # docs_only: only root and docs are written, into a public tree that keeps its image/ and demo/ (a
+        # docs-only release), so links into them and the overlay's sections follow the full export. docs_alone:
+        # the same files, into a public tree that has no image/ or demo/ (the v0.3.0-v0.5.0 mirrors), so links
+        # into them are de-linked and the overlay's image and demo section goes.
+        self.docs_only, self.docs_alone = docs_only or docs_alone, docs_alone
         self.at_ref = bool(source.ref)
         self.errors = []          # (guard, location, message)
         self.notes = []           # listed in the summary at --source-ref
@@ -314,12 +331,21 @@ class Export:
     # selection
     def select(self):
         matched = {id(r): 0 for r in self.rules}
+        refuse = [r for r in self.rules if r.cls == "refuse"]
         for path in self.source.paths:
             rule = classify(self.rules, path)
             if rule is None:
                 continue
             matched[id(rule)] += 1
             if rule.cls not in EXPORTED:
+                continue
+            # refuse holds whatever a rule above it says: parse_manifest catches a glob that reaches a refuse
+            # rule's glob, and this catches the file a broader glob would still carry past a narrower refuse.
+            barred = next((x for x in refuse if x.matches(path)), None)
+            if barred is not None and not any(pattern.search(path) for pattern, _ in NO_SOURCE):
+                # (a path NO_SOURCE names is reported by guard() in its own words)
+                self.error("no-source", path, f"matches the refuse rule `{barred.glob}` (manifest.txt:{barred.line}) "
+                           f"and is never exported, although {rule} matches it first")
                 continue
             pub = rule.public_path(path)
             self.full_public_of[path] = pub
@@ -329,6 +355,9 @@ class Export:
                 raise ManifestError(f"{rule}: {path} and {self.files[pub][2]} both land at {pub}")
             self.public_of[path] = pub
             self.files[pub] = (self.source.modes[path], None, path)
+        # what a docs-only export leaves in place in the public tree, laid out as the full export lays it out
+        self.kept_public_of = {} if self.docs_alone else {
+            p: q for p, q in self.full_public_of.items() if p not in self.public_of}
         for r in self.rules:
             if r.cls in EXPORTED and not matched[id(r)]:
                 if r.optional:
@@ -376,6 +405,8 @@ class Export:
         new_path = None
         if resolved in self.public_of:
             new_path = self.public_of[resolved]
+        elif resolved in self.kept_public_of:
+            new_path = self.kept_public_of[resolved]
         elif self.source.is_dir(resolved):
             inside = self.source.under(resolved)
             for p in inside:
@@ -384,6 +415,13 @@ class Export:
                     if self.public_of[p].endswith(suffix):
                         new_path = self.public_of[p][:-len(suffix)] or "."
                         break
+            if new_path is None:
+                for p in inside:
+                    if p in self.kept_public_of:
+                        suffix = p[len(resolved):]
+                        if self.kept_public_of[p].endswith(suffix):
+                            new_path = self.kept_public_of[p][:-len(suffix)] or "."
+                            break
             if new_path is None:
                 classes = {getattr(classify(self.rules, p), "cls", None) for p in inside}
                 if classes & {"internal", "refuse"} or any(p in self.full_public_of for p in inside):
@@ -423,7 +461,8 @@ class Export:
             return "keep", raw
         resolved = posixpath.normpath(posixpath.join(posixpath.dirname(pub),
                                                        urllib.parse.unquote(target.split("#", 1)[0])))
-        if resolved in self.files or any(p.startswith(resolved.rstrip("/") + "/") for p in self.files):
+        present = set(self.files) | set(self.kept_public_of.values())
+        if resolved in present or any(p.startswith(resolved.rstrip("/") + "/") for p in present):
             return "keep", raw
         if self.at_ref:
             self.notes.append(f"{pub}:{line}: {target} -> link dropped (not in the tree at {self.source.ref})")
@@ -441,6 +480,7 @@ HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
 LINK_RE = re.compile(r"(!?)\[((?:[^\[\]\\]|\\.|\[(?:[^\[\]\\]|\\.)*\])*)\]\(\s*(<[^>\n]*>|[^)\s]+)"
                      r"((?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'))?)\s*\)")
 REF_DEF_RE = re.compile(r"^( {0,3})\[([^\]\n]+)\]:[ \t]*(<[^>\n]*>|\S+)([^\n]*)$", re.M)
+HTML_ATTR_RE = re.compile(r"""\b(?:href|src)[ \t]*=[ \t]*(["'])([^"'\n]*)\1""", re.I)
 REF_USE_RE = re.compile(r"(!?)\[((?:[^\[\]\\]|\\.|\[(?:[^\[\]\\]|\\.)*\])*)\]\[([^\]\n]*)\]")
 
 
@@ -474,8 +514,10 @@ def masked(chunk):
     return HTML_COMMENT_RE.sub(lambda m: "".join("\n" if c == "\n" else " " for c in m.group(0)), text)
 
 
-def transform_markdown(text, decide):
-    """Each link target in prose through decide(raw_target, line) -> ('keep', new) | ('delink', kind) | None."""
+def transform_markdown(text, decide, html_delink=None):
+    """Each link target in prose through decide(raw_target, line) -> ('keep', new) | ('delink', kind) | None.
+    An HTML href or src in prose goes through decide too; one it would de-link cannot lose its element cleanly,
+    so html_delink(raw_target, line) is told instead."""
     chunks = split_fences(text)
     out, line_base = [], 1
     for is_code, chunk in chunks:
@@ -509,6 +551,17 @@ def transform_markdown(text, decide):
                 edits.append((m.start(), m.end(), chunk[m.start(2):m.end(2)]))
             elif verdict[1] != chunk[m.start(3):m.end(3)]:
                 edits.append((m.start(3), m.end(3), verdict[1]))
+        for m in HTML_ATTR_RE.finditer(mask):
+            line = line_base + chunk.count("\n", 0, m.start())
+            raw = chunk[m.start(2):m.end(2)]
+            verdict = decide(raw, line)
+            if verdict is None:
+                continue
+            if verdict[0] == "delink":
+                if html_delink is not None:
+                    html_delink(raw, line)
+            elif verdict[1] != raw:
+                edits.append((m.start(2), m.end(2), verdict[1]))
         if dropped:
             for m in REF_USE_RE.finditer(mask):
                 label = (m.group(3) or m.group(2)).strip().lower()
@@ -703,7 +756,7 @@ def guard(export, deny, scan_text):
 
 # --- the whole run ---
 
-def build(root, ref=None, version=None, docs_only=False):
+def build(root, ref=None, version=None, docs_only=False, docs_alone=False):
     export_dir = os.path.join(root, EXPORT_DIR)
     try:
         with open(os.path.join(export_dir, "manifest.txt"), encoding="utf-8") as f:
@@ -712,7 +765,7 @@ def build(root, ref=None, version=None, docs_only=False):
         raise ManifestError(f"cannot read the manifest: {e}")
     deny = read_deny(os.path.join(export_dir, "deny.txt"))
     source = Source(root, ref)
-    export = Export(root, source, rules, docs_only)
+    export = Export(root, source, rules, docs_only, docs_alone)
     if version is None and ref:
         m = re.match(r"^v?(\d+\.\d+\.\d+)$", ref)
         version = m.group(1) if m else None
@@ -725,7 +778,10 @@ def build(root, ref=None, version=None, docs_only=False):
         if is_text(data) and mode != "120000":
             text = data.decode("utf-8")
             if pub.endswith(".md"):
-                text = transform_markdown(text, lambda raw, line, s=src, p=pub: export.target(s, p, raw, line))
+                text = transform_markdown(
+                    text, lambda raw, line, s=src, p=pub: export.target(s, p, raw, line),
+                    lambda raw, line, s=src: export.error("links", f"{s}:{line}", f"{raw} in an HTML href or src "
+                                                          f"would be de-linked; write it as a Markdown link"))
             text = transform_bare(text, export, src, pub)
             data = text.encode("utf-8")
         export.files[pub] = (mode, data, src)
@@ -737,8 +793,8 @@ def build(root, ref=None, version=None, docs_only=False):
     full = set(export.full_public_of.values())
     demo = any(p.startswith("demo/") for p in full)
     staging = "image/stage-from-release.sh" in full
-    conditions = {"demo": demo and not docs_only, "staging": staging and not docs_only,
-                  "unstaging": demo and not staging and not docs_only}
+    conditions = {"demo": demo and not docs_alone, "staging": staging and not docs_alone,
+                  "unstaging": demo and not staging and not docs_alone}
     values = {"VERSION": version or "<version>", "TAG": f"v{version}" if version else "v<version>",
               "PF_VERSION": pf_version or "<PingFederate version>"}
     # The overlay is this checkout's, whatever the source ref, and only its tracked files: an untracked file
@@ -764,7 +820,10 @@ def build(root, ref=None, version=None, docs_only=False):
     for pub in overlay:
         if pub.endswith(".md"):
             mode, data, _ = export.files[pub]
-            text = transform_markdown(data.decode("utf-8"), lambda raw, line, p=pub: export.overlay_target(p, raw, line))
+            text = transform_markdown(
+                data.decode("utf-8"), lambda raw, line, p=pub: export.overlay_target(p, raw, line),
+                lambda raw, line, p=pub: export.error("links", f"{EXPORT_DIR}/overlay/{p}:{line}", f"{raw} in an "
+                                                      f"HTML href or src does not resolve in the public tree"))
             export.files[pub] = (mode, text.encode("utf-8"), None)
 
     guard(export, deny, load_secrets_scan().scan_text)
@@ -794,7 +853,7 @@ def summary(export):
     lines = []
     ref = export.source.ref or "HEAD (the index)"
     lines.append(f"public tree from {ref}: {len(export.files)} files, tree sha256 {tree_digest(export)}"
-                 + (" (docs only)" if export.docs_only else ""))
+                 + (" (docs alone)" if export.docs_alone else " (docs only)" if export.docs_only else ""))
     totals = {"rewritten": 0, "internal": 0, "private": 0}
     for pub in sorted(export.counts):
         c = export.counts[pub]
@@ -817,7 +876,10 @@ def main(argv=None):
     ap.add_argument("--check", action="store_true", help="build in a temporary directory, guard, summarise, remove")
     ap.add_argument("--source-ref", metavar="REF", help="export this ref's tree (a tag) instead of the index")
     ap.add_argument("--version", help="the release version, for the overlay and image/release.env")
-    ap.add_argument("--docs-only", action="store_true", help="write only the root and docs classes and the overlay")
+    ap.add_argument("--docs-only", action="store_true", help="write only the root and docs classes and the overlay, "
+                    "for a public tree that keeps its image/ and demo/")
+    ap.add_argument("--docs-alone", action="store_true", help="as --docs-only, for a public tree with no image/ or "
+                    "demo/: links into them are de-linked and the overlay leaves them out")
     ap.add_argument("--root", default=os.path.normpath(os.path.join(TOOLS, "..")),
                     help="the repository root (default: the parent of tools/)")
     args = ap.parse_args(argv)
@@ -835,7 +897,7 @@ def main(argv=None):
             print(f"error: {args.outdir} exists and is not empty", file=sys.stderr)
             return 2
     try:
-        export = build(root, args.source_ref, version, args.docs_only)
+        export = build(root, args.source_ref, version, args.docs_only, args.docs_alone)
     except (ManifestError, UsageError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
