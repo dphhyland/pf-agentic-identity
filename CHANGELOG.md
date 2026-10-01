@@ -10,7 +10,7 @@ it the heading `[<version>] - <date>`, the date the tag is cut, and leaves an em
 
 ## [Unreleased] - 0.7.0-SNAPSHOT
 
-Nothing yet. The poms move to 0.7.0-SNAPSHOT in the pull request that begins it.
+Phase 4 of the production programme, durable and clustered: the SSF delivery engine, migrations run by db-migrate, the cluster topology with Redis and leases, federation signing-key rollover and subordinate key pinning, metrics and logging, the reference stacks and the cluster verification suite. Release notes arrive as fragments under [docs/releases/unreleased](docs/releases/unreleased/) and are folded in at release.
 
 ## [0.6.0] - 2026-10-01
 
