@@ -191,12 +191,12 @@ Against a PF built this way, driven by a suite run locally at release-v5.3.1:
 
 | Plan | Variant | Result |
 |---|---|---|
-| `openid-ssf-transmitter-test-plan` | discovery, `private_key_jwt` client credentials, poll | 19 of 19 PASSED (again 2026-09-25, on an archive authored fresh on 13.1.3 - 1 of 19 before the audience overlay below; again 2026-09-27, 0.4.0, plan `TVdQER0yiGTQv`; again 2026-09-29, 0.5.0, plan `B1C32vlq6eNRb`) |
-| `openid-ssf-transmitter-caep-test-plan` | the same, under the CAEP Interop Profile - the plan the Foundation certifies SSF against | 13 of 13 PASSED (2026-09-23 local replica, 2026-09-24 the public rig; needs the `/ssf/events:emit` servlet, `SsfEventEmitServlet`, on `main` as `d4a4219`; on 13.1.3 first on 2026-09-27, 0.4.0, plan `3qTCDGKygzp7l`; again 2026-09-29, 0.5.0, plan `af5vHGFKhJWPs`) |
-| `fapi2-security-profile-final-test-plan` | `private_key_jwt`, DPoP, `plain_fapi`, OpenID Connect | 56 modules: 50 PASSED, 3 REVIEW, 2 WARNING, 1 SKIPPED, 0 FAILED (2026-09-24, on 13.1.3; 49/4 on 13.0.3; the same on 2026-09-25 on an archive authored fresh on 13.1.3, on 2026-09-27, 0.4.0, plan `yYAIcz8TxHXIS`, and on 2026-09-29, 0.5.0, plan `FTWRpvoSNQpNQ`) |
-| `fapi-ciba-id1-test-plan` | static clients, `private_key_jwt`, poll, `plain_fapi` | 35 modules: 32 PASSED, 3 FAILED (2026-09-24, on 13.0.3 and 13.1.3 alike; the same three on 2026-09-27, 0.4.0, plan `LJh9GLh6lZxGk`, and on 2026-09-29, 0.5.0, plan `Elp3NOJhYaiLs`) - all three on one PingFederate 13.x product gap, below |
-| `openid-federation-deployed-entity-test-plan` (alpha) | discovery, automatic; `PF_PROFILE=federation`, PF its own trust anchor | 5 modules: 5 WARNING, 0 FAILED (2026-09-25, 13.1.3; again 2026-09-27, 0.4.0, plan `rOAmA0sPt7hqd`; again 2026-09-29, 0.5.0, plan `ZM7mLEPCPKzIN`) - the warning is PF's vendor metadata, below |
-| `openid-federation-entity-joined-to-test-federation-op-test-plan` (alpha) | discovery, automatic; `PF_PROFILE=federation-op`, the suite from `suite/suite-compose.yml` | 20 modules: 20 WARNING, 0 FAILED (2026-09-25, 13.1.3; again 2026-09-27, 0.4.0, plan `vy3fs94kYLVp3`; again 2026-09-29, 0.5.0, plan `rAaWZBJDj5VW0`) - the same warning; the 13 negative modules attach PF's refusal page |
+| `openid-ssf-transmitter-test-plan` | discovery, `private_key_jwt` client credentials, poll | 19 of 19 PASSED (again 2026-09-25, on an archive authored fresh on 13.1.3 - 1 of 19 before the audience overlay below; again 2026-09-27, 0.4.0, plan `TVdQER0yiGTQv`; again 2026-09-29, 0.5.0, plan `B1C32vlq6eNRb`; again 2026-10-01, 0.6.0, plan `akGNhQiuPsDqZ`) |
+| `openid-ssf-transmitter-caep-test-plan` | the same, under the CAEP Interop Profile - the plan the Foundation certifies SSF against | 13 of 13 PASSED (2026-09-23 local replica, 2026-09-24 the public rig; needs the `/ssf/events:emit` servlet, `SsfEventEmitServlet`, on `main` as `d4a4219`; on 13.1.3 first on 2026-09-27, 0.4.0, plan `3qTCDGKygzp7l`; again 2026-09-29, 0.5.0, plan `af5vHGFKhJWPs`; again 2026-10-01, 0.6.0, plan `dhENYk4JorcZg`) |
+| `fapi2-security-profile-final-test-plan` | `private_key_jwt`, DPoP, `plain_fapi`, OpenID Connect | 56 modules: 50 PASSED, 3 REVIEW, 2 WARNING, 1 SKIPPED, 0 FAILED (2026-09-24, on 13.1.3; 49/4 on 13.0.3; the same on 2026-09-25 on an archive authored fresh on 13.1.3, on 2026-09-27, 0.4.0, plan `yYAIcz8TxHXIS`, on 2026-09-29, 0.5.0, plan `FTWRpvoSNQpNQ`, and again 2026-10-01, 0.6.0, plan `wk3glGDks0jHK`) |
+| `fapi-ciba-id1-test-plan` | static clients, `private_key_jwt`, poll, `plain_fapi` | 35 modules: 32 PASSED, 3 FAILED (2026-09-24, on 13.0.3 and 13.1.3 alike; the same three on 2026-09-27, 0.4.0, plan `LJh9GLh6lZxGk`, on 2026-09-29, 0.5.0, plan `Elp3NOJhYaiLs`, and again 2026-10-01, 0.6.0, plan `5ICcGR0S3jp6u`) - all three on one PingFederate 13.x product gap, below |
+| `openid-federation-deployed-entity-test-plan` (alpha) | discovery, automatic; `PF_PROFILE=federation`, PF its own trust anchor | 5 modules: 5 WARNING, 0 FAILED (2026-09-25, 13.1.3; again 2026-09-27, 0.4.0, plan `rOAmA0sPt7hqd`; again 2026-09-29, 0.5.0, plan `ZM7mLEPCPKzIN`; again 2026-10-01, 0.6.0, plan `1eliSBjpV6dWh`) - the warning is PF's vendor metadata, below |
+| `openid-federation-entity-joined-to-test-federation-op-test-plan` (alpha) | discovery, automatic; `PF_PROFILE=federation-op`, the suite from `suite/suite-compose.yml` | 20 modules: 20 WARNING, 0 FAILED (2026-09-25, 13.1.3; again 2026-09-27, 0.4.0, plan `vy3fs94kYLVp3`; again 2026-09-29, 0.5.0, plan `rAaWZBJDj5VW0`; again 2026-10-01, 0.6.0, plan `SD8FBsZaFQwcJ`) - the same warning; the 13 negative modules attach PF's refusal page |
 
 The 2026-09-27 runs are 0.4.0's: a rig built from the release branch (`PF_RIG_NAME=pfai-rel`, its modules built at
 `714e7ce`, PingFederate 13.1.3.0 by its admin API) against this directory's own suite, `suite/suite-compose.yml`, on
@@ -210,6 +210,19 @@ The 2026-09-29 runs are 0.5.0's: a rig built from its release branch (`PF_RIG_NA
 for the conformance profile at `40fabb8`, whose code is `main` at `4b1fd97`; PingFederate 13.1.3.0 by its admin API)
 against the same suite on port 51643, authored with that origin in `suite_base_urls` from the start. Every result is
 0.4.0's.
+
+The 2026-10-01 runs are 0.6.0's (2026-10-01 AEST, 2026-09-30T21:04Z-21:37Z UTC): a rig built from `main` at
+`600fa6b5`, the release's code (`PF_RIG_NAME=pfai-rel6`, slot 1: `PF_PORT_HTTPS=31031`; 14 jars staged for the
+conformance profile - the 13 module jars and `pf.plugins.ciba-sim.jar` - with a MANIFEST naming `600fa6b5127a`;
+PingFederate 13.1.3.0 by its admin API) against `suite/suite-compose.yml` on port 51743, authored with that origin in
+`suite_base_urls` from the first authoring, and with `vars.env` as committed: federation, automatic registration and
+attestation authentication `*_ENABLED=false`, `OIDF_FAPI_RESOURCE_CLIENTS` naming the CIBA clients. The FAPI 2.0 plan
+ran from a `fapi2.json` rendered at that run from the current template. The two federation plans ran on a second rig,
+`pfai-rel6-fed` on slot 2 with the same modules, with `PF_PROFILE=federation` and then `PF_PROFILE=federation-op`,
+both with `OIDF_FEDERATION_ENABLED=true`. Every result is 0.5.0's: no module regressed and none improved. Run the plans
+one at a time: a first pass that started a second plan while one was running was interrupted by the suite, which
+stops a running test when another starts under the same alias (FAPI 2.0 plan `3AWmYPRVHlOHk` ended with 3
+INTERRUPTED), and was discarded.
 
 Expect, and do not be alarmed by, in the FAPI 2.0 plan:
 

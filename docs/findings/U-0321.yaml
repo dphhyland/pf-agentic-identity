@@ -2,7 +2,7 @@ id: U-0321
 title: Which TLS trust platform's TlsTrust.jvmDefault answers inside PingFederate 13.1.3
 area: platform, platform-pf
 source: design
-status: open
+status: closed
 plan_items: [S8b, S5d]
 prs: [75]
 recorded_in: docs/findings/U-0320.yaml
@@ -10,7 +10,19 @@ verify_by: >
   In a PingFederate 13.1.3 container, fetch an https URL whose certificate is signed by a private CA through
   platform's OutboundHttp with TlsTrust.jvmDefault(), once with the CA only in -Djavax.net.ssl.trustStore, once with it
   only as a PingFederate Trusted CA, and once in both; record which succeed.
-verification: ''
+verification: >
+  Answered 2026-10-01 AEST (2026-09-30 UTC) by the v0.6.0 release package on the conformance rig (PingFederate
+  13.1.3.0, production profile, modules at origin/main 600fa6b5), with OIDF_OPERATOR_JWKS_URL an https URL served from
+  the host under a certificate a private CA signed, and the operator authenticator's JWKS fetch (platform.http with
+  TlsTrust.jvmDefault) as the probe. (a) The CA only in -Djavax.net.ssl.trustStore, seen on the java command line:
+  'PKIX path building failed'. (b) The CA then imported as a PingFederate Trusted CA through the admin API into the
+  running container: still 'PKIX path building failed'. (c) docker restart of that container, the Trusted CA kept in
+  /opt/out: the JWKS fetched, the health detail 200. (d) A fresh container without the trust store option: 503 before
+  the import, 503 after the run-time import, 200 after a restart. So inside PingFederate 13.1.3 the JVM's default SSL
+  socket factory trusts PingFederate's Trusted CAs as they were when the JVM started; -Djavax.net.ssl.trustStore is
+  not honoured, and a Trusted CA added at run time counts after a restart. An operator gives every platform.http
+  caller that uses the JVM default a private CA by importing it as a PingFederate Trusted CA, in the configuration
+  archive or through the admin API followed by a restart.
 notes: >
   Found by S8B on the rig (2026-09-30): with the rig's certificate in a truststore named by
   -Djavax.net.ssl.trustStore (visible on the java command line) and also imported as a Trusted CA through the admin

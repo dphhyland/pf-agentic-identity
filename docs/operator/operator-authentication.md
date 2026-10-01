@@ -57,6 +57,13 @@ A configuration that cannot authenticate anyone - no audience, no base URL, no k
 in production, or no Redis in production without the `in-memory-state` accepted risk - does not stop PingFederate
 starting: the authenticator logs the reason once at WARN and answers every request 503.
 
+**A JWKS or introspection endpoint under a private CA.** The JWKS and introspection calls trust what the JVM's default
+TLS trust trusts, and inside PingFederate 13.1.3 that is PingFederate's Trusted CAs as they were when the JVM started:
+`-Djavax.net.ssl.trustStore` is not honoured, and a CA imported through the admin API counts only after a restart.
+Import the CA as a PingFederate Trusted CA, in the configuration archive or through the admin API followed by a
+restart. Seen on the conformance rig in production on 2026-10-01 by the v0.6.0 release package
+([U-0321](../findings/U-0321.yaml)).
+
 `OIDF_OPERATOR_BASE_URL` is configured rather than read from the request on purpose: the `Host` header is the
 caller's to choose, so a proof checked against a URL built from it proves nothing about where the caller meant to
 send it.

@@ -110,7 +110,10 @@ one switched off with `OIDF_<COMPONENT>_ENABLED=false` stays disabled and never 
 
 **The SSF servlets** start as `SSF`'s part since package ST5C, with a gate on every endpoint: a refused `SSF` or
 `SSF_RECEIVER` no longer configures the transmitter, and its endpoints answer 503 ([F-0295](../findings/F-0295.yaml),
-closed). The boot above was made before that change and showed `SSF READY`.
+closed). The boot above was made before that change and showed `SSF READY`. On the v0.6.0 release's rig (2026-10-01, the code at
+`600fa6b5`, production, the flag in `JAVA_OPTS`), `SSF` and `SSF_RECEIVER` were `REFUSED` with every other component
+switched on or inferred, `ATTESTATION_AUTH`, switched off, stayed `DISABLED`, and the token endpoint answered 200 to a
+client `OIDF_FAPI2_CLIENTS` does not name and 503 `FAPI is not available` to one it names.
 
 ## Before you deploy: Preflight
 
