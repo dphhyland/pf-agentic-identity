@@ -25,6 +25,11 @@
     </licenses>
 
     <properties>
+        <!-- A conformance-only test double: nothing resolves it from a repository. The rig stages it from the reactor
+             (stage-modules.sh) or from a release's demo-only-ciba-sim.jar (stage-from-release.sh), so it is not
+             published to GitHub Packages (F-0120). install and deploy still build it, so the release's rebuild
+             comparisons still cover its jar. -->
+        <maven.deploy.skip>true</maven.deploy.skip>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
         <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
