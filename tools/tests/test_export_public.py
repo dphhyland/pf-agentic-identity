@@ -175,6 +175,13 @@ class Tree(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertNotIn("docs/guide/secret-notes.md", listing(out))
 
+    def test_an_untracked_overlay_file_is_not_exported(self):
+        root = repo(untracked={"tools/public-export/overlay/NOTES.md": "# not tracked\n"})
+        code, out, _, err = export(root)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("NOTES.md", listing(out))
+        self.assertIn("README.md", listing(out))
+
     def test_the_working_tree_content_of_a_tracked_file_is_what_goes_out(self):
         root = repo()
         write(root, {"docs/guide/b.md": "# B, edited\n"})

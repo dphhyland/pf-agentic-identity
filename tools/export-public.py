@@ -741,20 +741,23 @@ def build(root, ref=None, version=None, docs_only=False):
                   "unstaging": demo and not staging and not docs_only}
     values = {"VERSION": version or "<version>", "TAG": f"v{version}" if version else "v<version>",
               "PF_VERSION": pf_version or "<PingFederate version>"}
-    overlay_dir = os.path.join(export_dir, "overlay")
+    # The overlay is this checkout's, whatever the source ref, and only its tracked files: an untracked file
+    # dropped into the directory never reaches the tree.
+    overlay_prefix = EXPORT_DIR + "/overlay/"
+    tracked = git(root, "ls-files", "-s", "-z", "--", overlay_prefix)
     overlay = []
-    for dirpath, dirnames, filenames in os.walk(overlay_dir):
-        dirnames.sort()
-        for name in sorted(filenames):
-            full_path = os.path.join(dirpath, name)
-            pub = os.path.relpath(full_path, overlay_dir).replace(os.sep, "/")
-            if pub in export.files:
-                raise ManifestError(f"the overlay's {pub} and the manifest's {export.files[pub][2]} both land there")
-            with open(full_path, encoding="utf-8") as f:
-                text = template(f.read(), values, conditions)
-            mode = "100755" if os.access(full_path, os.X_OK) else "100644"
-            export.files[pub] = (mode, text.encode("utf-8"), None)
-            overlay.append(pub)
+    for entry in sorted(e for e in tracked.split(b"\0") if e):
+        meta, path = entry.split(b"\t", 1)
+        rel = path.decode("utf-8")
+        pub = rel[len(overlay_prefix):]
+        if pub in export.files:
+            raise ManifestError(f"the overlay's {pub} and the manifest's {export.files[pub][2]} both land there")
+        with open(os.path.join(root, rel), encoding="utf-8") as f:
+            text = template(f.read(), values, conditions)
+        mode = "100755" if meta.split()[0] == b"100755" else "100644"
+        export.files[pub] = (mode, text.encode("utf-8"), None)
+        overlay.append(pub)
+    overlay.sort()
     if version and any(p.startswith("image/") for p in export.files):
         export.files["image/release.env"] = (
             "100644", f"PFAI_RELEASE={version}\nPFAI_RELEASE_REPO={PUBLIC_SLUG}\n".encode("utf-8"), None)
