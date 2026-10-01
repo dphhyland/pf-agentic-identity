@@ -25,7 +25,9 @@
    descriptors. Copy the release's assets by name, not by a `*.jar` glob.
 2. **`ciba-sim` is no longer published to GitHub Packages.** Nothing in this repository or the rig resolves it from a
    repository. A consumer that resolved `com.pingidentity.ps.oidf:ciba-sim` from GitHub Packages takes the release
-   asset `demo-only-ciba-sim.jar` instead; versions already published stay where they are.
+   asset `demo-only-ciba-sim.jar` instead; versions already published stay where they are. The published BOM
+   still manages `ciba-sim` (its entry belongs to the BOM's owner to remove), so a build that imports the 0.7.0
+   BOM and declares `ciba-sim` will not resolve it from GitHub Packages.
 3. **`war-assembler-<version>.jar` is a build tool.** It runs inside the image build, which `stage-from-release.sh`
    stages it for, and is never deployed: do not put it in `server/default/deploy` or a war.
 
@@ -47,6 +49,9 @@ Verified on 2026-10-01:
   `wBHUoVhm4H6Ou`: 50 passed, 3 review, 2 warning, 1 skipped of 56. Then `PF_RELEASE=<dir> conformance/up.sh`, with
   a `dist/` from `tools/ci/assemble-dist.sh`, booted with every module jar in `server/default/deploy` byte for byte
   the reactor rig's and the staged `MANIFEST` equal but for its header, and the same plan passed with the same
-  results, plan `0LwxnoGVIgvFn`. The two images' `pf-runtime.war` differ, because the war assembler dates each
+  results, plan `0LwxnoGVIgvFn`. That `dist/` was assembled from a working tree with uncommitted changes, so its
+  `MANIFEST` names commit `338a10677780-dirty`. The two images' `pf-runtime.war` differ, because the war assembler dates each
   staged jar's entry with its file time (F-0450).
-- `test-stage-from-release.sh` passed every case locally against that `dist/`.
+- `test-stage-from-release.sh` passed every case locally against that `dist/`, including a `SHA256SUMS` naming
+  `../../escaped` or `.hidden` (refused before any fetch) and a cached release asked for from another URL
+  (fetched again). With the name check or the cache's origin check removed, those cases fail.

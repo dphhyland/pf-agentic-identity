@@ -174,16 +174,20 @@ What it checks before anything is staged:
 
 - **Every file against `SHA256SUMS`.** A version is fetched from
   `https://github.com/<PFAI_RELEASE_REPO>/releases/download/v<version>/`: `SHA256SUMS` first, then every file it
-  lists, with `curl -fsSL --retry 3` and no credentials (release assets are anonymous, and `GH_TOKEN` is never
-  sent). Nothing is staged unless every file verifies. A directory source is held to the same check, and a file
+  lists, with `curl -q -fsSL --retry 3` over https only (redirects too) and no credentials (release assets are
+  anonymous, `GH_TOKEN` is never sent, and `-q` keeps a `~/.curlrc` from adding a header or a `.netrc`). Each
+  name `SHA256SUMS` lists must be a plain file name - no slash, no leading dot - or nothing is fetched. Nothing
+  is staged unless every file verifies. A directory source is held to the same check, and a file
   in it that `SHA256SUMS` does not list is refused.
 - **The release's `MANIFEST`.** It must be a `MANIFEST/2` production header; exactly the jars it lists are staged,
   under its sections, each with the digest it gives, and the new `MANIFEST` keeps the release's commit.
 - **A war assembler.** `war-assembler-<version>.jar` has been a release asset from 0.7.0, the first release this
   script can stage. An older release has none, and is refused with that message: build it from its source.
 
-**The cache.** A fetched version is kept in `.release/<version>/` beside the script (git-ignored), and reused
-while it still verifies against its `SHA256SUMS`; a release that is refused is not left there.
+**The cache.** A fetched version is kept in `.release/<version>/` beside the script (git-ignored), with the URL
+it came from in `.release/<version>/.source`, and reused only while it still verifies against its `SHA256SUMS`
+and was fetched from the URL asked for now: a copy from a mirror or a local test server is fetched again rather
+than taken for the release. A release that is refused is not left there.
 
 **The two profiles.** `production` (the default) stages the release's `MANIFEST` and nothing else. `conformance`
 adds the CIBA simulator, which a release carries as `demo-only-ciba-sim.jar` so that nothing globbing

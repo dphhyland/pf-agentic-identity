@@ -14,8 +14,10 @@
 # tampered jar, a jar missing from SHA256SUMS, a SHA256SUMS naming a file the release lacks (fetched and as a
 # directory), a stray file in a directory source, a release with no war assembler (the shape of every release
 # before 0.7.0) and an unknown profile are each refused with their own message, and stage nothing; no request
-# carries an Authorization header, although GH_TOKEN and GITHUB_TOKEN are set; and the production profile never
-# stages the CIBA simulator. Exit status: 0 when every case passes.
+# carries an Authorization header, although GH_TOKEN and GITHUB_TOKEN are set; the production profile never
+# stages the CIBA simulator; a SHA256SUMS naming '../../escaped' or '.hidden' is refused before anything is
+# fetched or written outside the cache; and a release cached from one URL is fetched again when asked for from
+# another. Exit status: 0 when every case passes.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 [[ $# -eq 1 && -f "$1/SHA256SUMS" ]] || { echo "usage: test-stage-from-release.sh <dist-dir with a SHA256SUMS>" >&2; exit 2; }
@@ -53,6 +55,11 @@ d="$(fixture tampered)"; printf 'x' >> "$d/$module"
 d="$(fixture unlisted)"; grep -v "  $module\$" "$d/SHA256SUMS" > "$d/S" && mv "$d/S" "$d/SHA256SUMS"
 d="$(fixture ghost)"; echo "$(printf '0%.0s' $(seq 64))  ghost.jar" >> "$d/SHA256SUMS"
 d="$(fixture pre-0.7.0)"; rm "$d/$assembler"; resum "$d"
+fixture mirror >/dev/null
+# Names that are not plain file names: one climbing out of the cache (served, so a fetch would succeed), one hidden.
+zeros="$(printf '0%.0s' $(seq 64))"
+d="$(fixture dotdot)"; echo "$zeros  ../../escaped" >> "$d/SHA256SUMS"; echo escaped > "$SRV/escaped"
+d="$(fixture hidden)"; echo "$zeros  .hidden" >> "$d/SHA256SUMS"; echo hidden > "$d/.hidden"
 
 # Python's own file handler; each request's path and Authorization header (empty when absent) logged.
 cat > "$WORK/serve.py" <<'PY'
@@ -121,6 +128,13 @@ done
 mv "$SRV/good" "$SRV/good.gone"
 if stage good conformance "$VERSION" && grep -q 'cached copy' "$WORK/good-conformance.out"; then pass "a cached release stages with nothing to fetch"; else fail "the cached release"; fi
 mv "$SRV/good.gone" "$SRV/good"
+# The cache is keyed by where it came from: asked for the same version from another URL (a mirror), it refetches.
+if stage mirror conformance "$VERSION" && grep -qF "fetching from $URL/mirror/v$VERSION/" "$WORK/mirror-conformance.out" \
+   && [[ "$(cat "$T/.release/$VERSION/.source")" == "$URL/mirror/v$VERSION" ]]; then
+  pass "a release cached from one URL is fetched again for another"
+else
+  fail "a release cached from one URL was reused for another:"; sed 's/^/     /' "$WORK/mirror-conformance.out"
+fi
 
 refused "a tampered jar" tampered conformance "$VERSION" "does not match its SHA256SUMS"
 refused "a jar missing from SHA256SUMS" unlisted conformance "$VERSION" "which its SHA256SUMS does not list"
@@ -130,6 +144,11 @@ cp -R "$SRV/good/v$VERSION" "$WORK/stray"; echo stray > "$WORK/stray/stray.jar"
 refused "a stray file in a directory source" stray conformance "$WORK/stray" "stray.jar is not listed in SHA256SUMS"
 refused "a release with no war assembler" pre-0.7.0 production "$VERSION" "The first release this script can stage is 0.7.0"
 refused "an unknown profile" good staging "$VERSION" "--profile must be production or conformance, not 'staging'"
+refused "SHA256SUMS naming ../../escaped" dotdot conformance "$VERSION" "names '../../escaped', which is not a plain file name"
+refused "SHA256SUMS naming ../../escaped, as a directory" dotdot conformance "$SRV/dotdot/v$VERSION" "names '../../escaped', which is not a plain file name"
+refused "SHA256SUMS naming .hidden" hidden conformance "$VERSION" "names '.hidden', which is not a plain file name"
+if [[ ! -e "$T/escaped" && ! -e "$T/.release/escaped" ]] && ! grep -q 'escaped' "$LOG"; then pass "nothing fetched for, or written to, a name outside the cache"
+else fail "a name outside the cache was fetched or written"; fi
 
 requests="$(wc -l < "$LOG" | tr -d ' ')"
 if [[ "$requests" -gt 0 ]] && ! cut -f 2 "$LOG" | grep -q .; then pass "$requests requests, none with an Authorization header"; else fail "requests with an Authorization header (or none at all):"; sed 's/^/     /' "$LOG"; fi

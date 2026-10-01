@@ -107,7 +107,8 @@ The first release it can stage is 0.7.0, the first with `war-assembler-<version>
 image is built from the same bytes either way: [build/pingfederate/README.md](../build/pingfederate/README.md#staging-from-a-release)
 says what is checked, and Build's image job proves a release's stage equals the reactor's. `SKIP_BUILD=1` reuses
 what is staged in both modes. `verify-rar-principal.sh` lends the rig the release's `pf.plugins.pf-rar-paz-plugin.jar`
-in release mode, from the same verified cache.
+in release mode, after checking the release against its `SHA256SUMS` again on every run (a directory as well as a
+fetched version).
 
 ## A PF on a public address
 

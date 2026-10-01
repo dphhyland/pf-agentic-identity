@@ -8,6 +8,7 @@
 #   <version>   e.g. 0.7.0 (a leading v is dropped): fetched from
 #               ${PFAI_RELEASE_BASE_URL:-https://github.com/$PFAI_RELEASE_REPO/releases/download}/v<version>/
 #               into the git-ignored cache .release/<version>/ beside this script, and reused from there
+#               while it verifies and was fetched from that same URL (.source records it)
 #   <dir>       a directory holding a release's assets (what release.yml puts in dist/), used where it is
 #   (neither)   PFAI_RELEASE from release.env beside this script; the public tree has one, the internal
 #               repository does not, and there the argument is required
@@ -80,11 +81,12 @@ VERSION=""
 if [[ -d "$SOURCE" ]]; then
   REL="$(cd "$SOURCE" && pwd)"
   [[ -f "$REL/SHA256SUMS" ]] || die "$REL has no SHA256SUMS - is it a release's assets?"
+  # Listed in the main shell, not in a process substitution, so a refused name stops the script.
+  listed="$(listed_files "$REL")"
   while IFS= read -r name; do
     [[ -f "$REL/$name" ]] || die "SHA256SUMS lists $name, which is not in $REL"
-  done < <(listed_files "$REL")
+  done <<<"$listed"
   verify_sums "$REL" || die "$REL does not match its SHA256SUMS (the lines above)"
-  listed="$(listed_files "$REL")"
   for f in "$REL"/*; do
     b="$(basename "$f")"
     [[ "$b" == SHA256SUMS ]] && continue
@@ -97,21 +99,33 @@ else
   BASE="${PFAI_RELEASE_BASE_URL:-https://github.com/$REPO_SLUG/releases/download}"
   BASE="${BASE%/}/v$VERSION"
   REL="$HERE/.release/$VERSION"
-  if [[ -f "$REL/SHA256SUMS" ]] && verify_sums "$REL" >/dev/null 2>&1; then
-    echo "release $VERSION: the cached copy in $REL verifies against its SHA256SUMS"
+  # The cache records where it came from (.source, the URL above), and is reused only for that same URL: a copy
+  # fetched from a mirror or a test server is never taken for the release itself, since SHA256SUMS vouches only
+  # for the files beside it, not for their origin.
+  if [[ -f "$REL/SHA256SUMS" && "$(cat "$REL/.source" 2>/dev/null || true)" == "$BASE" ]] && verify_sums "$REL" >/dev/null 2>&1; then
+    echo "release $VERSION: the cached copy in $REL, from $BASE/, verifies against its SHA256SUMS"
   else
     command -v curl >/dev/null 2>&1 || die "curl is required to fetch a release"
+    # https only, redirects included, unless PFAI_RELEASE_BASE_URL itself names an http server (a local test).
+    proto='=https'
+    [[ "$BASE" == http://* ]] && proto='=http,https'
     TMP="$HERE/.release/.fetch-$VERSION-$$"
     rm -rf "$TMP"; mkdir -p "$TMP"
     trap 'rm -rf "$TMP"' EXIT
     echo "release $VERSION: fetching from $BASE/"
-    # No credentials: curl reads no token from the environment, and is not told to read .netrc.
-    curl -fsSL --retry 3 -o "$TMP/SHA256SUMS" "$BASE/SHA256SUMS" \
+    # No credentials: -q keeps curl from reading a .curlrc (which could add a header, a .netrc or a proxy), no
+    # token is read from the environment, and no .netrc is asked for.
+    fetch() { curl -q -fsSL --retry 3 --proto "$proto" --proto-redir "$proto" -o "$1" "$2"; }
+    fetch "$TMP/SHA256SUMS" "$BASE/SHA256SUMS" \
       || die "could not fetch $BASE/SHA256SUMS - is v$VERSION published at $BASE?"
+    # Listed in the main shell, not in a process substitution, so a refused name stops the script before any
+    # fetch: the name check is what keeps a served SHA256SUMS from writing outside $TMP.
+    listed="$(listed_files "$TMP")"
     while IFS= read -r name; do
-      curl -fsSL --retry 3 -o "$TMP/$name" "$BASE/$name" || die "could not fetch $BASE/$name, which SHA256SUMS lists"
-    done < <(listed_files "$TMP")
+      fetch "$TMP/$name" "$BASE/$name" || die "could not fetch $BASE/$name, which SHA256SUMS lists"
+    done <<<"$listed"
     verify_sums "$TMP" || die "release $VERSION from $BASE does not match its SHA256SUMS (the lines above); nothing was staged"
+    printf '%s\n' "$BASE" > "$TMP/.source"
     rm -rf "$REL"; mv "$TMP" "$REL"
     # Kept only if it stages: a release refused below is not left in the cache to be found next time.
     drop_failed_cache() { local status=$?; [[ $status -eq 0 ]] || rm -rf "$REL"; exit "$status"; }
