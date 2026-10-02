@@ -665,7 +665,7 @@ jobs:
             [ -f "internal-release/$b" ] || { echo "::error::the internal release $RELEASE_TAG has no asset $b"; exit 1; }
             cmp -s "$f" "internal-release/$b" || { echo "::error::$b differs between dist/ and the internal release"; exit 1; }
           done
-          extra="$(comm -13 <(ls dist | sort) <(ls internal-release | sort))"
+          extra="$(comm -13 <(cd dist && find . -maxdepth 1 -type f | sort) <(cd internal-release && find . -maxdepth 1 -type f | sort))"
           [ -z "$extra" ] || { echo "::error::the internal release carries assets dist/ does not: $extra"; exit 1; }
           echo "every asset of $RELEASE_TAG is byte for byte the artifact's"
 
@@ -810,13 +810,14 @@ jobs:
             [ $SECONDS -lt $deadline ] || { echo "::error::$base/SHA256SUMS is not the release's after five minutes"; exit 1; }
             sleep 15
           done
-          while read -r _ name; do
+          mapfile -t listed < <(awk '{ print $2 }' SHA256SUMS)
+          for name in "${listed[@]}"; do
             [ "$name" = SHA256SUMS ] && continue
             until curl -fsSL -o "$name" "$base/$name"; do
               [ $SECONDS -lt $deadline ] || { echo "::error::$base/$name could not be downloaded after five minutes"; exit 1; }
               sleep 15
             done
-          done < SHA256SUMS
+          done
           sha256sum -c --strict SHA256SUMS
           echo "every asset of v$VERSION on $PUBLIC_REPO verifies anonymously"
 
