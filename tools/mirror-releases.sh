@@ -41,6 +41,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 WORK="${WORK:-$(mktemp -d "${TMPDIR:-/tmp}/mirror-releases.XXXXXX")}"
+mkdir -p "$WORK"
 die() { echo "ERROR: $*" >&2; exit 1; }
 command -v gh > /dev/null || die "gh is needed"
 gh auth status > /dev/null 2>&1 || die "gh is not signed in; the mirror runs with your own credentials"
