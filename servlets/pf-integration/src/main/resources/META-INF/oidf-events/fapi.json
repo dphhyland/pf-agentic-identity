@@ -1,0 +1,37 @@
+{
+  "component": "fapi",
+  "module": "servlets/pf-integration",
+  "description": "The FAPI filters in front of PingFederate's own endpoints (plan item O-2): Fapi2ProfileFilter over the token, PAR, introspection, revocation, CIBA and UserInfo endpoints, and FapiResourceServerFilter over UserInfo. Each refusal names the client the filter attributed the request to, as its subject, read unverified from the request as the filters read it; never a token, an assertion or a proof.",
+  "logger": "com.pingidentity.ps.oidf.fapi.event",
+  "auditProtocol": "FAPI",
+  "fields": {
+    "filter": {
+      "pii": "OPERATIONAL",
+      "description": "Which filter refused: fapi2_profile (Fapi2ProfileFilter) or fapi_resource_server (FapiResourceServerFilter)."
+    },
+    "rule": {
+      "pii": "OPERATIONAL",
+      "description": "The rule the request broke: repeated_client_assertion, unreadable_client_assertion, client_assertion_audience, unreadable_dpop_proof, dpop_algorithm (FAPI 2.0 Security Profile, the audience and the JWT algorithms) or access_token_in_query (FAPI 1.0 Baseline 6.2.1 and FAPI 2.0 Security Profile 5.3.4)."
+    },
+    "endpoint": {
+      "pii": "OPERATIONAL",
+      "description": "The request's path, without its query."
+    }
+  },
+  "events": {
+    "fapi.request.refused": {
+      "description": "A FAPI filter refused a request before PingFederate saw it, for a client its list names - OIDF_FAPI2_CLIENTS for Fapi2ProfileFilter, OIDF_FAPI2_CLIENTS and OIDF_FAPI_RESOURCE_CLIENTS for FapiResourceServerFilter - or for any client under *. The reason is the OAuth error the caller was answered with: invalid_client, invalid_dpop_proof or invalid_request.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "filter",
+        "rule",
+        "endpoint"
+      ],
+      "declaredOnly": false
+    }
+  }
+}

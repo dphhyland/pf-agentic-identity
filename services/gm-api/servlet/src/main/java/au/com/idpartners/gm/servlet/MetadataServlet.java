@@ -1,6 +1,7 @@
 package au.com.idpartners.gm.servlet;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
 
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
@@ -8,6 +9,7 @@ import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,8 +50,12 @@ public class MetadataServlet extends HttpServlet {
         // GenericServlet stores the config here; without it getServletConfig() and
         // getServletContext() silently return null.
         super.init(config);
-        this.issuer = config.getInitParameter("issuer");
-        this.endpoint = config.getInitParameter("grantManagementEndpoint");
+        // Through the gm-api catalogue, strictly: a grantManagementEndpoint that is not an http or https URL stops
+        // the servlet rather than being advertised as written.
+        Settings settings = McpServlet.ServletConfigs.settings(System::getenv, config::getInitParameter);
+        this.issuer = settings.string("issuer");
+        URI configured = settings.url("grantManagementEndpoint");
+        this.endpoint = configured == null ? null : configured.toString();
     }
 
     @Override

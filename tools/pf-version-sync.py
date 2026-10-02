@@ -12,8 +12,8 @@ PF_SDK_MAVEN_VERSION (PF_VERSION.0, the SDK's Maven version convention) and
 PF_TERRAFORM_PRODUCT_VERSION (major.minor) - back into the env file, changing only those values. The
 file's comments and order stay as they are.
 
-It does not touch the BOM, gm-api's pom or the Terraform default: tools/pf-version-check.py names
-each of those when they disagree, and a version bump is a change to review, not to automate away.
+It does not touch the BOM or the Terraform default: tools/pf-version-check.py names each of those
+when they disagree, and a version bump is a change to review, not to automate away.
 The check is what a bump must then pass.
 
 Exit status: 0 (with "unchanged" or the rewritten keys), 2 when the Dockerfile or env file cannot be
@@ -26,7 +26,8 @@ import sys
 
 ENV_FILE = "build/pf-version.env"
 DOCKERFILE = "build/pingfederate/Dockerfile"
-FROM_RE = re.compile(r"^FROM\s+(pingidentity/pingfederate:([0-9]+\.[0-9]+\.[0-9]+)[A-Za-z0-9._-]*)@(sha256:[0-9a-f]{64})\s*$", re.M)
+# The line may name its stage (`AS pingfederate`): the Dockerfile's other stages start from it.
+FROM_RE = re.compile(r"^FROM\s+(pingidentity/pingfederate:([0-9]+\.[0-9]+\.[0-9]+)[A-Za-z0-9._-]*)@(sha256:[0-9a-f]{64})(?:\s+[Aa][Ss]\s+\S+)?\s*$", re.M)
 
 
 def values_from_dockerfile(text):

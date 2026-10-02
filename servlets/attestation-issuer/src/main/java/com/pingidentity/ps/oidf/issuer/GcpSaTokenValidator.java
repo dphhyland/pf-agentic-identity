@@ -3,65 +3,58 @@
  */
 package com.pingidentity.ps.oidf.issuer;
 
-import java.security.Key;
 import java.util.List;
 import java.util.Set;
-import org.jose4j.jwa.AlgorithmConstraints;
-import org.jose4j.jwk.JsonWebKey;
-import org.jose4j.jws.JsonWebSignature;
+import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.jose4j.jwt.JwtClaims;
-import org.jose4j.jwt.NumericDate;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
 
 /**
- * The {@code gcp-id-token} evidence type: a Google-signed OIDC ID token for a GCP service account,
- * obtained by the workload with a custom audience (the metadata server's {@code identity} endpoint, or
- * IAM Credentials {@code generateIdToken}). This is the evidence available to workloads whose platform
- * identity is a service account rather than a Kubernetes one — <em>Gemini Enterprise Agent Platform /
- * Agent Engine agents</em>, Cloud Run services, and GCE instances all qualify — so it extends attestation
- * to Google-hosted agents without any SPIFFE infrastructure of their own.
+ * The {@code gcp-id-token} evidence type: a Google-signed ID token for a service account, requested with this attester
+ * as its audience (the metadata server's {@code identity} endpoint, or IAM Credentials {@code generateIdToken}). Its
+ * {@code iss} is "always set to https://accounts.google.com", and its audience "can be freely chosen by the token
+ * requester" (Google, Token types, read 2026-09-30), so any service account in any project can mint one for this
+ * attester: the project, not the issuer, is what ties it to the deployment.
  *
- * <p>The token's {@code sub} is the service account's opaque numeric id; the stable human-meaningful
- * identifier is the {@code email} claim, so the mapped SPIFFE ID is
- * {@code spiffe://<attestation_trust_domain>/sa/<email>} (the trust domain is required in this mode and
- * names the identifier namespace — e.g. {@code <project>.gcp.example} by deployment convention; Google
- * defines no canonical SPIFFE mapping for bare service accounts). Bindings then list exactly the service
- * accounts permitted to act as instances of the client.
- *
- * <p>Checks mirror the other validators: signature under an asymmetric-only constraint with the bundle
- * key selected by {@code kid} (the bundle is Google's rotating JWKS — configure it by URL);
- * {@code iss} must equal the client's pinned {@code attestation_evidence_issuer}
- * ({@code https://accounts.google.com}) when set; {@code aud} must include the attester issuer;
- * {@code exp} required and unexpired; {@code email} required. Failures throw {@code invalid_svid}.
+ * <p>The identity is the {@code email} claim, mapped onto {@code spiffe://<attestation_trust_domain>/sa/<email>}.
+ * Beyond {@link CloudTokenValidator}'s checks: the email is a user-managed account,
+ * {@code <account>@<project>.iam.gserviceaccount.com}, whose project {@code OIDF_ATTESTER_GCP_PROJECTS} lists
+ * (production refuses the type with no list); and the client's bindings follow {@link #checkAccountBindings}.
  */
-public final class GcpSaTokenValidator implements InstanceAttestationValidator {
+public final class GcpSaTokenValidator extends CloudTokenValidator {
 
-    private static final Set<String> PERMITTED_ALGORITHMS = ClientAttestationConfig.DEFAULT_ASYMMETRIC_ALGORITHMS;
+    /** The selector names this validator proves. */
+    static final List<String> SELECTOR_NAMES = List.of("issuer", "email");
 
-    private final long allowedClockSkewSeconds;
+    /** Development's default issuer: the one Google always sets. */
+    static final Pattern GOOGLE_ISSUER = Pattern.compile("https://accounts\\.google\\.com");
+
+    /**
+     * A user-managed service account's email, {@code <account>@<project>.iam.gserviceaccount.com}: the account "between
+     * 6 and 30 characters" of "lowercase alphanumeric characters and dashes" (Google, Create service accounts, read
+     * 2026-09-30), the project a project ID. Group 1 is the account, group 2 the project. A service agent's domain,
+     * {@code gcp-sa-<service>}, has the shape of a project and names a service, so it is refused separately.
+     */
+    static final Pattern ACCOUNT_EMAIL = Pattern.compile(
+            "([a-z0-9-]{6,30})@(" + Policy.PROJECT_ID.pattern() + ")\\.iam\\.gserviceaccount\\.com");
 
     public GcpSaTokenValidator() {
-        this(ClientAttestationConfig.DEFAULT_CLOCK_SKEW_SECONDS);
+        this(ClientAttestationConfig.DEFAULT_CLOCK_SKEW_SECONDS, Policy::process);
     }
 
-    public GcpSaTokenValidator(long allowedClockSkewSeconds) {
-        this.allowedClockSkewSeconds = allowedClockSkewSeconds;
+    public GcpSaTokenValidator(Policy policy) {
+        this(ClientAttestationConfig.DEFAULT_CLOCK_SKEW_SECONDS, () -> policy);
+    }
+
+    GcpSaTokenValidator(long allowedClockSkewSeconds, Supplier<Policy> policy) {
+        super(allowedClockSkewSeconds, policy);
     }
 
     @Override
     public String id() {
         return AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN;
-    }
-
-    @Override
-    public String format() {
-        return SpiffeInstanceAttestationValidator.FORMAT;
-    }
-
-    /** GCP has no canonical SPIFFE mapping — the ID is synthesised from the service-account email. */
-    @Override
-    public boolean requiresTrustDomain() {
-        return true;
     }
 
     @Override
@@ -76,111 +69,103 @@ public final class GcpSaTokenValidator implements InstanceAttestationValidator {
     }
 
     @Override
-    public InstanceIdentity validate(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
-            throws IssuanceException {
-        return InstanceIdentity.ofSpiffe(validateSvid(evidence, bundleKeys, config));
+    public List<String> selectorNames() {
+        return SELECTOR_NAMES;
+    }
+
+    @Override
+    protected Pattern developmentIssuer() {
+        return GOOGLE_ISSUER;
+    }
+
+    @Override
+    protected void checkBindings(AttestationIssuanceConfig config, Policy policy) throws IssuanceException {
+        if (policy.gcpProjects() == null && policy.production()) {
+            throw misconfigured("project", "no Google Cloud project is listed for gcp-id-token evidence: set "
+                    + Policy.GCP_PROJECTS + " (production refuses the type without it)");
+        }
+        String problem = checkAccountBindings(config, policy.gcpProjects());
+        if (problem != null) {
+            throw misconfigured("binding_pattern", problem);
+        }
+    }
+
+    @Override
+    protected Mapped map(JwtClaims claims, Policy policy, AttestationIssuanceConfig config) throws IssuanceException {
+        String email = EvidenceSelectors.stringClaim(claims, "email");
+        if (email == null || email.isBlank()) {
+            throw refused("subject", "token has no 'email' (service-account identity) claim");
+        }
+        Set<String> projects = policy.gcpProjects();
+        String project = projectOf(email);
+        if (projects != null && (project == null || !projects.contains(project))) {
+            throw refused("project", "token's service account is not a user-managed account of a project "
+                    + Policy.GCP_PROJECTS + " lists");
+        }
+        return new Mapped("/sa/" + email, this.selectors("issuer", EvidenceSelectors.stringClaim(claims, "iss"),
+                "email", email));
+    }
+
+    /** The project of a user-managed account's email, or null for any other email (a service agent's included). */
+    static String projectOf(String email) {
+        Matcher matcher = ACCOUNT_EMAIL.matcher(email);
+        return matcher.matches() && !matcher.group(2).startsWith("gcp-sa-") ? matcher.group(2) : null;
     }
 
     /**
-     * The SPIFFE-typed validation, kept public so the mapping detail (trust domain, path, raw token) stays
-     * independently assertable; {@link #validate} adapts the result to an {@link InstanceIdentity}.
+     * The grammar of a {@code gcp-id-token} client's bindings: each exactly
+     * {@code spiffe://<attestation_trust_domain>/sa/<account>@<project>.iam.gserviceaccount.com}, with no {@code *},
+     * the email a user-managed account and its project one {@code projects} lists when it is set. A binding's
+     * {@code *} matches any suffix ({@link SpiffeBinding#matches}), and the project comes after the {@code @}, so any
+     * wildcard in an email binding crosses the {@code @} into every project; none is accepted.
+     *
+     * @return what is wrong, naming the rule and not the pattern, or null
      */
-    public SpiffeSvid validateSvid(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
-            throws IssuanceException {
-        if (evidence == null || evidence.isBlank()) {
-            throw IssuanceException.invalidSvid("no ID token presented");
+    static String checkAccountBindings(AttestationIssuanceConfig config, Set<String> projects) {
+        String prefix = "spiffe://" + config.expectedTrustDomain() + "/sa/";
+        for (SpiffeBinding binding : config.bindings()) {
+            String pattern = binding.spiffeId();
+            if (pattern.indexOf('*') >= 0) {
+                return "a gcp-id-token binding may not use '*': it would match service accounts across '@' and across "
+                        + "projects; list each account as spiffe://<trust-domain>/sa/<account>@<project>.iam.gserviceaccount.com";
+            }
+            String project = pattern.startsWith(prefix) ? projectOf(pattern.substring(prefix.length())) : null;
+            if (project == null) {
+                return "a gcp-id-token binding is not spiffe://<trust-domain>/sa/<account>@<project>.iam.gserviceaccount.com "
+                        + "for a user-managed service account";
+            }
+            if (projects != null && !projects.contains(project)) {
+                return "a gcp-id-token binding names a project " + Policy.GCP_PROJECTS + " does not list";
+            }
         }
-        if (bundleKeys == null || bundleKeys.isEmpty()) {
-            throw IssuanceException.invalidSvid("no trust bundle configured for this client");
-        }
+        return null;
+    }
+
+    /**
+     * The grammar of a {@code gke-sa-token} client's bindings: each {@code spiffe://<attestation_trust_domain>/ns/}
+     * followed by a namespace and service account, where a {@code *} may appear only last, and only after that prefix,
+     * so it can never widen the trust domain, which holds the project ({@code PROJECT_ID.svc.id.goog}). When
+     * {@code projects} is set and the trust domain has that form, its project is one of them.
+     *
+     * @return what is wrong, naming the rule and not the pattern, or null
+     */
+    static String checkWorkloadBindings(AttestationIssuanceConfig config, Set<String> projects) {
         String trustDomain = config.expectedTrustDomain();
-        if (trustDomain == null || trustDomain.isBlank()) {
-            throw IssuanceException.invalidClient(
-                    AttestationIssuanceConfig.P_TRUST_DOMAIN + " is required for gcp-id-token evidence");
+        if (projects != null && trustDomain.endsWith(".svc.id.goog")
+                && !projects.contains(trustDomain.substring(0, trustDomain.length() - ".svc.id.goog".length()))) {
+            return AttestationIssuanceConfig.P_TRUST_DOMAIN + " names a workload identity pool of a project "
+                    + Policy.GCP_PROJECTS + " does not list";
         }
-
-        JsonWebSignature jws = new JsonWebSignature();
-        String kid;
-        String alg;
-        try {
-            jws.setCompactSerialization(evidence);
-            kid = jws.getKeyIdHeaderValue();
-            alg = jws.getAlgorithmHeaderValue();
-        } catch (Exception e) {
-            throw IssuanceException.invalidSvid("token is not a well-formed compact JWS");
-        }
-        if (alg == null || !PERMITTED_ALGORITHMS.contains(alg)) {
-            throw IssuanceException.invalidSvid("token uses an unsupported signing algorithm: " + alg);
-        }
-
-        Key verificationKey = SpiffeSvidValidator.selectKey(bundleKeys, kid);
-        jws.setKey(verificationKey);
-        jws.setAlgorithmConstraints(new AlgorithmConstraints(AlgorithmConstraints.ConstraintType.PERMIT, alg));
-        try {
-            if (!jws.verifySignature()) {
-                throw IssuanceException.invalidSvid("token signature did not verify against the trust bundle");
+        String prefix = "spiffe://" + trustDomain + "/ns/";
+        for (SpiffeBinding binding : config.bindings()) {
+            String pattern = binding.spiffeId();
+            int star = pattern.indexOf('*');
+            if (!pattern.startsWith(prefix) || pattern.length() == prefix.length()
+                    || (star >= 0 && star != pattern.length() - 1)) {
+                return "a gke-sa-token binding is not spiffe://<trust-domain>/ns/<namespace>/sa/<name>, with at most one "
+                        + "'*', last, after spiffe://<trust-domain>/ns/: a wildcard may not cross the project";
             }
-        } catch (IssuanceException e) {
-            throw e;
-        } catch (Exception e) {
-            throw IssuanceException.invalidSvid("token signature verification failed");
         }
-
-        JwtClaims claims;
-        try {
-            claims = JwtClaims.parse(jws.getPayload());
-        } catch (Exception e) {
-            throw IssuanceException.invalidSvid("token payload is not valid JWT claims");
-        }
-
-        String expectedIssuer = config.evidenceIssuer();
-        String issuer = claims.getClaimValueAsString("iss");
-        if (expectedIssuer != null && !expectedIssuer.equals(issuer)) {
-            throw IssuanceException.invalidSvid(
-                    "token issuer '" + issuer + "' does not match expected '" + expectedIssuer + "'");
-        }
-
-        String email = claims.getClaimValueAsString("email");
-        if (email == null || email.isBlank()) {
-            throw IssuanceException.invalidSvid("token has no 'email' (service-account identity) claim");
-        }
-
-        long now = NumericDate.now().getValue();
-        long exp;
-        try {
-            if (!claims.hasClaim("exp")) {
-                throw IssuanceException.invalidSvid("token has no 'exp'");
-            }
-            exp = claims.getExpirationTime().getValue();
-        } catch (IssuanceException e) {
-            throw e;
-        } catch (Exception e) {
-            throw IssuanceException.invalidSvid("token 'exp' is malformed");
-        }
-        if (exp + this.allowedClockSkewSeconds < now) {
-            throw IssuanceException.invalidSvid("token has expired");
-        }
-        long iat = 0L;
-        try {
-            if (claims.hasClaim("iat")) {
-                iat = claims.getIssuedAt().getValue();
-            }
-        } catch (Exception ignored) {
-            iat = 0L;
-        }
-
-        List<String> audiences;
-        try {
-            audiences = claims.getAudience();
-        } catch (Exception e) {
-            throw IssuanceException.invalidSvid("token 'aud' is malformed");
-        }
-        if (audiences == null || !audiences.contains(config.issuer())) {
-            throw IssuanceException.invalidSvid("token audience does not include this issuer: " + config.issuer());
-        }
-
-        String path = "/sa/" + email;
-        String spiffeId = "spiffe://" + trustDomain + path;
-        return new SpiffeSvid(spiffeId, trustDomain, path, audiences, exp, iat, evidence);
+        return null;
     }
 }

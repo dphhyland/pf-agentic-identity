@@ -46,11 +46,22 @@ import java.lang.annotation.Target;
  *
  * <p><b>External specs.</b> One prefix and one anchor style per document, chosen once:
  * {@code ABCA-10}, {@code RFC9449}, {@code RFC9396}, {@code RFC8693}, {@code RFC7638}, {@code RFC9493},
- * {@code RFC8417}, {@code RFC8935}, {@code RFC8936}, {@code RFC7515}, {@code RFC7518},
+ * {@code RFC8417}, {@code RFC8935}, {@code RFC8936}, {@code RFC7515}, {@code RFC7518}, {@code RFC7519},
  * {@code RFC6750}, {@code RFC7662}, {@code RFC8725},
  * {@code OIDFED}, {@code SSF}, {@code CAEP}, {@code CAEPIOP}, {@code GRANT-MGMT}, {@code AUTHZEN-1.0},
  * {@code OIDC-CORE}, {@code NIST-800-63B}, {@code OID4VCI}, {@code APPLE-APPATTEST},
- * {@code FAPI2-SP}, {@code FAPI1-BASE}, {@code CIBA}, {@code RFC6749}, {@code PF-SDK}.
+ * {@code FAPI2-SP}, {@code FAPI1-BASE}, {@code CIBA}, {@code RFC6749}, {@code PF-SDK}, {@code RFC9126}, {@code OIDC-REG},
+ * {@code RFC7644}, {@code RISC}, {@code RFC8414}, {@code RFC9728}.
+ *
+ * <p>{@code RFC8414} is OAuth 2.0 Authorization Server Metadata and {@code RFC9728} OAuth 2.0 Protected Resource
+ * Metadata, by section: {@code RFC8414 §3} is where the metadata is published, {@code RFC9728 §2} the resource's
+ * metadata members, {@code authorization_servers} among them (both read 2026-10-01, plan item S-4).
+ *
+ * <p>{@code RFC7644} is SCIM 2.0's protocol, by section ({@code RFC7644 §3.5.1} is PUT). {@code RISC} is OpenID RISC
+ * Profile Specification 1.0 (final, 29 August 2025), by section: {@code RISC §2.4} is Account Enabled.
+ *
+ * <p>{@code OIDC-REG} is OpenID Connect Dynamic Client Registration 1.0 incorporating errata set 2, by section:
+ * {@code OIDC-REG §2} is the client metadata and the defaults it gives what a client omits.
  *
  * <p>{@code FAPI2-SP} is the FAPI 2.0 Security Profile, Final. Its requirements are bullets with no
  * printed number, but each has an anchor, and that is the id, in the item notation above:
@@ -69,6 +80,10 @@ import java.lang.annotation.Target;
  * Implicitly Added Subjects, {@code §2.5} Event Subjects, {@code §2.8.1} the one-event rule, and
  * {@code §3.1}-{@code §3.3} the three profiled events. The suite's own ids ({@code CAEPIOP-2.5}) use the
  * same numbers.
+ *
+ * <p>{@code OIDC-RPL} is OpenID Connect RP-Initiated Logout 1.0 (final, 12 September 2022), and {@code OIDC-BCL} OpenID
+ * Connect Back-Channel Logout 1.0 incorporating errata set 1 (15 December 2023), each by section: {@code OIDC-RPL §2} is
+ * the logout request and its {@code id_token_hint}, {@code OIDC-BCL §2.4} the logout token.
  *
  * <p>{@code OIDFED} uses the specification's section numbers. A requirement that sits in a section's
  * own text, before its first subsection, takes the paragraph number in the item notation above:
@@ -97,8 +112,8 @@ import java.lang.annotation.Target;
  * divergence, not the spec.
  *
  * <p><b>Never invent a citation.</b> Use the citation the source itself carries, or verify it verbatim
- * first. {@code SdJwt.java} cites a draft by URL and no RFC number for SD-JWT appears anywhere in this
- * repo — an id asserting one would be fabricated. This repo has been bitten by exactly this: see
+ * first. {@code SdJwt.java}, removed in 0.6.0, cited a draft by URL and no RFC number for SD-JWT appeared anywhere in
+ * this repo — an id asserting one would have been fabricated. This repo has been bitten by exactly this: see
  * {@code docs/unverified.md}, whose whole premise is recording what could not be confirmed rather than
  * assuming it.
  *

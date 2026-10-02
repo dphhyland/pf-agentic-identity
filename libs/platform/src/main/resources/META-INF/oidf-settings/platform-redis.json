@@ -1,0 +1,160 @@
+{
+  "format": 1,
+  "component": "platform-redis",
+  "module": "libs/platform",
+  "package": "com.pingidentity.ps.oidf.platform.redis",
+  "families": ["OIDF_REDIS_"],
+  "settings": [
+    {
+      "name": "OIDF_REDIS_URL",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The shared Redis, as redis://[user[:password]@]host[:port][/db] or rediss:// for TLS; unset keeps each store in one node's memory",
+      "when_wrong": {"effect": "first-request", "detail": "A URL that does not parse, a scheme other than redis or rediss, or redis:// under the production profile: every store that would use Redis refuses its requests, and the log says why without the password. From 0.6.0 a redis:// URL under the production profile also refuses the components that use Redis at start-up"},
+      "profile": "forbidden-in-production",
+      "governed": {"schemes": ["redis"]},
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.redis.url"},
+        {"from": "env", "name": "OIDF_REDIS_URL"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "REDIS_URL",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The shared Redis when OIDF_REDIS_URL and its property are unset: the name Railway and most managed Redis providers export; read as OIDF_REDIS_URL is",
+      "when_wrong": {"effect": "first-request", "detail": "As OIDF_REDIS_URL, when it is read: while OIDF_REDIS_URL or oidf.redis.url is set, REDIS_URL is not read and the production profile does not judge it"},
+      "profile": "forbidden-in-production",
+      "governed": {"schemes": ["redis"], "unless_set": ["OIDF_REDIS_URL"]},
+      "security": true,
+      "sources": [
+        {"from": "env", "name": "REDIS_URL"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_REDIS_CA_FILE",
+      "kind": "env",
+      "type": "path",
+      "default": null,
+      "description": "A PEM file of the CA certificates to trust for rediss://, in place of the JVM's; the server's certificate must still name the host",
+      "when_wrong": {"effect": "first-request", "detail": "A file that cannot be read or holds no certificate: every store that would use Redis refuses its requests, naming the file"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.redis.ca.file"},
+        {"from": "env", "name": "OIDF_REDIS_CA_FILE"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_REDIS_POOL_SIZE",
+      "kind": "env",
+      "type": "int",
+      "min": 1,
+      "max": 256,
+      "default": 8,
+      "description": "The most connections the client holds open at once, in use or idle",
+      "when_wrong": {"effect": "first-request", "detail": "Not a whole number from 1 to 256"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.redis.pool.size"},
+        {"from": "env", "name": "OIDF_REDIS_POOL_SIZE"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_REDIS_BORROW_TIMEOUT_MS",
+      "kind": "env",
+      "type": "millis",
+      "min": 1,
+      "max": 60000,
+      "default": 1000,
+      "description": "How long a command waits for a connection when all of them are in use, before it fails as Redis unavailable",
+      "when_wrong": {"effect": "first-request", "detail": "Not a whole number from 1 to 60000"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.redis.borrow.timeout.ms"},
+        {"from": "env", "name": "OIDF_REDIS_BORROW_TIMEOUT_MS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_REDIS_COMMAND_TIMEOUT_MS",
+      "kind": "env",
+      "type": "millis",
+      "min": 1,
+      "max": 60000,
+      "default": 3000,
+      "description": "How long one command may take once it has a connection: connecting, the TLS handshake, AUTH, finding the master and the one retry included",
+      "when_wrong": {"effect": "first-request", "detail": "Not a whole number from 1 to 60000"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.redis.command.timeout.ms"},
+        {"from": "env", "name": "OIDF_REDIS_COMMAND_TIMEOUT_MS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_REDIS_SENTINEL_MASTER",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The master's name in Redis Sentinel; set with OIDF_REDIS_SENTINELS, the client asks the sentinels where the master is instead of dialling the URL's host",
+      "when_wrong": {"effect": "first-request", "detail": "Set without OIDF_REDIS_SENTINELS, or the other way round: every store that would use Redis refuses its requests; a name the sentinels do not know makes every command fail as Redis unavailable"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.redis.sentinel.master"},
+        {"from": "env", "name": "OIDF_REDIS_SENTINEL_MASTER"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_REDIS_SENTINELS",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "The sentinels, as host:port separated by spaces or commas (port 26379 when left out), asked in order; TLS and the CA file apply to them as to the master",
+      "when_wrong": {"effect": "first-request", "detail": "An entry that is not host or host:port: every store that would use Redis refuses its requests, naming the entry"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.redis.sentinels"},
+        {"from": "env", "name": "OIDF_REDIS_SENTINELS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_REDIS_SENTINEL_PASSWORD",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The password the sentinels ask for, when they ask for one (the master's comes from the URL)",
+      "when_wrong": {"effect": "first-request", "detail": "The sentinels refuse AUTH and every command fails as Redis unavailable"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "env", "name": "OIDF_REDIS_SENTINEL_PASSWORD"}
+      ],
+      "aliases": [],
+      "file": true
+    }
+  ],
+  "removed": []
+}

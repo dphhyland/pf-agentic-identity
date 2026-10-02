@@ -1,0 +1,29 @@
+id: F-0107
+title: The RAR plugin and the model it carries read OIDF_DEPLOYMENT_PROFILE two ways
+severity: low
+area: rar-paz-plugin
+source: pr-review
+status: closed
+plan_items: [PR-1, PR-2]
+prs: [80]
+verification: >
+  2026-09-30, PR #80 (package ST5A), closed with F-0160: rar-model now reads OIDF_DEPLOYMENT_PROFILE as the plugin's
+  GovernanceEngineConfig.profileOf does (DeploymentProfile: development trimmed, any case), so the plugin's
+  development switches and the containment model it carries agree on "Development". The plugin's reading is
+  unchanged; rar-model's met it.
+target_release: 0.6.0
+notes: >
+  Found on 2026-09-27 in PR #36. GovernanceEngineConfig.profileOf takes "development" in any case, trimmed, while
+  libs/rar-model (RarModels.fromEnvironment) takes exactly "development", trimmed. So OIDF_DEPLOYMENT_PROFILE=Development
+  relaxes the plugin's own development-only switches - a plaintext PDP URL, "Trust a client-asserted principal",
+  "Skip TLS verification" - while the containment model in the same jar runs with production semantics (no
+  common-fields fallback). Nothing is widened by the difference in the model's direction; the plugin's
+  direction is the lenient one, and an operator who capitalises the value gets development switches on a
+  server that otherwise looks like production. PR-1 centralises the profile in the platform library; until
+  then the README says which reading each part uses.
+
+  Retargeted from 0.5.0 to 0.6.0 on 2026-09-29, still open. PR1 (PR #50) moved both readings onto libs/platform's
+  DeploymentProfile and kept the difference on purpose: GovernanceEngineConfig.profileOf now calls
+  DeploymentProfile.parse (development trimmed, any case) and RarModels.fromEnvironment calls
+  DeploymentProfile.isExactlyDevelopment (exactly development, trimmed), both read on origin/main 4b1fd979. That
+  difference is now F-0160 (target 0.6.0, PR-2), which decides whether the two meet; this finding closes with it.

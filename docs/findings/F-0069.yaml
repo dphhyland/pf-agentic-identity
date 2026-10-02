@@ -3,10 +3,36 @@ title: 'release.yml''s green-Build gate fails while Build on the tagged commit i
 severity: medium
 area: release, ci
 source: phase-0-review
-status: open
-plan_items: [P0-8]
-prs: []
-verification: ''
+status: closed
+plan_items: [P0-6, P0-8]
+prs: [30]
+verification: >
+  Closed by PR #30 (branch prod/p1-release-gate-waits), 2026-09-27. release.yml's
+  step "a green Build on this commit" reads the Build workflow's runs on the tagged commit, takes the newest a
+  push or a dispatch started (a pull request's never counts), and waits, reading every 30 s for up to 20 min,
+  while that run is queued, pending or in progress. It then fails when the run or a required job's latest
+  attempt concluded anything but success, and it fails after 120 s when there is no such run, after three
+  refused reads in a row, and at the limit, logging what it waits for and for how long. Its run block,
+  extracted with Ruby's YAML parser and run unmodified with the real constants and simulated time, passed 50
+  cases against a stand-in gh serving canned runs and jobs rendered with the step's own jq filters, under bash
+  3.2 on macOS and bash 5.2 in ubuntu:24.04 (mawk, GNU sort and sed), each with -e and with -e -o pipefail:
+  queued, then in progress, then success passed at the third read; a run pending with no jobs for three
+  minutes passed once it finished; no run failed at the grace; each conclusion but success failed once the run
+  completed; a pull request Build never decided, newer or older; the newest of a push and a dispatch run
+  decided; a re-run was judged by each job's latest attempt; a tab or a newline in a job name forged nothing.
+  Eight mutants, each removing one guard, were each caught. Run read-only against the API with the real gh:
+  ab74038 and 97e5650 passed at the first read; 7d17201 (its Build cancelled by the next merge) and 11e9780
+  (cancelled while pending, with no jobs) failed as not green; 5d7c30f failed naming the two jobs its Build
+  lacked; b1439c3, 7f5a2a1 (PR #20's head, with only a pull request Build) and an unknown SHA failed as never
+  started. actionlint 1.7.12, with shellcheck 0.11.0 over the run blocks, and zizmor 1.30.1 are clean. Not
+  dispatched: the next tag is the change's first live run. v0.3.0 itself was published by the re-run of run
+  36278709651 (2026-09-27T00:14Z), which is what P0-8 needed.
+  A second, independent review of the redesign (2026-09-27, 71 cases under bash 3.2 and 5.2, 14 mutants, live
+  read-only runs) found no blocker or major; its minors are fixed in the same pull request: the commit id is
+  checked before the runs query (an empty one widened it to every Build run), head_sha is checked in the
+  response as well as asked of the API, every page of runs is read, job names match as strings, every record
+  at a job's latest attempt must pass, and a run that reads completed while a required job is re-running is
+  waited for.
 target_release: 0.4.0
 notes: >
   The v0.3.0 tag landed seven seconds after PR #11's merge commit 97e5650 (2026-09-26T23:12Z): Build run

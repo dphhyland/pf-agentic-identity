@@ -5,7 +5,7 @@ area: cluster
 source: review-2026-09-26
 status: open
 plan_items: [C-1, C-2, C-3, C-4, C-6, C-7, S-10]
-prs: []
+prs: [38, 43, 51, 54, 71, 80, 82, 91]
 verification: ''
 target_release: 0.7.0
 notes: >
@@ -14,3 +14,31 @@ notes: >
   the platform as single node until v0.7.0; Phase 4 delivers the topology (C-1), the platform Redis client
   (C-2), managed executors (C-3), leases (C-4), the reference stacks (C-6) and the cluster verification suite
   (C-7), whose dated results go in docs/operator/clustering.md.
+
+  Documented for 0.4.0 (PR #38, the release pull request, 2026-09-27): README.md's Status
+  section, the 0.4.0 notes' "Known gaps" and docs/operator/deployment-limits.md state that 0.4.0 supports one
+  PingFederate node only, until 0.7.0. The limits page lists, read from the code at origin/main 714e7ce and not
+  driven on a cluster, what goes wrong on two nodes today: without Redis a challenge from one node is refused at
+  the other (400 use_attestation_challenge at the token endpoint, 401 invalid_instance_proof at the attester), a
+  spent proof or client assertion can be presented once more at the other - a registration request object or
+  client assertion for up to 86400 s - and evidence binds per node; the challenge endpoints' per-caller caps and
+  the SSF receiver's jti dedupe and poll acknowledgements (F-0043) are per node whatever the store, so an inbound
+  SET can be acted on once per node; with SSF in memory a stream exists on one node only; with a shared SSF
+  data store both push loops can post the same SET, since dueForPush takes no lock and nothing leases the loop,
+  and each node's failed attempt counts towards the dead-letter; the federation authority's registries are per
+  node without a database; and client replication is U-0027.
+
+  Phase 2 (0.5.0, recorded 2026-09-29 by the release package) delivered the platform pieces the cluster story is built
+  on, and no cluster behaviour: F1 (PR #43) the per-classloader lifecycle and component registries; C3 (PR #51)
+  managed executors, one of each job per JVM through a system-property claim, with the registration sweeper and the
+  SSF poll client left for C-4's leaderEvery; C2 (PR #54) the platform Redis client with a bounded pool, deadlines,
+  key prefixes, the lease and rate-limit commands and scripts C-4 and X-A11 need, and Sentinel, under which
+  client-attestation's stores now run with 0.4.0's keys. Nothing takes a lease yet, so every item on
+  docs/operator/deployment-limits.md still holds; 0.5.0 supports one PingFederate node only, as 0.4.0 did.
+
+  Phase 3 (0.6.0, recorded 2026-10-01 by the release package): decision 9 - security state held in one node's memory
+  now needs the in-memory-state accepted risk in production: S8A (PR #71) the operator authenticator's DPoP jtis,
+  ST5A (PR #80) the attestation replay caches, challenges, evidence bindings and the agent registry, ST5C (PR #82)
+  the SSF store, ST5F (PR #91) the federation registries, Trust Marks and key history. Rate-limit counters in memory
+  need no risk. Nothing clustered changed: no lease is taken and docs/operator/deployment-limits.md still holds, so
+  0.6.0 supports one PingFederate node only, as 0.5.0 did; C-1 (Phase 4) forbids in-memory state when clustered.

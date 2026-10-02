@@ -1,0 +1,22 @@
+id: F-0380
+title: A hosted entity's revocation through DELETE that loses a race is answered 500, not 409
+severity: low
+area: pf-integration, openid-federation
+source: design
+status: open
+plan_items: [H-FED-3]
+prs: [88]
+verification: ''
+target_release: 0.7.0
+notes: >
+  From 0.6.0 (package HFEDL, 2026-09-30) a hosted entity's status change that races another and commits second is
+  STALE_UPDATE and writes nothing, and FederationAdminServlet answers it 409 stale_update. HostedEntityServlet's
+  DELETE <collection>/<id>, which revokes, maps every AuthorityRegistryException but NOT_FOUND to 500 with the
+  exception's reason, so the same race there reads as a server error (stale_update in the body) where the admin API
+  says 409. A revocation repeated after it applied is unaffected: it finds the entity revoked and answers 204. HFEDL
+  does not edit HostedEntityServlet (ST5F owns its reads this wave, S8B its authentication): the one-line mapping
+  goes with the next package that edits the servlet.
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  HostedEntityServlet's DELETE still maps STALE_UPDATE to 500. No package after HFEDL edited the servlet. The
+  programme plan gives it no later item of its own, so David schedules it.

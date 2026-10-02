@@ -1,0 +1,23 @@
+id: F-0095
+title: SETs issued in the same second go in jti order, not the order they were generated
+severity: medium
+area: ssf
+source: pr-review
+status: open
+plan_items: [S-10, S10a, S10c]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  SSF 1.0 §8.1.2.1 (read 2026-09-27): a transmitter that holds successive events for one Subject Principal
+  while a stream is paused must transmit them "in the order of time that they were generated", or send only
+  the last ones that do not depend on the earlier. A pending SET's `issuedAt` is in epoch seconds and no
+  store keeps a sequence, so the order within a second is lost. Since 0.4.0 all three stores order the queue
+  by `issuedAt` and then `jti`, which is random, so a burst - a logout, a deprovision, a run of audit events -
+  goes out in an order unrelated to the one it was generated in, when a dead-lettered stream is enabled again
+  and when a failing receiver comes back. Before that tiebreak the order within a second was whatever the
+  database returned, and on Postgres the push loop's hold failed for a burst: the retry moved from SET to
+  SET, the SETs behind the one that failed went first, and five SETs of one second took 130 s rather than
+  75 s to dead-letter (the S10-0 pull request's review, 2026-09-27; `SsfStoresOnPostgresTest` pins the
+  fix, and its burst tests are untagged because they assert this divergence). S-10 gives each pending SET a
+  sequence in S10a's migrations and orders by it; S10c's resume sends held SETs in that order.

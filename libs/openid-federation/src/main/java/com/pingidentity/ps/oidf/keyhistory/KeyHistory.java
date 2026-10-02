@@ -51,7 +51,9 @@ public final class KeyHistory implements HistoricalKeys {
     }
 
     /**
-     * Revokes a retired key, with a §8.7.3 reason or none.
+     * Revokes a retired key, with a §8.7.3 reason or none. A key already revoked is returned as it is, and nothing is
+     * announced; one revoked by someone else after it was read here unrevoked is {@code STALE_UPDATE} (plan item
+     * H-FED-3), so of two revocations at once one applies and the other is told.
      *
      * @throws IllegalArgumentException for a reason §8.7.3 does not define
      */
@@ -59,7 +61,12 @@ public final class KeyHistory implements HistoricalKeys {
         if (reason != null && !HistoricalKey.REASONS.contains(reason)) {
             throw new IllegalArgumentException("the reason must be one of " + HistoricalKey.REASONS + " (§8.7.3), or none");
         }
-        HistoricalKey revoked = this.store.revoke(kid, this.clock.instant(), reason);
+        for (HistoricalKey key : this.store.retired()) {
+            if (key.kid().equals(kid) && key.revokedAt() != null) {
+                return key;
+            }
+        }
+        HistoricalKey revoked = this.store.revokeUnrevoked(kid, this.clock.instant(), reason);
         FederationEvents.event(FederationEvents.KEY_REVOKED).audit().field("kid", kid).field("reason", reason).field("actor", actor).emit();
         return revoked;
     }

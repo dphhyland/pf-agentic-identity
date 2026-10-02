@@ -19,7 +19,9 @@ import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.federation.policy.DecisionPoint;
 import com.pingidentity.ps.oidf.jose.HttpPostClient;
 import com.pingidentity.ps.oidf.pf.FederationPolicySupport;
+import com.pingidentity.ps.oidf.pf.FederationPolicySupportTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpAuth;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpMode;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings;
@@ -42,6 +44,12 @@ import org.sourceid.saml20.adapter.attribute.AttributeValue;
  * pinned anchor or the criterion answers false - and either way one event records it.
  */
 class OIDFederationUtilsTest {
+
+    /** The criteria run only while their component serves (S9b); another test in this JVM may have left it failed. */
+    @BeforeEach
+    void componentServes() {
+        com.pingidentity.ps.oidf.servlet.GateTesting.serving(com.pingidentity.ps.oidf.platform.health.Startup.FEDERATION);
+    }
     private static final String TA = "https://ta.example.com";
     private static final String INT = "https://int.example.com";
     private static final String RP = "https://rp.example.com";
@@ -59,8 +67,8 @@ class OIDFederationUtilsTest {
     @AfterEach
     void tearDown() {
         OIDFederationUtils.resetForTests();
-        FederationRuntimeConfig.resetForTests();
-        FederationPolicySupport.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
+        FederationPolicySupportTestAccess.reset();
         this.events.close();
     }
 

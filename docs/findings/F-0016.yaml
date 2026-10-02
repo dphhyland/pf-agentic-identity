@@ -3,10 +3,24 @@ title: 'The RAR plugin''s fail-open catches everything'
 severity: high
 area: rar-paz-plugin
 source: review-2026-09-26
-status: open
+status: closed
 plan_items: [S2a]
-prs: []
-verification: ''
+prs: [29]
+verification: >
+  2026-09-27, prod/p1-rar-plugin-principal at b497275: fail-open grants only on PdpUnavailableException -
+  connect or reset, an unresolved name, a deadline (JdkHttpTransport.classify) and HTTP 429, 502, 503, 504
+  (PdpResponses.bodyOf); every other status, a non-JSON content type, a body that is not a JSON object, an
+  AuthZEN answer without a boolean decision and an SSLException anywhere in the chain refuse, each with a
+  test (AttestationAwareRarProcessorTest failOpenDoesNotCoverAPdpThatAnsweredBadly, JdkHttpTransportTest,
+  PdpResponsesTest, AuthZenPdpClientTest), all in the 100% METHOD gate. "Deny unless PERMIT" is gone from the
+  descriptor; a stored true value in a 0.3.0 archive imported on the rig the same day and was never read. The
+  server's attributes are written last and a colliding field is refused (F-0073 for the mirrors). The PDP URL
+  is https outside development, and the shared secret is an encrypted field (the upgrade rehearsed on the rig,
+  U-0022). 2026-09-27, commit 30b4f4b: a ProtocolException anywhere in the chain refuses too, and a reset is
+  matched only from the start of a message, because the JDK copies wire text into protocol errors (F-0093,
+  found in the pre-PR review, with a loopback test through configure and enrich); a body with content after
+  the object or a duplicate member, and a governance answer whose decision is not a string or authorised not
+  a boolean, refuse (PdpResponsesTest, DecisionResponseTest).
 target_release: 0.4.0
 notes: >
   'Fail open on engine error' treats any failure - a wrong secret, a malformed body, a TLS failure - as a

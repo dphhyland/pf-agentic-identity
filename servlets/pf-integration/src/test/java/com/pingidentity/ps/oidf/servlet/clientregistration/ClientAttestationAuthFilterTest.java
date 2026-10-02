@@ -1,5 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert;
+import com.pingidentity.ps.oidf.servlet.oauth.RefusalLog;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -14,11 +16,13 @@ import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.pf.BridgeSigners;
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils;
 import java.util.Map;
+import java.util.List;
 import java.util.UUID;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -35,6 +39,7 @@ import org.jose4j.jwt.NumericDate;
 import org.jose4j.keys.EllipticCurves;
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.AfterEach;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
@@ -74,7 +79,7 @@ class ClientAttestationAuthFilterTest {
 
     /** Both holders memoise; a test that changes the environment has to clear them. */
     private static void resetSingletons() throws Exception {
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
         java.lang.reflect.Method reset = BridgeSigners.class.getDeclaredMethod("resetForTest");
         reset.setAccessible(true);
         reset.invoke(null);
@@ -107,12 +112,13 @@ class ClientAttestationAuthFilterTest {
     void refusesToStartWhenNoBridgeSigningIsConfiguredAndItIsRequired() throws Exception {
         resetSingletons();
 
-        ServletException e = assertThrows(ServletException.class,
-                () -> new ClientAttestationAuthFilter().init(null));
+        assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").state());
+        String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").reason();
 
-        assertTrue(e.getMessage().contains(BridgeSigners.BACKING_ENV), e.getMessage());
-        assertTrue(e.getMessage().contains(FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV),
-                "the failure must name the opt-out, or an operator cannot act on it: " + e.getMessage());
+        assertTrue(eReason.contains(BridgeSigners.BACKING_ENV), eReason);
+        assertTrue(eReason.contains(com.pingidentity.ps.oidf.platform.component.ComponentSwitches.ATTESTATION_AUTH),
+                "the failure must name the opt-out, or an operator cannot act on it: " + eReason);
     }
 
     @Test
@@ -128,6 +134,9 @@ class ClientAttestationAuthFilterTest {
         configureKeysFor(dir, "https://rp.example.com/agent-1");
 
         assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
+        // The start function is what starts the check of every client's bridge key (plan item H-JOSE-2, F-0112).
+        assertTrue(com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.live(BridgeSigners.CHECK_JOB).isPresent(),
+                "the filter's start function starts the bridge key check");
     }
 
     // ---- init: is the trust anchor's key pinned? ----------------------------------------------------
@@ -146,9 +155,19 @@ class ClientAttestationAuthFilterTest {
         System.setProperty(ANCHOR_JWKS_PROP, "{ not json");
         configureKeysFor(dir, "https://rp.example.com/agent-1");
 
-        ServletException e = assertThrows(ServletException.class, () -> new ClientAttestationAuthFilter().init(null));
+        assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").state());
+        String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").reason();
 
-        assertTrue(e.getMessage().contains("not a JSON object"), e.getMessage());
+        assertTrue(eReason.contains("not a JSON object"), eReason);
+
+        // One JSON object that is not a usable key set: the setting parses, and the anchor built from it is refused.
+        System.setProperty(ANCHOR_JWKS_PROP, "{\"keys\": [{\"kty\": \"oct\", \"kid\": \"s\", \"k\": \"c2VjcmV0\"}]}");
+        resetSingletons();
+        assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").state());
+        assertTrue(com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").reason().startsWith("attest_jwt_client_auth: "),
+                com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").reason());
     }
 
     @Test
@@ -172,13 +191,14 @@ class ClientAttestationAuthFilterTest {
         System.setProperty(LEGACY_KEY_PROP, privateJwkJson("old-deployment-key"));
         resetSingletons();
 
-        ServletException e = assertThrows(ServletException.class,
-                () -> new ClientAttestationAuthFilter().init(null));
+        assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").state());
+        String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").reason();
 
-        assertTrue(e.getMessage().contains(FederationRuntimeConfig.BRIDGE_KEY_ENV),
-                "must name the variable that is now inert: " + e.getMessage());
-        assertTrue(e.getMessage().contains(BridgeSigners.KEYS_ENV),
-                "must say where the key should move to: " + e.getMessage());
+        // The catalogue refuses the removed name as it was set, here its system property (plan item ST-5).
+        assertTrue(eReason.contains(LEGACY_KEY_PROP), "must name the variable that is now inert: " + eReason);
+        assertTrue(eReason.contains(BridgeSigners.KEYS_ENV),
+                "must say where the key should move to: " + eReason);
     }
 
     /**
@@ -194,14 +214,14 @@ class ClientAttestationAuthFilterTest {
         System.setProperty(LEGACY_PREV_KEY_PROP, privateJwkJson("outgoing-deployment-key"));
         resetSingletons();
 
-        ServletException e = assertThrows(ServletException.class,
-                () -> new ClientAttestationAuthFilter().init(null));
+        assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").state());
+        String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").reason();
 
-        assertTrue(e.getMessage().contains(FederationRuntimeConfig.BRIDGE_PREVIOUS_PUBLIC_KEY_ENV),
-                "must name the variable that is now inert: " + e.getMessage());
-        assertTrue(e.getMessage().contains(KEYS_PROP.replace("oidf.bridge.signing.keys", BridgeSigners.KEYS_ENV))
-                        || e.getMessage().contains(BridgeSigners.KEYS_ENV),
-                "must say what rotating a client looks like now: " + e.getMessage());
+        assertTrue(eReason.contains(LEGACY_PREV_KEY_PROP), "must name the variable that is now inert: " + eReason);
+        // The part's reason is cut at 256 characters; the whole message is in the log and here: nothing replaces it.
+        String message = assertThrows(IllegalStateException.class, BridgeSigners::isConfigured).getMessage();
+        assertTrue(message.contains("nothing replaces it; unset it"), "must say to unset it: " + message);
     }
 
     // ---- per-client resolution ---------------------------------------------------------------------
@@ -506,6 +526,50 @@ class ClientAttestationAuthFilterTest {
         assertTrue(body.toString().contains("invalid_client"), body.toString());
     }
 
+    /**
+     * H-FED-4 (F-0046): what the request chose - the client an attestation names, the audience of its proof, a
+     * header's value - never reaches the response of a caller that has not authenticated. Each refusal is the code's
+     * fixed description and a reference; the detail is on the server's log line.
+     */
+    @Test
+    void aHostileMarkerNeverReachesTheResponse(@TempDir Path dir) throws Exception {
+        String marker = "hfede-marker-" + UUID.randomUUID();
+        String markedClient = "https://rp.example/" + marker;
+        configureKeysFor(dir, DOFILTER_CLIENT_ID);
+        PublicJsonWebKey attesterKey = ecKey("attester-1");
+        PublicJsonWebKey imposterKey = ecKey("imposter-1");
+        PublicJsonWebKey instanceKey = ecKey("instance-1");
+        trustAttester(dir, attesterKey);
+        ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter(FIXED_ISSUER);
+        filter.init(null);
+        List<HttpServletRequest> hostile = List.of(
+                // a trusted attester vouching for a client with no bridge key, the client named by the marker
+                attestedRequest(attestationJwt(attesterKey, instanceKey, markedClient), popJwt(instanceKey, markedClient, OP_ISSUER), null),
+                // a forged attestation naming the marker
+                attestedRequest(attestationJwt(imposterKey, instanceKey, markedClient), popJwt(instanceKey, markedClient, OP_ISSUER), null),
+                // a proof addressed to the marker
+                attestedRequest(attestationJwt(attesterKey, instanceKey, DOFILTER_CLIENT_ID),
+                        popJwt(instanceKey, DOFILTER_CLIENT_ID, markedClient), null),
+                // an attestation that is the marker
+                attestedRequest(marker, marker, null),
+                // a repeated details parameter carrying it
+                attestedRequest(attestationJwt(attesterKey, instanceKey, DOFILTER_CLIENT_ID),
+                        popJwt(instanceKey, DOFILTER_CLIENT_ID, OP_ISSUER),
+                        Map.of("authorization_details", new String[] {marker, marker})));
+        boolean logged = false;
+        for (HttpServletRequest req : hostile) {
+            try (com.pingidentity.ps.oidf.servlet.oauth.RefusalLog log = com.pingidentity.ps.oidf.servlet.oauth.RefusalLog.open()) {
+                java.io.StringWriter body = new java.io.StringWriter();
+                filter.doFilter(req, responseCapturingBody(body), mock(FilterChain.class));
+                org.junit.jupiter.api.Assertions.assertFalse(body.toString().contains(marker), body.toString());
+                Map<String, Object> json = org.jose4j.json.JsonUtil.parseJson(body.toString());
+                com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert.assertGeneric((String) json.get("error"), body.toString());
+                logged |= log.lines().stream().anyMatch(line -> line.contains(marker));
+            }
+        }
+        assertTrue(logged, "the detail, marker and all, is the server log's");
+    }
+
     @Test
     void multipleAttestationHeadersAreRejectedWith400(@TempDir Path dir) throws Exception {
         configureKeysFor(dir, DOFILTER_CLIENT_ID);
@@ -709,10 +773,13 @@ class ClientAttestationAuthFilterTest {
                 popJwt(instanceKey, DOFILTER_CLIENT_ID, OP_ISSUER), new HashMap<>());
         FilterChain chain = mock(FilterChain.class);
 
-        String body = rejectedWith(req, filter, chain);
+        try (RefusalLog log = RefusalLog.open()) {
+            String body = rejectedWith(req, filter, chain);
 
-        assertTrue(body.contains("invalid_client"), body);
-        assertTrue(body.contains("attesters"), "the refusal must say what to configure: " + body);
+            PublicErrorsAssert.assertGeneric("invalid_client", body);
+            org.junit.jupiter.api.Assertions.assertFalse(body.contains("attesters"), "what to configure is the operator's, not the caller's: " + body);
+            log.assertDetail("attesters");
+        }
         verify(chain, org.mockito.Mockito.never()).doFilter(any(), any());
     }
 
@@ -831,23 +898,48 @@ class ClientAttestationAuthFilterTest {
         }
     }
 
-    @Test
-    void membershipRequirementIsReadFromThePropertyThenTheEnvironment() throws Exception {
-        assertTrue(ClientAttestationAuthFilter.requireHostedAgentSetting("true", null));
-        assertTrue(ClientAttestationAuthFilter.requireHostedAgentSetting(" ", "true")); // a blank property defers
-        assertTrue(ClientAttestationAuthFilter.requireHostedAgentSetting(null, "true"));
-        assertEquals(false, ClientAttestationAuthFilter.requireHostedAgentSetting("false", "true"));
-        assertEquals(false, ClientAttestationAuthFilter.requireHostedAgentSetting(null, null));
+    private static final String REQUIRE_HOSTED_AGENT_PROP = "oidf.attestation.require_hosted_agent";
 
-        System.setProperty(REQUIRE_PROP, "false");
-        System.setProperty(ClientAttestationAuthFilter.REQUIRE_HOSTED_AGENT_PROP, "true");
+    /** The hosted-agent requirement with this system property and this environment variable, and nothing else. */
+    private static boolean hostedAgent(String property, String environment) {
+        java.util.Map<String, String> props = new java.util.HashMap<>();
+        java.util.Map<String, String> env = new java.util.HashMap<>();
+        if (property != null) {
+            props.put(REQUIRE_HOSTED_AGENT_PROP, property);
+        }
+        if (environment != null) {
+            env.put(ClientAttestationAuthFilter.REQUIRE_HOSTED_AGENT_ENV, environment);
+        }
+        return ClientAttestationAuthFilter.requireHostedAgentSetting(com.pingidentity.ps.oidf.platform.settings.Sources.of(env::get,
+                props::get, null));
+    }
+
+    @Test
+    void membershipRequirementIsReadFromThePropertyThenTheEnvironment(@TempDir Path dir) throws Exception {
+        assertTrue(hostedAgent("true", null));
+        assertTrue(hostedAgent(" ", "true")); // a blank property defers
+        assertTrue(hostedAgent(null, "true"));
+        assertEquals(false, hostedAgent("false", "true"));
+        assertEquals(false, hostedAgent(null, null));
+        // Strict from 0.6.0 (plan item ST-5): anything but true or false is refused, naming the setting, where the reader
+        // before read it as false; under development a legacy spelling is read as that reader read it, with a warning.
+        com.pingidentity.ps.oidf.platform.settings.SettingRefused refused = assertThrows(
+                com.pingidentity.ps.oidf.platform.settings.SettingRefused.class, () -> hostedAgent(null, "yes"));
+        assertEquals(ClientAttestationAuthFilter.REQUIRE_HOSTED_AGENT_ENV, refused.setting());
+        assertEquals(false, ClientAttestationAuthFilter.requireHostedAgentSetting(com.pingidentity.ps.oidf.platform.settings.Sources.of(
+                Map.of("OIDF_DEPLOYMENT_PROFILE", "development", ClientAttestationAuthFilter.REQUIRE_HOSTED_AGENT_ENV, "yes")::get,
+                name -> null, null)));
+
+        // Read by a filter that starts: a switched-off one (OIDF_ATTESTATION_AUTH_ENABLED=false) reads nothing.
+        System.setProperty(REQUIRE_HOSTED_AGENT_PROP, "true");
         resetSingletons();
+        configureKeysFor(dir, DOFILTER_CLIENT_ID);
         try {
             ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter();
             filter.init(null);
             assertTrue(filter.requiresHostedAgent());
         } finally {
-            System.clearProperty(ClientAttestationAuthFilter.REQUIRE_HOSTED_AGENT_PROP);
+            System.clearProperty(REQUIRE_HOSTED_AGENT_PROP);
         }
     }
 
@@ -858,8 +950,10 @@ class ClientAttestationAuthFilterTest {
 
     @Test
     void theVerifiedAgentRidesInEveryEntryAndAClientCannotPlantItsOwn() throws Exception {
-        String marked = ClientAttestationAuthFilter.markAgent(
-                "[{\"type\":\"a\",\"_agent_id\":\"forged\"},{\"type\":\"b\",\"purpose\":\"p\"}]", "agent-7");
+        java.util.List<Map<String, Object>> granted = java.util.List.of(
+                new java.util.LinkedHashMap<>(Map.of("type", "a", "_agent_id", "forged")),
+                new java.util.LinkedHashMap<>(Map.of("type", "b", "purpose", "p")));
+        String marked = GrantedDetails.forwarded(granted, java.util.List.of(), "agent-7");
         java.util.List<Map<String, Object>> parsed = entries(marked);
         assertEquals("agent-7", parsed.get(0).get(ClientAttestationAuthFilter.AGENT_MARKER));
         assertEquals("agent-7", parsed.get(1).get(ClientAttestationAuthFilter.AGENT_MARKER));
@@ -867,11 +961,202 @@ class ClientAttestationAuthFilterTest {
     }
 
     @Test
-    void anUnverifiedAgentCarriesNoMarkerAndNonsenseIsLeftForPingFederateToRefuse() throws Exception {
-        assertTrue(!entries(ClientAttestationAuthFilter.markAgent("[{\"type\":\"a\",\"_agent_id\":\"forged\"}]", null))
-                .get(0).containsKey(ClientAttestationAuthFilter.AGENT_MARKER));
-        assertEquals("[not json", ClientAttestationAuthFilter.markAgent("[not json", "agent-7"));
-        assertEquals("{\"type\":\"a\"}", ClientAttestationAuthFilter.markAgent("{\"type\":\"a\"}", "agent-7"));
-        assertEquals("[\"x\"]", ClientAttestationAuthFilter.markAgent("[\"x\"]", "agent-7"));
+    void anUnverifiedAgentCarriesNoMarkerAndNothingGrantedForwardsNothing() throws Exception {
+        assertTrue(!entries(GrantedDetails.forwarded(java.util.List.of(new java.util.LinkedHashMap<>(Map.of("type", "a",
+                "_agent_id", "forged"))), java.util.List.of(), null)).get(0).containsKey(ClientAttestationAuthFilter.AGENT_MARKER));
+        assertEquals(null, GrantedDetails.forwarded(java.util.List.of(), java.util.List.of(), "agent-7"));
+        assertEquals(null, GrantedDetails.forwarded(null, java.util.List.of(), "agent-7"));
+    }
+
+    // ---- S3a: the status a verification failure answers with -----------------------------------------
+
+    /**
+     * A store that cannot answer is the 503, and the only one; a challenge to fetch is 400 and everything the
+     * client got wrong is 401.
+     *
+     * RFC 6749 defines the code in §4.1.2.1 for the authorization endpoint's redirect: "The authorization server
+     * is currently unable to handle the request due to a temporary overloading or maintenance of the server. (This
+     * error code is needed because a 503 Service Unavailable HTTP status code cannot be returned to the client via
+     * an HTTP redirect.)" §5.2, the token endpoint's list, does not include it. Using it here, with the 503 as well,
+     * is this project's decision (plan item S3a), not a requirement of either section, so the test carries no
+     * {@code @Requirement}.
+     */
+    @Test
+    void anUnavailableStoreIs503AChallengeToFetchIs400AndTheRestIs401() {
+        assertEquals(503, ClientAttestationAuthFilter.statusFor(ClientAttestationException.temporarilyUnavailable("store down")));
+        assertEquals(400, ClientAttestationAuthFilter.statusFor(ClientAttestationException.useChallenge("fetch one")));
+        assertEquals(401, ClientAttestationAuthFilter.statusFor(ClientAttestationException.invalidClient("replay")));
+        assertEquals(401, ClientAttestationAuthFilter.statusFor(ClientAttestationException.accessDenied("ceiling")));
+    }
+
+    // ---- S1b: the token gate - authorization_details against the attestation's --------------------------
+    //
+    // CAS §7.1: an authorization server "MUST, when authenticating a client via an attestation containing
+    // authorization_details, ensure that any authority granted in issued tokens is a subset of the attestation's
+    // authorization_details (same subset semantics as Section 7 rule 1), and MUST reject requests exceeding it with
+    // invalid_authorization_details [RFC9396]." RFC 6749 §5.2 sets the status: "The authorization server responds
+    // with an HTTP 400 (Bad Request) status code (unless specified otherwise)".
+
+    /**
+     * RFC 9396 §6 at the token endpoint: "Otherwise, the AS refuses the request with the error code
+     * invalid_authorization_details (similar to invalid_scope)." - and invalid_scope is a 400 under RFC 6749 §5.2.
+     */
+    @Test
+    @Requirement({"RFC9396 §6", "RFC6749 §5.2"})
+    void anInvalidAuthorizationDetailsRefusalIs400() {
+        assertEquals(400, ClientAttestationAuthFilter.statusFor(
+                ClientAttestationException.invalidAuthorizationDetails("authorization_details is malformed")));
+    }
+
+    private static void rarModelsFrom(Map<String, String> env) throws Exception {
+        java.lang.reflect.Method reset = com.pingidentity.ps.oidf.clientattestation.AttestationRarModels.class
+                .getDeclaredMethod("resetForTest", Map.class);
+        reset.setAccessible(true);
+        reset.invoke(null, env);
+    }
+
+    @AfterEach
+    void readTheModelsFromTheProcessEnvironmentAgain() throws Exception {
+        rarModelsFrom(null);
+    }
+
+    /**
+     * A models document the filter cannot read would leave the token gate enforcing something other than what the
+     * deployment wrote, so the filter refuses to start - naming the setting - as it does for a broken bridge
+     * configuration. Plan item S-9 (Phase 3) turns this into a filter that starts and refuses its own traffic.
+     */
+    @Test
+    void refusesToStartWhenTheRarModelsDocumentCannotBeRead(@TempDir Path dir) throws Exception {
+        configureKeysFor(dir, DOFILTER_CLIENT_ID);
+        rarModelsFrom(Map.of(com.pingidentity.ps.oidf.rar.model.RarModels.ENV_MODELS, "{\"types\":"));
+
+        assertDoesNotThrow(() -> new ClientAttestationAuthFilter(FIXED_ISSUER).init(null));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").state());
+        String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("ClientAttestationAuthFilter").reason();
+
+        assertTrue(eReason.contains(com.pingidentity.ps.oidf.rar.model.RarModels.ENV_MODELS_FILE), eReason);
+    }
+
+    /** A filter that authenticates nothing enforces nothing, so it has no models to load. */
+    @Test
+    void aFilterThatAuthenticatesNothingDoesNotLoadTheModels() throws Exception {
+        System.setProperty(REQUIRE_PROP, "false");
+        resetSingletons();
+        rarModelsFrom(Map.of(com.pingidentity.ps.oidf.rar.model.RarModels.ENV_MODELS, "{\"types\":"));
+
+        assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
+    }
+
+    private static final String SALES_EMEA = "[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"]}]";
+
+    /** An attestation carrying {@code claims} beside the usual ones. */
+    private static String attestationWith(PublicJsonWebKey attesterKey, PublicJsonWebKey instanceKey,
+            Map<String, Object> claims) throws Exception {
+        JwtClaims c = new JwtClaims();
+        c.setIssuer(ATTESTER_ISSUER);
+        c.setSubject(DOFILTER_CLIENT_ID);
+        c.setIssuedAtToNow();
+        c.setExpirationTime(NumericDate.fromSeconds(NumericDate.now().getValue() + 600L));
+        c.setClaim("cnf", Map.of("jwk", instanceKey.toParams(JsonWebKey.OutputControlLevel.PUBLIC_ONLY)));
+        claims.forEach(c::setClaim);
+        return sign(attesterKey, "oauth-client-attestation+jwt", c);
+    }
+
+    /** What doFilter did with one attested token request. */
+    private record Filtered(HttpServletRequest request, HttpServletResponse response, FilterChain chain, String body) {
+    }
+
+    private static Filtered filter(Path dir, Map<String, Object> attestationClaims, String authorizationDetails)
+            throws Exception {
+        configureKeysFor(dir, DOFILTER_CLIENT_ID);
+        PublicJsonWebKey attesterKey = ecKey("attester-1");
+        PublicJsonWebKey instanceKey = ecKey("instance-1");
+        trustAttester(dir, attesterKey);
+        rarModelsFrom(Map.of());
+        ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter(FIXED_ISSUER);
+        filter.init(null);
+        Map<String, String[]> params = new HashMap<>();
+        params.put("grant_type", new String[]{"client_credentials"});
+        params.put("authorization_details", new String[]{authorizationDetails});
+        HttpServletRequest req = attestedRequest(attestationWith(attesterKey, instanceKey, attestationClaims),
+                popJwt(instanceKey, DOFILTER_CLIENT_ID, OP_ISSUER), params);
+        java.io.StringWriter body = new java.io.StringWriter();
+        HttpServletResponse resp = responseCapturingBody(body);
+        FilterChain chain = mock(FilterChain.class);
+        filter.doFilter(req, resp, chain);
+        return new Filtered(req, resp, chain, body.toString());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> errorBody(String body) throws Exception {
+        return org.jose4j.json.JsonUtil.parseJson(body);
+    }
+
+    /** 0.3.0 answered this 401 access_denied (F-0038). */
+    @Test
+    @Requirement({"CAS §7.1", "RFC9396 §6"})
+    void aRequestOutsideTheAttestationsDetailsIs400InvalidAuthorizationDetails(@TempDir Path dir) throws Exception {
+        Filtered f = filter(dir, Map.of("authorization_details", entries(SALES_EMEA)),
+                "[{\"type\":\"sales_agent\",\"sales_regions\":[\"AMER\"]}]");
+
+        verify(f.response()).setStatus(400);
+        org.mockito.Mockito.verifyNoInteractions(f.chain());
+        assertEquals("invalid_authorization_details", errorBody(f.body()).get("error"));
+        PublicErrorsAssert.assertGenericDescription("invalid_authorization_details", errorBody(f.body()).get("error_description"));
+    }
+
+    /**
+     * RFC 9396 §5: "is an object of known type but containing unknown fields" is refused with
+     * invalid_authorization_details. The description is fixed - the field's name and value stay in the log.
+     */
+    @Test
+    @Requirement("RFC9396 §5")
+    void aRequestTheModelRefusesIs400WithAFixedDescription(@TempDir Path dir) throws Exception {
+        Filtered f = filter(dir, Map.of("authorization_details", entries(SALES_EMEA)),
+                "[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"],\"discount_code\":\"STAFF-50\"}]");
+
+        verify(f.response()).setStatus(400);
+        org.mockito.Mockito.verifyNoInteractions(f.chain());
+        assertEquals("invalid_authorization_details", errorBody(f.body()).get("error"));
+        PublicErrorsAssert.assertGenericDescription("invalid_authorization_details", errorBody(f.body()).get("error_description"));
+        assertTrue(!f.body().contains("STAFF-50") && !f.body().contains("discount_code"), f.body());
+    }
+
+    /** Details the attester wrote and this server has no model for are the credential's fault: 401 invalid_client. */
+    @Test
+    void anAttestationWhoseDetailsTheModelRefusesIs401InvalidClient(@TempDir Path dir) throws Exception {
+        Filtered f = filter(dir, Map.of("authorization_details", entries("[{\"type\":\"no-such-type\"}]")),
+                SALES_EMEA);
+
+        verify(f.response()).setStatus(401);
+        org.mockito.Mockito.verifyNoInteractions(f.chain());
+        assertEquals("invalid_client", errorBody(f.body()).get("error"));
+        PublicErrorsAssert.assertGenericDescription("invalid_client", errorBody(f.body()).get("error_description"));
+    }
+
+    /**
+     * A BFF's request carries {@code _principal_sub}, and a client may have written {@code _agent_id}: the gate takes
+     * both off before it asks the model, so the request passes, and what PingFederate receives still has the
+     * principal for the RAR plugin to read and the verified agent in place of the client's. The published context
+     * names the model set that checked the request.
+     */
+    @Test
+    void aBffRequestPassesAndKeepsItsPrincipalForThePluginWithTheVerifiedAgent(@TempDir Path dir) throws Exception {
+        Filtered f = filter(dir, Map.of("authorization_details", entries(SALES_EMEA), "agent_id", "agent-7"),
+                "[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"],\"_principal_sub\":\"alice\","
+                        + "\"_agent_id\":\"forged\"}]");
+
+        assertTrue(f.body().isEmpty(), "expected a clean verification, got: " + f.body());
+        ArgumentCaptor<ServletRequest> forwarded = ArgumentCaptor.forClass(ServletRequest.class);
+        verify(f.chain()).doFilter(forwarded.capture(), org.mockito.ArgumentMatchers.any());
+        Map<String, Object> detail = entries(((HttpServletRequest) forwarded.getValue()).getParameter("authorization_details")).get(0);
+        assertEquals("alice", detail.get("_principal_sub"));
+        assertEquals("agent-7", detail.get(ClientAttestationAuthFilter.AGENT_MARKER));
+
+        ArgumentCaptor<Object> context = ArgumentCaptor.forClass(Object.class);
+        verify(f.request()).setAttribute(
+                org.mockito.ArgumentMatchers.eq(ClientAttestationUtils.RAR_ATTESTATION_CONTEXT_ATTRIBUTE), context.capture());
+        assertEquals(com.pingidentity.ps.oidf.rar.model.RarModels.builtIn().fingerprint(),
+                ((Map<?, ?>) context.getValue()).get("rar_models_fingerprint"));
     }
 }

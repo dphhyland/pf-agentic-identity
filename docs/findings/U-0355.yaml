@@ -1,0 +1,21 @@
+id: U-0355
+title: That readiness counts a serving component's dependency blip as DEGRADED for 15 s on a running PingFederate
+area: platform, platform-pf
+source: design
+status: open
+plan_items: [S9b]
+prs: [86]
+recorded_in: docs/operator/components.md, The supervisor and readiness; docs/operator/health.md, What ready means
+verify_by: >
+  Boot the rig with SSF on a PostgreSQL store (OIDF_SSF_JDBC_URL, the driver in server/default/lib as F-0330 says),
+  let SSF reach READY, then stop the database so that the transmitter's store probe moves its part to
+  FAILED_DEPENDENCY. Expect /agentic-identity/health/ready to stay 200 for the first 15 s, the health detail to show
+  SSF FAILED_DEPENDENCY with "graced": true, then ready 503 until the database is back and the part READY again.
+verification: ''
+notes: >
+  Package S9B (2026-09-30) holds the rule in unit tests with a hand-moved clock (ComponentPartsTest,
+  HealthTest): a component that was READY or DEGRADED and moves to FAILED_DEPENDENCY is graced for
+  ComponentParts.GRACE (the supervisor's first two ceilings, 5 s and 10 s), through its retries' STARTING, and not
+  after; one that fails at boot, on its configuration, or is refused gets none. The rig matrix
+  (conformance/fail-soft-matrix.sh) drove a boot-time FAILED_DEPENDENCY retried to READY, not a blip: nothing moves a
+  serving part to FAILED_DEPENDENCY at run time today but the SSF transmitter's store probe.

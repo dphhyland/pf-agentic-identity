@@ -1,0 +1,37 @@
+id: F-0105
+title: A refresh without authorization_details reissues the stored details without asking the PDP again
+severity: medium
+area: rar-paz-plugin
+source: pr-review
+status: closed
+plan_items: [S4d]
+prs: [84]
+verification: >
+  Closed by S4D3 on 2026-09-30 (the PLAN's decision 14): the rig showed an access-token mapping's criterion sees the
+  grant type and whether the request sent authorization_details (context.HttpRequest), so
+  IssuedDetailsCriterion.withinCeiling refuses a refresh without authorization_details of a grant holding a detail of
+  a type in OIDF_ATTESTATION_REDECIDE_ON_REFRESH_TYPES (default payment_initiation,account_information), for every
+  client. On the rig (pfai-p3-s4d3, PingFederate 13.1.3): a CIBA payment_initiation grant for EUR 42.00 refreshed
+  without the parameter was refused 400 invalid_grant with reason redecide_on_refresh and the stub PDP received
+  nothing; refreshed with the details it was issued and the stub PDP received one request. The criterion also holds
+  every refresh of an attested client to the attestation ceiling. Only mappings that carry the criterion apply the
+  rule; the setting blank turns it off.
+target_release: 0.6.0
+notes: >
+  Split from F-0031 on 2026-09-27 (PR #36), which closed the half a processor can reach. javap -c of
+  RefreshTokenGrantProcessor.processGrant (pf-protocolengine 13.1.3.0): when the refresh request carries no
+  authorization_details, the token carries the grant's stored details and nothing is enriched, so the PDP is not
+  asked again, and the details are not compared with the grant. Driven on the rig the same day: a CIBA grant for
+  42.00 AUD refreshed without the parameter was issued 42.00 again and the stub PDP received nothing. RFC 9396
+  section 7: "If the client does not specify the authorization_details token request parameters, the AS determines
+  the resulting authorization_details at its discretion", so this is PingFederate's choice, not a violation. What it
+  means here: a policy change after issuance is not seen until the grant ends, and a grant issued before 0.4.0 -
+  whose details were compared on five array fields only - is reissued unexamined for its lifetime. Where
+  PingFederate reuses approved consent ("bypass authorization for approved consents" on, and a client that does not
+  bypass the approval page), the bare refresh does reach the plugin's isEqualOrSubset, through
+  OAuthConsentManagerDefaultImpl.isGranted: whether the stored details are within the user's consent, not the grant,
+  and a no revokes the grant (U-0115). Medium: the details were within policy when issued. S4d's issuance criterion
+  on context.OAuthAuthorizationDetails would hold every issued token, a bare refresh included, to the attestation
+  ceiling; re-asking the PDP on a bare refresh has no plan item and needs a decision. Until then: short
+  refresh-token lifetimes for the types that matter, and revoke grants issued before 0.4.0 that carry payment or
+  account types.

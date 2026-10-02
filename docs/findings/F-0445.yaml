@@ -1,0 +1,24 @@
+id: F-0445
+title: Public readers meet finding ids and source paths as unlinked text in the release pages and operator docs
+severity: low
+area: docs
+source: design
+status: open
+plan_items: [D-1]
+prs: [104]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found by the export tooling (package SPA of the repo split) on 2026-10-01. tools/export-public.py de-links every
+  relative link from an exported file into a path the manifest classes internal: the link text stays and the link
+  goes. On HEAD (branch prod/split-export-tooling, from origin/main 0cbf85f0) the check de-links 310 links in 134
+  exported files and rewrites 29; docs/releases/0.6.0.md alone loses 47 (3 rewritten) and CHANGELOG.md 29 (5
+  rewritten). At the mirrored tags the counts are 48 (v0.3.0), 92 (v0.4.0), 183 (v0.5.0) and 310 (v0.6.0). Most
+  point into docs/findings (155 of the 306 relative links scratchpad linkscan.py counts on 0cbf85f0) and
+  docs/development (41), the rest into source READMEs. A public reader therefore sees "F-0120" or
+  "servlets/ssf/README.md" as plain text with nothing behind it, in the very notes that tell an operator what to do
+  before deploying. Nothing is wrong or leaked; the notes read as if half their evidence were missing. Options: a
+  public findings digest (a generated page listing each id a public document names, with its title, severity,
+  status and the release that closed it, exported as docs/findings.md so the links can point there), or trimming
+  the Notes sections to their consumer-facing sentences when tools/release-notes.py folds the fragments. Neither
+  can change a mirrored tag's notes, which keep their unlinked text.

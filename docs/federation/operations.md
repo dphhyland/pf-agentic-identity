@@ -46,16 +46,21 @@ those statements expire - at most their lifetime, often an hour.
 
 ## Hosting agents
 
-With `OIDF_AUTHORITY_ENTITY_ID` and `OIDF_AUTHORITY_ADMIN_TOKEN` set, PingFederate is a domain authority: it
+With `OIDF_AUTHORITY_ENTITY_ID` set and operator authentication configured, PingFederate is a domain authority: it
 publishes and signs Entity Configurations for agents that can't publish their own, with a key per agent kept
 in OpenBao. Keep the agents in a database (`OIDF_AUTHORITY_JDBC_URL` or `OIDF_AUTHORITY_DATA_STORE_ID`, with the
 `V100`-`V101` migrations applied) - in memory they are gone at the next restart.
+
+Every admin call below is an operator route: from 0.6.0 it needs a PingFederate-issued access token with the route's
+scope, DPoP-bound in production ([operator-authentication.md](../operator/operator-authentication.md#the-routes)).
+The examples use `$TOKEN` and `$PROOF`, a token from your operator client and a fresh DPoP proof for the request; in
+development `OIDF_AUTHORITY_ADMIN_TOKEN` also works, as `Authorization: Bearer`.
 
 **Enrol an agent** - the OpenBao transit key must exist already:
 
 ```sh
 curl -sS https://pf.example.com/federation/agents \
-  -H "Authorization: Bearer $OIDF_AUTHORITY_ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -H "Authorization: DPoP $TOKEN" -H "DPoP: $PROOF" -H 'Content-Type: application/json' \
   -d '{"id": "payments-agent", "hostingKeyRef": "agent-payments-1",
        "metadata": {"oauth_client": {"client_name": "Payments agent", "scope": "payments.read"}}}'
 ```
@@ -66,7 +71,8 @@ Its Entity Configuration is then at `https://pf.example.com/federation/agents/pa
 can only narrow the domain default (`OIDF_AUTHORITY_METADATA_POLICY`). With the policy engine asked at enrolment,
 a refusal is a 403.
 
-**Change it** through the admin API, each a POST with the admin bearer and a JSON body naming the agent:
+**Change it** through the admin API, each a POST with an operator token (`oidf.admin.entities`, or `oidf.admin.keys`
+for `rotate-key`) and a JSON body naming the agent:
 
 | Route | Body | What happens |
 |---|---|---|
@@ -79,9 +85,9 @@ a refusal is a 403.
 
 `GET /federation/admin/entities` lists every hosted agent whatever its status; `?entity_id=` gives one, with its
 metadata and policy; `/federation/admin/entities/audit?entity_id=` gives its history. Every change records who
-made it: `admin:` and the first eight hex digits of the admin token's SHA-256, followed by the
-`X-Federation-Actor` header when you send one - for accountability, it grants nothing. The token itself is never
-logged.
+made it: the operator token's `sub` - for a client-credentials token, the operator client's id. An
+`X-Federation-Actor` header names nobody: it is recorded only as the operator event's `claimed_label`. The token
+itself is never logged.
 
 Suspending or revoking stops the agent resolving here straight away. What it doesn't stop is in
 [how it works](how-it-works.md#what-stops-when).
@@ -93,7 +99,7 @@ database (`V102__trust_mark.sql`). Then grant them:
 
 ```sh
 curl -sS https://pf.example.com/federation/admin/trust-marks \
-  -H "Authorization: Bearer $OIDF_AUTHORITY_ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -H "Authorization: DPoP $TOKEN" -H "DPoP: $PROOF" -H 'Content-Type: application/json' \
   -d '{"trust_mark_type": "https://pf.example.com/marks/certified", "sub": "https://rp.example.com"}'
 ```
 
@@ -180,6 +186,24 @@ characters (`OIDF_EVENTS_MAX_VALUE_LENGTH`), the admin token, the policy engine'
 `reason_user`. That covers the event lines only; the modules' ordinary log lines are written with the same care
 but not by the same code.
 
+Every code, and every field it may carry, is declared in its component's event catalogue: the federation events in
+`libs/openid-federation`'s
+[`META-INF/oidf-events/federation.json`](../../libs/openid-federation/src/main/resources/META-INF/oidf-events/federation.json),
+the attester's in `servlets/attestation-issuer`'s
+[`attestation-issuer.json`](../../servlets/attestation-issuer/src/main/resources/META-INF/oidf-events/attestation-issuer.json).
+The catalogue gives each field one PII class - `OPERATIONAL`, `PSEUDONYMOUS_ID` (a client id, an entity
+identifier, a workload's subject, and from 0.6.0 `actor`, the operator token's subject), `DIRECT_ID` (can name a
+person: the operator events' `claimed_label`, whatever an administrator sends in `X-Federation-Actor`), `NETWORK` or
+`CREDENTIAL_DIGEST` (a key's thumbprint, evidence's
+SHA-256). The description (`desc=`) is free text with no class: it can carry an administrator's free-text
+`reason`, the policy decision point's `reason_admin`, an exception message, client ids and key thumbprints. Inside
+PingFederate every class is written to the audit log as it is; server.log carries a `DIRECT_ID` as `sha256:` and
+twelve hex digits of it (from 0.6.0, finding F-0165), and every other class, and the description, as it did before the
+catalogues existed. Whether to digest or drop more in one log is left to the PII policy of plan item D-6 (the platform
+README's "events" section, finding F-0166). A field
+an event's catalogue does not declare is dropped before any log sees it, and counted: the first drop of each code
+and field is a WARN line naming the field, never its value.
+
 | Event | When | Audit |
 |---|---|---|
 | `federation.registration.created`, `.refreshed` | A client was registered, or its registration renewed or replaced - explicit or automatic, at which endpoint, until when, and whether its keys changed | Yes |
@@ -199,6 +223,7 @@ but not by the same code.
 | `federation.trust_mark.verified` | Another issuer's Trust Mark checked out | No |
 | `federation.client.authenticated`, `.refused` | A client authenticated at a federation endpoint, or was refused | Refused only |
 | `federation.key.retired`, `.revoked` | PingFederate's signing key changed since it last started, or a retired key was revoked | Yes |
+| `attestation.evidence.conflict` | The attester was shown instance evidence already bound to another instance key or client: read `evidence_sha256`, `evidence_type`, `instance_subject`, `presented_jkt` (the key refused) and `bound_jkt` and `bound_client` (the key and client that hold the binding). Either the rightful holder's evidence has been used elsewhere, or a thief presented it first and the rightful holder is the one refused: `bound_jkt` is then the thief's. Right after a workload restarts with a new key it is most likely neither (the attester's README, "Evidence binding") | Yes, with `protocol` `Client Attestation` |
 
 Not everything is an event. Serving an Entity Configuration, a fetch, a list or a resolve isn't; a refusal at a
 federation endpoint is a line on `com.pingidentity.ps.oidf.servlet.trustanchor.FederationErrors` (INFO for a
@@ -211,7 +236,8 @@ request scope as each request starts and leave it when the request ends, however
 carries one caller's address into its next request. The address is the one PingFederate records for its own
 events: behind a proxy it is the proxy's, unless PingFederate's incoming proxy settings name the header that carries
 the client's (`forwarded_ip_address_header_name` on `pingfederate_incoming_proxy_settings`). `host` is PingFederate's
-own - the name of the node that wrote the record - and `protocol` is `OpenID Federation`. A record written off a
+own - the name of the node that wrote the record - and `protocol` is the component's, from its catalogue:
+`OpenID Federation` for the federation events, `Client Attestation` for the attester's. A record written off a
 request, by the sweeper or for a key rotation noticed at start-up, has no `ip`. The sweeper's lines carry a
 tracking id of their own, `oidf-sweep-` and eight hex digits.
 

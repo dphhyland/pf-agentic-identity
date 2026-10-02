@@ -1,5 +1,10 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
+import com.pingidentity.ps.oidf.pf.testkit.OperatorRequests;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorScopes;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorTestKit;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -10,6 +15,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
+import com.pingidentity.ps.oidf.authority.AuthoritySupportTestAccess;
 import com.pingidentity.ps.oidf.authority.HostedEntity;
 import com.pingidentity.ps.oidf.authority.JdbcHostedEntityRegistry;
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
@@ -18,13 +24,16 @@ import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.federation.policy.DecisionPoint;
 import com.pingidentity.ps.oidf.jose.HttpPostClient;
 import com.pingidentity.ps.oidf.pf.FederationPolicySupport;
+import com.pingidentity.ps.oidf.pf.FederationPolicySupportTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpAuth;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpMode;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings;
 import com.pingidentity.ps.oidf.pf.PfRequestScope;
 import com.pingidentity.ps.oidf.pf.testkit.AuditCapture;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
+import com.pingidentity.ps.oidf.trustmark.TrustMarkSupportTestAccess;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.BufferedReader;
@@ -33,6 +42,10 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.util.Map;
 import org.jose4j.json.JsonUtil;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
+import com.pingidentity.ps.oidf.platform.profile.ProfileRefusals;
+import com.pingidentity.ps.oidf.platform.settings.ProfileAudit;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,17 +61,28 @@ class HostedEntityServletEnrolTest {
     @BeforeEach
     void reset() {
         this.events = EventCapture.install();
-        AuthoritySupport.resetForTests();
-        TrustMarkSupport.resetForTests();
+        AuthoritySupportTestAccess.reset();
+        TrustMarkSupportTestAccess.reset();
+        // These tests configure an authority without a durable store, which the production profile refuses without the
+        // in-memory-state risk (PR-2): they run as a development deployment does.
+        // underProductionAnAuthorityInMemoryRefusesHosting covers production.
+        ProfileRefusals.resetForTests();
+        ProfileRefusals.publish(new ProfileAudit.Result(DeploymentProfile.DEVELOPMENT, java.util.List.of(), java.util.List.of()));
+    }
+
+    /** These init-params, this process's system properties, and a development environment. */
+    private static Sources developmentSources(Map<String, String> params) {
+        return Sources.of(Map.of("OIDF_DEPLOYMENT_PROFILE", "development")::get, System::getProperty, params::get);
     }
 
     @AfterEach
     void release() {
         this.events.close();
-        AuthoritySupport.resetForTests();
-        TrustMarkSupport.resetForTests();
-        FederationRuntimeConfig.resetForTests();
-        FederationPolicySupport.resetForTests();
+        ProfileRefusals.resetForTests();
+        AuthoritySupportTestAccess.reset();
+        TrustMarkSupportTestAccess.reset();
+        FederationRuntimeConfigTestAccess.reset();
+        FederationPolicySupportTestAccess.reset();
     }
 
     private static void host(JwsSigner signer) {
@@ -97,26 +121,32 @@ class HostedEntityServletEnrolTest {
         final StringWriter body = new StringWriter();
 
         Exchange(String method, String pathInfo, String json) throws Exception {
-            this(TOKEN, method, pathInfo, json);
+            this(development(TOKEN), method, pathInfo, json, "Bearer " + TOKEN, null);
         }
 
-        Exchange(String servletToken, String method, String pathInfo, String json) throws Exception {
+        Exchange(OperatorAuthenticator authenticator, String method, String pathInfo, String json, String authorization,
+                 String dpop) throws Exception {
             HttpServletRequest request = mock(HttpServletRequest.class);
             when(request.getMethod()).thenReturn(method);
             when(request.getRemoteAddr()).thenReturn(CALLER);
             when(request.getServletPath()).thenReturn("/federation/agents");
             when(request.getPathInfo()).thenReturn(pathInfo);
-            when(request.getHeader("Authorization")).thenReturn("Bearer " + TOKEN);
+            OperatorRequests.stub(request, "/federation/agents" + (pathInfo == null ? "" : pathInfo), authorization, dpop);
             when(request.getHeader("X-Federation-Actor")).thenReturn("dave");
             when(request.getReader()).thenReturn(new BufferedReader(new StringReader(json == null ? "" : json)));
             when(this.response.getWriter()).thenReturn(new PrintWriter(this.body));
-            new HostedEntityServlet(servletToken).service(request, this.response);
+            new HostedEntityServlet(authenticator).service(request, this.response);
         }
 
         Map<String, Object> json(int status) throws Exception {
             verify(this.response).setStatus(status);
             return JsonUtil.parseJson(this.body.toString());
         }
+    }
+
+    /** Development with {@code token} as the static bearer, or with none. */
+    private static OperatorAuthenticator development(String token) {
+        return OperatorTestKit.unconfigured(DeploymentProfile.DEVELOPMENT).withStaticBearer(token);
     }
 
     private static String enrolment(String extra) {
@@ -134,7 +164,8 @@ class HostedEntityServletEnrolTest {
         assertEquals(id, created.get("entityId"));
         HostedEntity stored = AuthoritySupport.registry().find(id).orElseThrow();
         assertEquals(Map.of("oauth_client", Map.of("scope", Map.of("subset_of", java.util.List.of("read")))), stored.metadataPolicy());
-        assertTrue(AuthoritySupport.registry().auditTrail(id).get(0).actor().endsWith("(dave)"));
+        assertTrue(AuthoritySupport.registry().auditTrail(id).get(0).actor().matches("admin:[0-9a-f]{8}"),
+                "the operator, never X-Federation-Actor");
         assertEquals(id, this.events.only(FederationEvents.HOSTED_ENTITY_ENROLLED).subject());
         assertEquals("duplicate", new Exchange("POST", "/", enrolment("")).json(409).get("error"));
     }
@@ -223,7 +254,7 @@ class HostedEntityServletEnrolTest {
                 "{\"oauth_client\": {\"token_endpoint_auth_method\": {\"value\": \"private_key_jwt\"}}}")::get, name -> null));
         Map<String, String> params = Map.of("authorityEntityId", AUTHORITY, "jdbcUrl", "jdbc:nowhere:authority");
 
-        assertTrue(HostedEntityServlet.configureAuthority(params::get));
+        assertTrue(HostedEntityServlet.configureAuthorityFrom(developmentSources(params)));
 
         assertTrue(AuthoritySupport.isHostingConfigured());
         assertTrue(AuthoritySupport.registry() instanceof JdbcHostedEntityRegistry);
@@ -235,25 +266,89 @@ class HostedEntityServletEnrolTest {
                 com.pingidentity.ps.oidf.authority.EntityStatus.ACTIVE, false, null, java.time.Instant.now(), null)), "the domain default is in force");
     }
 
+    /**
+     * A PingFederate data store is asked what its database is on one connection when the authority is configured (PR-2):
+     * one that cannot be reached is a dependency failure - the part is FAILED_DEPENDENCY and retried - and nothing is
+     * published. PingFederate's pool cannot be reached outside a running server.
+     */
     @Test
-    void aPingFederateDataStoreIsUsedWhenThereIsNoJdbcUrl() {
+    void aPingFederateDataStoreIsAskedWhatItIsWhenThereIsNoJdbcUrl() {
         Map<String, String> params = Map.of("authorityEntityId", AUTHORITY, "dataStoreId", "pf-store", "openBaoUrl", "https://bao.example",
                 "openBaoToken", "token");
 
-        assertTrue(HostedEntityServlet.configureAuthority(params::get));
+        IllegalStateException unreachable = assertThrows(IllegalStateException.class, () -> HostedEntityServlet.configureAuthority(params::get));
 
-        assertTrue(AuthoritySupport.registry() instanceof JdbcHostedEntityRegistry);
+        assertTrue(unreachable.getCause() instanceof java.sql.SQLException, String.valueOf(unreachable.getCause()));
+        assertFalse(AuthoritySupport.isHostingConfigured());
+        assertTrue(AuthoritySupport.registryIfConfigured().isEmpty());
+    }
+
+    /**
+     * PR-2 (Phase 3 plan, decisions 9 and 15): under production an authority with no store - its hosted entities and Trust
+     * Mark grants in memory - refuses HOSTING unless the in-memory-state risk is accepted, and nothing is published. The
+     * accepted risk's pass is ProfileRefusals.requireRisk's, tested in platform.
+     */
+    @Test
+    void underProductionAnAuthorityInMemoryRefusesHosting() {
+        ProfileRefusals.resetForTests();
+        ProfileRefusals.publish(new ProfileAudit.Result(DeploymentProfile.PRODUCTION, java.util.List.of(), java.util.List.of()));
+        Sources production = Sources.of(Map.of("OIDF_DEPLOYMENT_PROFILE", "production")::get, name -> null,
+                Map.of("authorityEntityId", AUTHORITY)::get);
+
+        com.pingidentity.ps.oidf.platform.settings.ProfileRefused refused = assertThrows(
+                com.pingidentity.ps.oidf.platform.settings.ProfileRefused.class, () -> HostedEntityServlet.configureAuthorityFrom(production));
+
+        assertTrue(refused.getMessage().contains("the hosted-entity registry and its Trust Mark grants are in memory"), refused.getMessage());
+        assertTrue(refused.getMessage().contains("in-memory-state"), refused.getMessage());
+        assertEquals(java.util.List.of(com.pingidentity.ps.oidf.platform.health.Startup.HOSTING), refused.violation().components());
+        assertFalse(AuthoritySupport.isHostingConfigured());
+        assertTrue(AuthoritySupport.registryIfConfigured().isEmpty());
+        assertFalse(TrustMarkSupport.isConfigured());
+    }
+
+    /** The servlet's two OpenBao init-params, used together, name the vault; either alone leaves it to the environment. */
+    @Test
+    void theServletsOwnVaultIsUsedWhenBothInitParamsAreSet() {
+        assertTrue(HostedEntityServlet.configureAuthorityFrom(developmentSources(Map.of("authorityEntityId", AUTHORITY, "jdbcUrl",
+                "jdbc:nowhere:authority", "openBaoUrl", "http://127.0.0.1:1", "openBaoToken", "token"))));
+
+        assertTrue(AuthoritySupport.isHostingConfigured());
+        assertTrue(AuthoritySupport.hostedEntitySigner() instanceof com.pingidentity.ps.oidf.authority.RegistryHostedEntitySigner);
     }
 
     @Test
-    void enrolmentNeedsTheAdminTokenAndTheCollectionRoot() throws Exception {
+    void enrolmentNeedsAnOperatorAndTheCollectionRoot() throws Exception {
         host(SIGNER);
 
-        Exchange refused = new Exchange("another-token", "POST", null, enrolment(""));
-        assertEquals("unauthorized", refused.json(401).get("error"));
-        verify(refused.response).setHeader("WWW-Authenticate", "Bearer");
-        assertEquals("unauthorized", new Exchange(null, "POST", null, enrolment("")).json(401).get("error"), "no token configured opens nothing");
+        Exchange refused = new Exchange(development(TOKEN), "POST", null, enrolment(""), "Bearer another-token", null);
+        verify(refused.response).setStatus(401);
+        verify(refused.response).addHeader(org.mockito.ArgumentMatchers.eq("WWW-Authenticate"),
+                org.mockito.ArgumentMatchers.startsWith("DPoP algs="));
+        verify(new Exchange(development(null), "POST", null, enrolment(""), "Bearer " + TOKEN, null).response).setStatus(503);
         assertEquals("not_found", new Exchange("POST", "/a1", enrolment("")).json(404).get("error"));
+        assertTrue(AuthoritySupport.registry().find(AUTHORITY + "/federation/agents/a1").isEmpty());
+    }
+
+    @Test
+    void aProductionOperatorEnrolsWithItsScopeAndIsTheActor() throws Exception {
+        host(SIGNER);
+        OperatorTestKit kit = new OperatorTestKit();
+        OperatorAuthenticator production = kit.authenticator(DeploymentProfile.PRODUCTION);
+
+        String reader = kit.token(OperatorScopes.ADMIN_READ);
+        verify(new Exchange(production, "POST", null, enrolment(""), "DPoP " + reader,
+                kit.proof(reader, "POST", "/federation/agents")).response).setStatus(403);
+        String unbound = kit.bearerToken(OperatorScopes.ADMIN_ENTITIES);
+        verify(new Exchange(production, "POST", null, enrolment(""), "Bearer " + unbound, null).response).setStatus(401);
+        verify(new Exchange(production.withStaticBearer(TOKEN), "POST", null, enrolment(""), "Bearer " + TOKEN, null).response)
+                .setStatus(503);
+
+        String token = kit.token(OperatorScopes.ADMIN_ENTITIES);
+        Map<String, Object> created = new Exchange(production, "POST", null, enrolment(""), "DPoP " + token,
+                kit.proof(token, "POST", "/federation/agents")).json(201);
+        String id = (String) created.get("entityId");
+        assertEquals(OperatorTestKit.CLIENT, AuthoritySupport.registry().auditTrail(id).get(0).actor());
+        assertEquals(OperatorTestKit.CLIENT, this.events.only(FederationEvents.HOSTED_ENTITY_ENROLLED).fields().get("actor"));
     }
 
     @Test
@@ -290,7 +385,7 @@ class HostedEntityServletEnrolTest {
         Exchange resolved = new Exchange("GET", "/a1/.well-known/openid-federation", null);
         verify(resolved.response).setStatus(200);
         verify(resolved.response).setContentType("application/entity-statement+jwt");
-        assertEquals(AUTHORITY + "/federation/agents/a1", com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(resolved.body.toString()).getSubject());
+        assertEquals(AUTHORITY + "/federation/agents/a1", com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(resolved.body.toString()).unverifiedSubject());
 
         assertEquals("not_found", new Exchange("GET", "/a1", null).json(404).get("error"));
         assertEquals("not_found", new Exchange("GET", "/a2/.well-known/openid-federation", null).json(404).get("error"));
@@ -340,8 +435,8 @@ class HostedEntityServletEnrolTest {
     void aTrustMarkStoreAlreadyChosenIsKeptAndAHalfConfiguredVaultIsTheEnvironments() {
         com.pingidentity.ps.oidf.trustmark.TrustMarkRegistry chosen = TrustMarkSupport.registry();
 
-        assertTrue(HostedEntityServlet.configureAuthority(Map.of("authorityEntityId", AUTHORITY, "jdbcUrl", "jdbc:nowhere:authority",
-                "openBaoUrl", "https://bao.example")::get));
+        assertTrue(HostedEntityServlet.configureAuthorityFrom(developmentSources(Map.of("authorityEntityId", AUTHORITY, "jdbcUrl",
+                "jdbc:nowhere:authority", "openBaoUrl", "https://bao.example"))));
 
         assertTrue(chosen == TrustMarkSupport.registry(), "the grants stay where they were first kept");
         assertTrue(AuthoritySupport.isHostingConfigured(), "a vault URL without its token leaves the signer to the environment");

@@ -13,10 +13,14 @@ import java.util.Map;
  * 1.0 evaluation API ({@code /access/v1/evaluation}). Both return the same parsed
  * {@link DecisionResponse}, so enforcement and statement application are dialect-independent.
  *
- * @param resourceOwner  the principal's {@code sub} (may be {@code null}); the attestation subject is
- *                       the delegated agent, never the principal
- * @param principalSource how that principal was established - {@code authenticated} (a server-side
- *                       authn hook), {@code client_asserted} (the caller said so), or {@code none}.
+ * @param resourceOwner  the principal {@link PrincipalResolver} resolved (may be {@code null}); the
+ *                       attestation subject is the delegated agent, never the principal
+ * @param principalSource how that principal was established, per flow: {@code authenticated} (the person
+ *                       PingFederate authenticated, directly or through the refreshed grant),
+ *                       {@code client} (the client itself, under client credentials),
+ *                       {@code identity_hint} (CIBA's hint, before anyone approved), {@code subject_token}
+ *                       (a token-exchange subject the token-endpoint filter verified),
+ *                       {@code client_asserted} (the caller said so; development only) or {@code none}.
  *                       Policy that treats those alike is trusting the caller; this is what lets it
  *                       require an authenticated principal for the operations that warrant one.
  */

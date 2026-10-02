@@ -6,13 +6,13 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>oidf-war</artifactId>
-    <version>0.4.0-SNAPSHOT</version>
+    <version>0.7.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>oidf-war</name>
     <description>Assembles the deployable oidf.war = the aggregate of the OIDF servlet modules
         (pf-integration: federation entity + §12 registration + OGNL hooks; attestation-issuer: the
-        /federation/attestation issuance servlet + challenge servlet), with their libraries bundled into
+        /federation/attestation issuance and challenge servlets; client-attestation: the AS's), with their libraries bundled into
         WEB-INF/lib. web.xml is metadata-complete=false so PingFederate scans the jars for @WebServlet
         endpoints. This is where the war lives so it can depend on every servlet module without a reactor
         cycle (attestation-issuer depends on pf-integration).</description>
@@ -28,13 +28,16 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.4.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.7.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -62,7 +65,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-assembly-plugin</artifactId>
-                <version>3.7.1</version>
+                <version>3.8.0</version>
                 <configuration>
                     <appendAssemblyId>false</appendAssemblyId>
                     <descriptors><descriptor>src/assembly/war.xml</descriptor></descriptors>

@@ -1,0 +1,76 @@
+{
+  "format": 1,
+  "component": "instance-registry",
+  "module": "plugins/instance-registry-datasource",
+  "package": "com.pingidentity.ps.oidf.registry",
+  "families": [],
+  "settings": [
+    {
+      "name": "JDBC URL",
+      "kind": "plugin-field",
+      "type": "secret",
+      "default": null,
+      "description": "Development only: the JDBC URL of the Identity Object Model database holding the agent instance registry, the same one device-enrolment's IDM_DATABASE_URL names, credentials included, used when no PingFederate data store is chosen; under the production profile the driver refuses it at configure and answers every lookup with the refusal, naming \"PingFederate data store\" to use instead (plan item PR-3) (plugin com.pingidentity.ps.oidf.registry.InstanceRegistryDataSource, shown as \"Agent Instance Registry\")",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Set under the production profile: every lookup fails, naming the field to use instead, and the issuance is refused. Wrong or unreachable: every lookup fails and the issuance is refused. Another database: every lookup resolves to an unknown instance"
+      },
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "User verification max age (seconds)",
+      "kind": "plugin-field",
+      "type": "seconds",
+      "min": -9223372036854775808,
+      "max": 9223372036854775807,
+      "default": 300,
+      "description": "How recent the owner's user verification must be for uv_fresh to be true; it must match the enrolment service's UV_MAX_AGE_SECONDS, or the two disagree about when an agent stops (plugin com.pingidentity.ps.oidf.registry.InstanceRegistryDataSource, shown as \"Agent Instance Registry\")",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Not a whole number: the driver configures nothing and every lookup fails, naming the field (before 0.6.0 it fell back to 300)"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "instance_id",
+      "kind": "plugin-field",
+      "type": "string",
+      "default": null,
+      "description": "The data source's filter field: an access token mapping supplies the attestation's agent_id here (instance_id=${agent_id}) (plugin com.pingidentity.ps.oidf.registry.InstanceRegistryDataSource, shown as \"Agent Instance Registry\")",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Mapped to anything but the agent_id: every lookup resolves to an unknown instance, and a criterion on instance_active refuses the token"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "PingFederate data store",
+      "kind": "plugin-field",
+      "type": "string",
+      "default": null,
+      "description": "The production way to the registry: a PingFederate JDBC data store on the Identity Object Model database (the same one device-enrolment's IDM_DATABASE_URL names), chosen from PingFederate's own list; its value is the data store's JNDI name, which PingFederate sets to the data store's id, and its connections come from PingFederate's pool with PingFederate's credentials. It wins over the JDBC URL (plugin com.pingidentity.ps.oidf.registry.InstanceRegistryDataSource, shown as \"Agent Instance Registry\")",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Unset with no JDBC URL: every lookup fails, naming it. A data store whose database is not PostgreSQL: refused under the production profile at the first lookup (INSTANCE_REGISTRY), a warning under development. Unreachable: every lookup fails and the issuance is refused"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

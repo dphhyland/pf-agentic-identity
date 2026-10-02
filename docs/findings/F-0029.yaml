@@ -17,3 +17,8 @@ notes: >
   they closed, a monolith jar that no longer existed, 13.0 everywhere. The mechanical checks that exist
   (coverage-report.py, build-showcase-docs.mjs, check-showcase-links.py, pf-version-check.py, and from 0.4.0
   doc-lint.py and findings.py) catch what a machine can; D-3 to D-8 generate the rest from the code.
+
+  Phase 3 (0.6.0, recorded 2026-10-01 by the release package): Phase 3 added operator pages that describe the code
+  as it is - docs/operator/components.md (S9A, S9B), deployment-profile.md (PR5), operator-authentication.md (S8A,
+  S8B), issued-details.md (S4D3), preflight.md (ST7) and the upgrade guide docs/operator/upgrading/0.5.0-to-0.6.0.md
+  (the release package). D-3 to D-8 remain Phase 7.

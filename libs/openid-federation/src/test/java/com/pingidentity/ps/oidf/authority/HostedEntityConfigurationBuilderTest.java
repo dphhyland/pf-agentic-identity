@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -40,17 +41,17 @@ class HostedEntityConfigurationBuilderTest {
 
             String compact = builder.buildEntityConfiguration(entity);
 
-            JwtClaims claims = com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(compact);
-            assertEquals(entityId, claims.getIssuer());
-            assertEquals(entityId, claims.getSubject());
-            assertTrue(claims.hasClaim("jwks"));
-            assertEquals(List.of(AUTHORITY), claims.getStringListClaimValue("authority_hints"));
+            UnverifiedClaims claims = com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(compact);
+            assertEquals(entityId, claims.unverifiedIssuer());
+            assertEquals(entityId, claims.unverifiedSubject());
+            assertTrue(claims.hasUnverifiedClaim("jwks"));
+            assertEquals(List.of(AUTHORITY), claims.unverifiedStringList("authority_hints"));
 
             // The published jwks is the key that must verify this exact JWT — the actual self-signed check.
             JsonWebSignature jws = new JsonWebSignature();
             jws.setCompactSerialization(compact);
             @SuppressWarnings("unchecked")
-            Map<String, Object> jwks = (Map<String, Object>) claims.getClaimValue("jwks");
+            Map<String, Object> jwks = (Map<String, Object>) claims.unverifiedClaim("jwks");
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> keys = (List<Map<String, Object>>) jwks.get("keys");
             jws.setKey(((PublicJsonWebKey) JsonWebKey.Factory.newJwk(keys.get(0))).getPublicKey());
@@ -159,13 +160,13 @@ class HostedEntityConfigurationBuilderTest {
             HostedEntityConfigurationBuilder builder = new HostedEntityConfigurationBuilder(new RegistryHostedEntitySigner(bao.url(), TOKEN),
                     AUTHORITY, id -> id.equals(entityId) ? marks : List.of());
 
-            JwtClaims carrying = com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(builder.buildEntityConfiguration(
+            UnverifiedClaims carrying = com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(builder.buildEntityConfiguration(
                     HostedEntity.hosted(entityId, FakeBaoServer.KEY_NAME, Map.of("oauth_client", Map.of()), null)));
-            JwtClaims without = com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(builder.buildEntityConfiguration(
+            UnverifiedClaims without = com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(builder.buildEntityConfiguration(
                     HostedEntity.hosted(AUTHORITY + "/agents/agent-2", FakeBaoServer.KEY_NAME, Map.of("oauth_client", Map.of()), null)));
 
-            assertEquals(marks, carrying.getClaimValue("trust_marks"));
-            assertTrue(!without.hasClaim("trust_marks"), "no empty trust_marks claim");
+            assertEquals(marks, carrying.unverifiedClaim("trust_marks"));
+            assertTrue(!without.hasUnverifiedClaim("trust_marks"), "no empty trust_marks claim");
         }
     }
 }

@@ -5,10 +5,14 @@ import com.pingidentity.ps.oidf.jose.HttpGetClient;
 import com.pingidentity.ps.oidf.jose.HttpPostClient;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
+import com.pingidentity.ps.oidf.jose.VerificationPolicy;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.jose.SigningKeyProvider;
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -64,6 +68,8 @@ public final class FederationService {
     // Refresher period — under the lifetime a verifier would accept a stale key for, so entries are
     // re-fetched while still fresh and request threads never see an empty cache after boot.
     private static final long REFRESH_INTERVAL_SECONDS = 240L;
+    /** The refresher's managed executor; its thread is {@code oidf-subordinate-refresh-1}. */
+    static final String SUBORDINATE_REFRESH = "subordinate-refresh";
     private static final int MINTED_MEMORY = 4096;
     private final FederationConfiguration configuration;
     private final SigningKeyProvider signingKeyProvider;
@@ -98,6 +104,8 @@ public final class FederationService {
         }
     });
     private final Clock clock;
+    /** The resolve endpoint's cap and cache; built from the settings on the first resolve request. */
+    private final java.util.concurrent.atomic.AtomicReference<ResolveGuard> resolveGuard = new java.util.concurrent.atomic.AtomicReference<>();
     private final ConcurrentHashMap<String, CachedSubordinateConfig> subordinateConfigCache = new ConcurrentHashMap<String, CachedSubordinateConfig>();
 
     public FederationService(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider) {
@@ -207,12 +215,37 @@ public final class FederationService {
         JwtClaims claims = this.baseClaims(oidcIssuer, oidcIssuer);
         claims.setClaim("jwks", this.buildInlineJwks());
         claims.setClaim("metadata", this.selfMetadata(oidcIssuer));
-        List<String> authorityHints = this.configuration.authorityHints();
-        if (!authorityHints.isEmpty() && !this.configuration.isTrustAnchor(oidcIssuer)) {
+        List<String> authorityHints = this.authorityHints(oidcIssuer);
+        if (!authorityHints.isEmpty()) {
             claims.setClaim("authority_hints", authorityHints);
         }
         this.addTrustMarkClaims(claims, oidcIssuer);
         return this.signClaims(claims, ENTITY_STATEMENT_TYP);
+    }
+
+    /**
+     * This entity's Immediate Superiors, for its Entity Configuration's {@code authority_hints} - OpenID Federation 1.0
+     * §3.1.2: "This Claim is REQUIRED in Entity Configurations of the Entities that have at least one Superior above them,
+     * such as Leaf and Intermediate Entities. Its value MUST contain the Entity Identifiers of its Immediate Superiors and
+     * MUST NOT be the empty array []. This Claim MUST NOT be present in Entity Configurations of Trust Anchors with no
+     * Superiors."
+     *
+     * <p>The configuration names this entity's superiors in its trust anchors ({@code OIDF_FEDERATION_TRUST_ANCHORS}).
+     * When this entity is one of them it is a Trust Anchor, and nothing in the configuration names a superior of it, so
+     * it has none: no hints. Otherwise its superiors are the anchors named, each once ({@link EntityId#same}). Empty means
+     * the claim is left out, never published as {@code []}.
+     */
+    List<String> authorityHints(String oidcIssuer) {
+        List<String> hints = new ArrayList<>();
+        for (String anchor : this.configuration.authorityHints()) {
+            if (EntityId.same(anchor, oidcIssuer)) {
+                return List.of();
+            }
+            if (hints.stream().noneMatch(h -> EntityId.same(h, anchor))) {
+                hints.add(anchor);
+            }
+        }
+        return hints;
     }
 
     /**
@@ -313,20 +346,37 @@ public final class FederationService {
             // §5.1.3: REQUIRED when Explicit Registration is supported, and only then.
             openidProvider.put("federation_registration_endpoint", fedBase + "/federation/register");
         }
-        openidProvider.put("token_endpoint_auth_methods_supported", attestationMetadata.tokenEndpointAuthMethodsSupported());
-        openidProvider.put("client_attestation_signing_alg_values_supported", attestationMetadata.clientAttestationSigningAlgValuesSupported());
-        openidProvider.put("client_attestation_pop_signing_alg_values_supported", attestationMetadata.clientAttestationPopSigningAlgValuesSupported());
+        List<String> authMethods = attestationMetadata.tokenEndpointAuthMethodsSupported();
+        if (!authMethods.isEmpty()) {
+            openidProvider.put("token_endpoint_auth_methods_supported", authMethods);
+        }
+        String challengeEndpoint = fedBase + AttestationMetadataConfig.CHALLENGE_PATH;
+        // The attestation members only while ATTESTATION_AUTH may verify an attestation (S9b: a disabled component
+        // advertises nothing), the same set extend() adds to oauth_authorization_server below (plan item S-4, F-0115).
+        boolean attestation = attestationMetadata.advertised();
+        if (attestation) {
+            openidProvider.put("client_attestation_signing_alg_values_supported", attestationMetadata.clientAttestationSigningAlgValuesSupported());
+            openidProvider.put("client_attestation_pop_signing_alg_values_supported", attestationMetadata.clientAttestationPopSigningAlgValuesSupported());
+        }
         openidProvider.put("dpop_signing_alg_values_supported", attestationMetadata.dpopSigningAlgValuesSupported());
         List<String> popMethods = attestationMetadata.clientAttestationPopMethodsSupported();
-        if (!popMethods.isEmpty()) {
+        if (attestation && !popMethods.isEmpty()) {
             // draft-10 §8: the array MUST NOT be empty when the parameter is present
             openidProvider.put("client_attestation_pop_methods_supported", popMethods);
         }
-        if (attestationMetadata.challengeEndpointEnabled()) {
-            openidProvider.put("challenge_endpoint", fedBase + "/federation/attestation-challenge");
+        if (attestation && attestationMetadata.challengeEndpointEnabled()) {
+            // The authorization server's challenge endpoint (ABCA-10 §6.1; client-attestation's
+            // ClientAttestationChallengeServlet). Never the attester's /federation/attestation/challenge: a challenge
+            // from there is refused at the token endpoint (CAS §4.1).
+            openidProvider.put("challenge_endpoint", challengeEndpoint);
         }
         metadata.put("openid_provider", openidProvider);
-        metadata.put("oauth_authorization_server", this.discovered("oauth_authorization_server", oidcIssuer));
+        // RFC 8414 metadata too, so ABCA-10 §6.1's MUST holds here as well: PingFederate's own document with the same
+        // attestation members added, PingFederate's members kept as they are (F-0115). A document whose
+        // token_endpoint_auth_methods_supported is not an array of strings is published as PingFederate gave it.
+        LinkedHashMap<String, Object> authorizationServer = this.discovered("oauth_authorization_server", oidcIssuer);
+        Map<String, Object> extended = attestationMetadata.extend(authorizationServer, challengeEndpoint);
+        metadata.put("oauth_authorization_server", extended != null ? extended : authorizationServer);
         String attesterJwks = this.configuration.attesterJwks();
         if (attesterJwks != null) {
             // Publish the co-hosted Client Attester's signing keys so a remote AS can trust
@@ -365,28 +415,18 @@ public final class FederationService {
         return this.subordinateStatement(sub, oidcIssuer);
     }
 
-    /** @deprecated the pre-§8.1 signature, which required {@code iss}; see {@link #fetchSubordinateStatement}. */
-    @Deprecated
-    public String fetchEntityStatement(String issuer, String subject, String oidcIssuer) throws JoseException {
-        return this.fetchSubordinateStatement(issuer, subject, oidcIssuer);
-    }
-
     /**
-     * The non-standard {@code /federation/entity} statement: this entity's self statement when
-     * {@code subject} is itself, otherwise the same Subordinate Statement the fetch endpoint issues.
-     * {@code requestedIssuer} is ignored - a statement signed with this entity's key names this entity as
-     * issuer, whatever the caller asked for.
+     * The non-standard {@code /federation/entity} statement: this entity's Entity Configuration when {@code subject} is
+     * itself - the same statement {@code /.well-known/openid-federation} serves, {@code authority_hints} included, so the
+     * two cannot disagree (plan item H-FED-8) - otherwise the same Subordinate Statement the fetch endpoint issues.
+     * {@code requestedIssuer} is ignored - a statement signed with this entity's key names this entity as issuer, whatever
+     * the caller asked for.
      */
     public String createEntityStatement(String subject, String requestedIssuer, String oidcIssuer) throws JoseException {
         if (!EntityId.same(subject, oidcIssuer)) {
             return this.subordinateStatement(subject, oidcIssuer);
         }
-        JwtClaims claims = this.baseClaims(oidcIssuer, subject);
-        claims.setClaim("jwks", this.buildInlineJwks());
-        claims.setClaim("metadata", this.selfMetadata(oidcIssuer));
-        claims.setClaim("authority_hints", this.configuration.authorityHints());
-        this.addTrustMarkClaims(claims, oidcIssuer);
-        return this.signClaims(claims, ENTITY_STATEMENT_TYP);
+        return this.createEntityConfigurationJwt(oidcIssuer);
     }
 
     private String subordinateStatement(String subject, String oidcIssuer) throws JoseException {
@@ -421,13 +461,6 @@ public final class FederationService {
     }
 
     // ---- list (§8.2) ---------------------------------------------------------------------------------
-
-    /** @deprecated a single {@code entity_type}; see {@link #listSubordinates(ListRequest)}. */
-    @Deprecated
-    public List<String> listSubordinates(String entityType) {
-        return this.listSubordinates(new ListRequest(entityType == null || entityType.isBlank() ? List.of() : List.of(entityType),
-                null, null, null));
-    }
 
     /**
      * The list endpoint (§8.2): the Immediate Subordinates, filtered.
@@ -586,18 +619,19 @@ public final class FederationService {
             throw new FederationException(FederationError.INVALID_REQUEST, "trust_mark is required");
         }
         Map<String, Object> header;
-        JwtClaims mark;
+        UnverifiedClaims mark;
         try {
             header = JwtCodec.getJwtHeaders(trustMark);
             mark = JwtCodec.parseUnverifiedClaims(trustMark);
         } catch (Exception e) {
             throw new FederationException(FederationError.INVALID_REQUEST, "trust_mark is not a signed JWT");
         }
-        if (!(mark.getClaimValue("iss") instanceof String iss) || !EntityId.same(iss, oidcIssuer)) {
+        if (!EntityId.same(mark.unverifiedIssuer(), oidcIssuer)) {
             throw new FederationException(FederationError.NOT_FOUND, "this entity did not issue that Trust Mark");
         }
-        String status = !TrustMarkValidator.TRUST_MARK_TYP.equals(header.get("typ")) || !this.signedWithOwnKey(trustMark) ? "invalid"
-                : this.trustMarkIssuing.status(mark).orElseThrow(() ->
+        JwtClaims verified = TrustMarkValidator.TRUST_MARK_TYP.equals(header.get("typ")) ? this.signedWithOwnKey(trustMark) : null;
+        String status = verified == null ? "invalid"
+                : this.trustMarkIssuing.status(verified).orElseThrow(() ->
                         new FederationException(FederationError.NOT_FOUND, "this entity knows nothing of that Trust Mark"));
         JwtClaims claims = new JwtClaims();
         claims.setIssuer(oidcIssuer);
@@ -607,12 +641,12 @@ public final class FederationService {
         return this.signClaims(claims, TrustMarkValidator.STATUS_RESPONSE_TYP);
     }
 
-    private boolean signedWithOwnKey(String jwt) throws JoseException {
+    /** The mark's claims when this entity's own key signed it, else null. */
+    private JwtClaims signedWithOwnKey(String jwt) throws JoseException {
         try {
-            JwtCodec.verifySignature(jwt, Jwks.parseFederationKeySet(this.buildInlineJwks()), Set.of(this.configuration.signingAlgorithm()));
-            return true;
+            return JwtCodec.verifySignature(jwt, Jwks.parseFederationKeySet(this.buildInlineJwks()), Set.of(this.configuration.signingAlgorithm()));
         } catch (JwtVerificationException e) {
-            return false;
+            return null;
         }
     }
 
@@ -709,6 +743,54 @@ public final class FederationService {
      * values"). With {@code client} null, as for an unauthenticated request, it carries no {@code aud}.
      */
     public String resolve(ResolveRequest request, String oidcIssuer, String client) throws JoseException {
+        return this.signClaims(this.resolved(request, oidcIssuer, client).claims(), RESOLVE_RESPONSE_TYP);
+    }
+
+    /**
+     * {@link #resolve(ResolveRequest, String, String)} for a request from {@code callerAddress}, as the resolve endpoint
+     * receives it: counted against the caller's minute and answered from the responses kept, when it can be
+     * ({@link ResolveGuard}, plan item H-FED-9).
+     *
+     * @throws ResolveGuard.Limited when the caller has asked about as many distinct subjects this minute as it may
+     */
+    public String resolve(ResolveRequest request, String oidcIssuer, String client, String callerAddress) throws JoseException {
+        if (request.subject() == null || request.subject().isBlank()) {
+            // Refused before it is counted: a request without a subject costs nothing.
+            throw new FederationException(FederationError.INVALID_REQUEST, "sub is required");
+        }
+        ResolveGuard guard = this.resolveGuard();
+        guard.admit(callerAddress, request.subject());
+        String kept = guard.kept(request, oidcIssuer, client);
+        if (kept != null) {
+            return kept;
+        }
+        Resolved resolved = this.resolved(request, oidcIssuer, client);
+        String jwt = this.signClaims(resolved.claims(), RESOLVE_RESPONSE_TYP);
+        guard.keep(request, oidcIssuer, client, jwt, resolved.exp());
+        return jwt;
+    }
+
+    /** The resolve endpoint's cap and cache, read from the settings on first use. */
+    ResolveGuard resolveGuard() {
+        ResolveGuard local = this.resolveGuard.get();
+        if (local == null) {
+            // Two first requests may both read the settings; one guard wins, and both use it.
+            this.resolveGuard.compareAndSet(null, ResolveGuard.fromProcess(this.clock));
+            local = this.resolveGuard.get();
+        }
+        return local;
+    }
+
+    /** Test seam: a guard of the test's own. */
+    void resolveGuard(ResolveGuard guard) {
+        this.resolveGuard.set(guard);
+    }
+
+    /** A resolve response's claims, and the {@code exp} among them. */
+    private record Resolved(JwtClaims claims, long exp) {
+    }
+
+    private Resolved resolved(ResolveRequest request, String oidcIssuer, String client) {
         String subject = request.subject();
         if (subject == null || subject.isBlank()) {
             throw new FederationException(FederationError.INVALID_REQUEST, "sub is required");
@@ -744,7 +826,8 @@ public final class FederationService {
         claims.setIssuedAt(NumericDate.fromSeconds(this.clock.instant().getEpochSecond()));
         // §8.3.2: "the minimum of the exp value of the Trust Chain ..., as well as any Trust Mark included in the response".
         long marksExpire = marks.earliestExpiry();
-        claims.setExpirationTime(NumericDate.fromSeconds(marksExpire < 0 ? result.expEpochSeconds() : Math.min(result.expEpochSeconds(), marksExpire)));
+        long exp = marksExpire < 0 ? result.expEpochSeconds() : Math.min(result.expEpochSeconds(), marksExpire);
+        claims.setExpirationTime(NumericDate.fromSeconds(exp));
         if (client != null) {
             claims.setAudience(client);
         }
@@ -756,7 +839,7 @@ public final class FederationService {
         LOGGER.info("Resolved " + subject + " to trust anchor " + result.trustAnchorIssuer() + " (" + result.trustChain().size()
                 + " statements, " + result.fetchesUsed() + " fetches, " + marks.verified().size() + " of "
                 + (marks.verified().size() + marks.rejected().size()) + " Trust Marks verified)");
-        return this.signClaims(claims, RESOLVE_RESPONSE_TYP);
+        return new Resolved(claims, exp);
     }
 
     private boolean isKnown(String subject, String oidcIssuer) {
@@ -804,32 +887,29 @@ public final class FederationService {
      * stalled 15s+, which pushed the whole exchange past the calling agent platform's hard 30s tool timeout.
      * The refresher re-fetches every {@code REFRESH_INTERVAL_SECONDS} so {@link #fetchSubordinateJwks}
      * always finds a usable entry, and its serve-stale behaviour covers any window where refreshes fail.
+     * It runs on a managed executor ({@code oidf-subordinate-refresh-1}): the first round at once, each later one
+     * {@code REFRESH_INTERVAL_SECONDS} after the last ended. One runs in the JVM, so a second call - a servlet
+     * initialised twice, or another loader's copy - starts nothing; the lifecycle's shutdown stops it, and a round
+     * interrupted by that stops at the next subordinate.
      */
     public void prewarmSubordinatesAsync() {
         List<String> subs = this.configuration.subordinates();
         if (this.subordinateFetcher == null || subs.isEmpty()) {
             return;
         }
-        Thread warmer = new Thread(() -> {
-            while (true) {
-                for (String subject : subs) {
-                    try {
-                        this.refreshSubordinateJwks(subject);
-                        LOGGER.info("subordinate-refresh: cached entity configuration of " + subject);
-                    } catch (Exception e) {
-                        LOGGER.info("subordinate-refresh: " + subject + " not reachable (will retry; serving stale if cached): " + e.getMessage());
-                    }
+        ManagedExecutors.every(SUBORDINATE_REFRESH, Duration.ZERO, Duration.ofSeconds(REFRESH_INTERVAL_SECONDS), () -> {
+            for (String subject : subs) {
+                if (Thread.currentThread().isInterrupted()) {
+                    return; // shutting down: the rest of this round is not worth a line each
                 }
                 try {
-                    Thread.sleep(REFRESH_INTERVAL_SECONDS * 1000L);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    return;
+                    this.refreshSubordinateJwks(subject);
+                    LOGGER.info("subordinate-refresh: cached entity configuration of " + subject);
+                } catch (Exception e) {
+                    LOGGER.info("subordinate-refresh: " + subject + " not reachable (will retry; serving stale if cached): " + e.getMessage());
                 }
             }
-        }, "oidf-subordinate-refresh");
-        warmer.setDaemon(true);
-        warmer.start();
+        });
     }
 
     private Map<String, Object> fetchSubordinateJwks(String subject) {
@@ -857,6 +937,15 @@ public final class FederationService {
         }
     }
 
+    /** A subordinate's Entity Configuration, verified under a key in its own {@code jwks} (§3.2), or an IllegalStateException. */
+    private static JwtClaims verifiedSelfSigned(String body, Map<String, Object> jwks, String issuer) {
+        try {
+            return JwtCodec.verifyAgainstInlineJwks(body, jwks, issuer, Set.of(), VerificationPolicy.entityStatement());
+        } catch (JwtVerificationException e) {
+            throw new IllegalStateException("Entity configuration of " + issuer + " does not verify under its own jwks (" + e.code() + ")");
+        }
+    }
+
     /**
      * Live-fetch {@code subject}'s entity configuration and cache its jwks, Entity Types and role. Only called
      * with a fetcher configured (both callers check).
@@ -864,15 +953,21 @@ public final class FederationService {
     private Map<String, Object> refreshSubordinateJwks(String subject) {
         try {
             String body = this.subordinateFetcher.get(EntityId.wellKnownUrl(subject), ENTITY_STATEMENT_ACCEPT);
-            JwtClaims selfConfig = JwtCodec.parseUnverifiedClaims(body);
-            if (!EntityId.same(subject, selfConfig.getIssuer()) || !EntityId.same(subject, selfConfig.getSubject())) {
-                throw new IllegalStateException("Entity configuration of " + subject + " is not self-signed (iss=" + selfConfig.getIssuer() + ", sub=" + selfConfig.getSubject() + ")");
+            UnverifiedClaims unverified = JwtCodec.parseUnverifiedClaims(body);
+            if (!EntityId.same(subject, unverified.unverifiedIssuer()) || !EntityId.same(subject, unverified.unverifiedSubject())) {
+                throw new IllegalStateException("Entity configuration of " + subject + " is not self-signed (iss=" + unverified.unverifiedIssuer() + ", sub=" + unverified.unverifiedSubject() + ")");
             }
-            @SuppressWarnings("unchecked")
-            Map<String, Object> jwks = (Map<String, Object>) selfConfig.getClaimValue("jwks");
-            if (jwks == null || jwks.isEmpty()) {
+            Map<String, Object> unverifiedJwks = unverified.unverifiedMap("jwks");
+            if (unverifiedJwks.isEmpty()) {
                 throw new IllegalStateException("Entity configuration of " + subject + " contains no jwks");
             }
+            // The keys this entity asserts for its subordinate in a signed statement: only once the configuration they
+            // come from verifies under one of them (OpenID Federation 1.0 §3.2, the Entity Statement rules), never as fetched.
+            // That proves the signer holds a key it lists, not that the keys are the subordinate's: whoever answers at the
+            // subordinate's URL signs with the keys it lists. Pinning them is F-0012.
+            JwtClaims selfConfig = verifiedSelfSigned(body, unverifiedJwks, unverified.unverifiedIssuer());
+            @SuppressWarnings("unchecked")
+            Map<String, Object> jwks = (Map<String, Object>) selfConfig.getClaimValue("jwks");
             Map<String, Object> metadata = com.pingidentity.ps.oidf.jose.Claims.optionalMap(selfConfig, "metadata");
             boolean intermediate = com.pingidentity.ps.oidf.jose.Claims.optionalNestedMap(metadata, "federation_entity")
                     .get("federation_fetch_endpoint") instanceof String;
@@ -883,6 +978,11 @@ public final class FederationService {
             throw e;
         }
         catch (Exception e) {
+            if (e instanceof InterruptedException) {
+                // HttpClient.send clears the flag when it throws this; set it again so the refresher's loop sees
+                // its shutdown and a request thread keeps its interrupt.
+                Thread.currentThread().interrupt();
+            }
             throw new IllegalStateException("Failed to fetch entity configuration of subordinate " + subject, e);
         }
     }

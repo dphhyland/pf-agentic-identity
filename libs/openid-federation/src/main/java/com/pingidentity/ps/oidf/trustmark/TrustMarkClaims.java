@@ -54,7 +54,7 @@ public final class TrustMarkClaims {
     private static boolean isMarkOfType(String jwt, String type) {
         try {
             return TrustMarkValidator.TRUST_MARK_TYP.equals(JwtCodec.getJwtHeaders(jwt).get("typ"))
-                    && type.equals(JwtCodec.parseUnverifiedClaims(jwt).getClaimValue("trust_mark_type"));
+                    && type.equals(JwtCodec.parseUnverifiedClaims(jwt).unverifiedClaim("trust_mark_type"));
         } catch (Exception e) {
             return false;
         }

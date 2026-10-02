@@ -143,7 +143,9 @@ class JwtCodecPolicyTest {
         JwtVerificationException e = assertThrows(JwtVerificationException.class,
                 () -> JwtCodec.verifyAgainstKeys(jwt, List.of(hmac), ISSUER, Set.of(), ENTITY));
 
-        assertEquals(JwtVerificationException.Reason.KEY, e.reason());
+        // Since HJOSE the MAC algorithm is refused before any key is chosen; JwtCodecAlgorithmTest has a token with an
+        // asymmetric alg whose kid names the symmetric key, which is still a KEY refusal.
+        assertEquals(JwtVerificationException.Reason.ALGORITHM, e.reason());
     }
 
     @Test
@@ -287,7 +289,7 @@ class JwtCodecPolicyTest {
         String jwt = statement(signer, "k1", "entity-statement+jwt", NOW - 10, NOW + 3600);
 
         JwtVerificationException e = assertThrows(JwtVerificationException.class,
-                () -> JwtCodec.verifyAgainstInlineJwks(jwt, jwks(other), ISSUER, Set.of()));
+                () -> JwtCodec.verifyAgainstInlineJwks(jwt, jwks(other), ISSUER, Set.of(), VerificationPolicy.legacy()));
 
         assertNoTokenIn(e, jwt);
         assertEquals("signature", e.code());
@@ -302,7 +304,7 @@ class JwtCodecPolicyTest {
         String jwt = TestJwts.sign(signer, "ES256", null, claims);
 
         JwtVerificationException e = assertThrows(JwtVerificationException.class,
-                () -> JwtCodec.verifyAgainstInlineJwks(jwt, jwks(signer), "https://someone-else.example", Set.of()));
+                () -> JwtCodec.verifyAgainstInlineJwks(jwt, jwks(signer), "https://someone-else.example", Set.of(), VerificationPolicy.legacy()));
 
         assertEquals(JwtVerificationException.Reason.ISSUER, e.reason());
         assertFalse(e.getMessage().contains("do-not-log-me"), e.getMessage());

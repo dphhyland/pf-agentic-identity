@@ -3,14 +3,16 @@
  */
 package com.pingidentity.ps.oidf.clientattestation;
 
+import java.time.Clock;
 import java.util.LinkedHashSet;
+import java.util.Objects;
 import java.util.Set;
 
 /**
  * Immutable verification policy for {@link ClientAttestationVerifier}: which signing algorithms are
- * accepted for the attestation, PoP and DPoP JWTs; the clock-skew and freshness windows; the expected
- * PoP audiences and DPoP {@code htm}/{@code htu}; and whether a server-issued challenge is mandatory.
- * Built via {@link #builder()}.
+ * accepted for the attestation, PoP and DPoP JWTs; the clock-skew and freshness windows; the one PoP
+ * audience this server answers to and the DPoP {@code htm}/{@code htu}; and whether a server-issued
+ * challenge is mandatory. Built via {@link #builder()}.
  */
 public final class ClientAttestationConfig {
     /** Asymmetric signature algorithms accepted by default (no {@code none}, no MACs). */
@@ -29,12 +31,13 @@ public final class ClientAttestationConfig {
     private final int allowedClockSkewSeconds;
     private final long popMaxAgeSeconds;
     private final long dpopMaxAgeSeconds;
-    private final Set<String> acceptedAudiences;
+    private final String expectedAudience;
     private final String expectedHtu;
     private final String expectedHtm;
     private final boolean challengeRequired;
     private final Set<String> requiredDisclosedClaims;
     private final long maxAttestationLifetimeSeconds;
+    private final Clock clock;
 
     private ClientAttestationConfig(Builder b) {
         this.attestationAlgorithms = Set.copyOf(b.attestationAlgorithms);
@@ -43,12 +46,13 @@ public final class ClientAttestationConfig {
         this.allowedClockSkewSeconds = b.allowedClockSkewSeconds;
         this.popMaxAgeSeconds = b.popMaxAgeSeconds;
         this.dpopMaxAgeSeconds = b.dpopMaxAgeSeconds;
-        this.acceptedAudiences = Set.copyOf(b.acceptedAudiences);
+        this.expectedAudience = b.expectedAudience;
         this.expectedHtu = b.expectedHtu;
         this.expectedHtm = b.expectedHtm;
         this.challengeRequired = b.challengeRequired;
         this.requiredDisclosedClaims = Set.copyOf(b.requiredDisclosedClaims);
         this.maxAttestationLifetimeSeconds = b.maxAttestationLifetimeSeconds;
+        this.clock = b.clock;
     }
 
     public static Builder builder() {
@@ -71,18 +75,51 @@ public final class ClientAttestationConfig {
         return this.allowedClockSkewSeconds;
     }
 
+    /**
+     * How old a PoP JWT's {@code iat} may be, in seconds, beyond the clock skew. Always positive: the PoP is
+     * refused once it is older, and its {@code jti} is remembered until then (plan item S4c).
+     */
     public long popMaxAgeSeconds() {
         return this.popMaxAgeSeconds;
     }
 
+    /** As {@link #popMaxAgeSeconds()}, for a DPoP proof in combined mode. Always positive. */
     public long dpopMaxAgeSeconds() {
         return this.dpopMaxAgeSeconds;
     }
 
-    public Set<String> acceptedAudiences() {
-        return this.acceptedAudiences;
+    /**
+     * The clock proofs are judged by: their age, and the time until which their {@code jti} is remembered. The
+     * system's UTC clock unless a test gives another.
+     */
+    public Clock clock() {
+        return this.clock;
     }
 
+    /**
+     * The identifier of the server doing the verifying, which a Client Attestation PoP JWT must carry as its
+     * only {@code aud}: an authorization server's RFC 8414 issuer identifier, or a resource server's RFC 9728
+     * resource identifier. draft-ietf-oauth-attestation-based-client-auth-10 §5.1: "When the JWT is presented
+     * to an Authorization Server, the [RFC8414] issuer identifier URL of the Authorization Server MUST be
+     * used. [...] A Client Attestation PoP JWT is intended for a single audience, Clients MUST generate JWTs
+     * for each target." One value, not a set: a server that also accepted the request URL, which a servlet
+     * container rebuilds from the {@code Host} header, would accept a PoP minted for another server whose
+     * endpoint shares this one's path, sent with a {@code Host} header naming that server. {@code null} when
+     * unset, and then PoP mode is refused as a misconfiguration rather than checked against nothing.
+     */
+    public String expectedAudience() {
+        return this.expectedAudience;
+    }
+
+    /**
+     * The URL of the endpoint the proof is presented to, which a DPoP proof's {@code htu} must name (RFC 9449
+     * §4.3, item 9). It comes from this server's configuration - for PingFederate, the endpoint URL it
+     * advertises for its issuer - and is not rebuilt from the request's {@code Host} header, {@code X-Forwarded-*}
+     * or the request URL a servlet container derives from them: those are the caller's to write, and a proof
+     * minted for another server would otherwise pass with a {@code Host} header naming that server. PingFederate
+     * itself still consults the request when it picks its issuer: it chooses among the virtual host names and
+     * issuers it has configured by the request's host, and takes the port from the request.
+     */
     public String expectedHtu() {
         return this.expectedHtu;
     }
@@ -125,7 +162,8 @@ public final class ClientAttestationConfig {
         private int allowedClockSkewSeconds = DEFAULT_CLOCK_SKEW_SECONDS;
         private long popMaxAgeSeconds = DEFAULT_POP_MAX_AGE_SECONDS;
         private long dpopMaxAgeSeconds = DEFAULT_DPOP_MAX_AGE_SECONDS;
-        private Set<String> acceptedAudiences = new LinkedHashSet<>();
+        private Clock clock = Clock.systemUTC();
+        private String expectedAudience;
         private String expectedHtu;
         private String expectedHtm = DEFAULT_HTTP_METHOD;
         private boolean challengeRequired;
@@ -161,30 +199,52 @@ public final class ClientAttestationConfig {
             return this;
         }
 
+        /**
+         * Sets how old a PoP may be. Before S4c a value of {@code 0} or less switched the age check off, and the
+         * replay store then forgot the {@code jti} after the clock skew alone, so the same PoP authenticated again
+         * a minute later; it is refused now.
+         *
+         * @throws IllegalArgumentException if {@code seconds} is {@code 0} or less
+         */
         public Builder popMaxAgeSeconds(long seconds) {
-            this.popMaxAgeSeconds = seconds;
+            this.popMaxAgeSeconds = positiveAge("popMaxAgeSeconds", seconds);
             return this;
         }
 
+        /**
+         * Sets how old a DPoP proof may be; as {@link #popMaxAgeSeconds(long)}.
+         *
+         * @throws IllegalArgumentException if {@code seconds} is {@code 0} or less
+         */
         public Builder dpopMaxAgeSeconds(long seconds) {
-            this.dpopMaxAgeSeconds = seconds;
+            this.dpopMaxAgeSeconds = positiveAge("dpopMaxAgeSeconds", seconds);
             return this;
         }
 
-        public Builder acceptedAudiences(Set<String> audiences) {
-            if (audiences != null) {
-                this.acceptedAudiences = new LinkedHashSet<>(audiences);
+        private static long positiveAge(String name, long seconds) {
+            if (seconds <= 0L) {
+                throw new IllegalArgumentException(name + " must be positive: a proof with no age limit cannot be "
+                        + "held to one replay window, got " + seconds);
             }
+            return seconds;
+        }
+
+        /** Sets the clock proofs are judged by (see {@link ClientAttestationConfig#clock()}). */
+        public Builder clock(Clock clock) {
+            this.clock = Objects.requireNonNull(clock, "clock");
             return this;
         }
 
-        public Builder addAcceptedAudience(String audience) {
-            if (audience != null && !audience.isBlank()) {
-                this.acceptedAudiences.add(audience);
-            }
+        /**
+         * Sets the one PoP audience this server answers to (see {@link ClientAttestationConfig#expectedAudience()});
+         * a blank value is treated as unset. This replaced a set of accepted audiences in 0.4.0.
+         */
+        public Builder expectedAudience(String audience) {
+            this.expectedAudience = audience == null || audience.isBlank() ? null : audience;
             return this;
         }
 
+        /** Sets the endpoint URL a DPoP proof's {@code htu} must name (see {@link ClientAttestationConfig#expectedHtu()}). */
         public Builder expectedHtu(String htu) {
             this.expectedHtu = htu;
             return this;

@@ -1,0 +1,19 @@
+id: U-0379
+title: That an Entra managed-identity token lives at most 95 minutes from its iat, the 5700 s azure-mi-token default
+area: attestation-issuer
+source: design
+status: open
+plan_items: [H-ATT-1]
+prs: [83]
+recorded_in: servlets/attestation-issuer/README.md, The cloud types (azure-mi-token)
+verify_by: >
+  On an Azure VM or App Service with a managed identity, ask IMDS for tokens for the attester's resource over a day
+  and record each token's exp - iat; confirm none is above 5700 s.
+verification: ''
+notes: >
+  Microsoft's access tokens page (read 2026-09-30) says the platform "assigns a random value ranging between 60-90
+  minutes" as the default lifetime; the IMDS sample response on How to use managed identities on a VM to acquire an
+  access token (read 2026-09-30) has not_before 3900 s before expires_on with expires_in 3599, which reads as a token
+  dated five minutes back. The 5700 s default (90 minutes and five) rests on those two texts, not on a real token.
+  Were a managed-identity token longer-lived, it would be refused (check="lifetime"), which fails closed; the
+  setting raises the cap.

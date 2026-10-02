@@ -7,11 +7,11 @@ import com.pingidentity.ps.oidf.federation.TrustChainValidationException.Kind;
 import com.pingidentity.ps.oidf.federation.event.LogSafe;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.jose4j.jwt.JwtClaims;
 
 /**
  * The steps of OpenID Federation 1.0 §3.2 that look at one statement's header and claims: required claims,
@@ -52,13 +52,13 @@ final class EntityStatementChecks {
      *                             {@code peer_trust_chain} headers; {@code null} otherwise
      * @throws TrustChainValidationException at the first step that fails
      */
-    static void check(Map<String, Object> header, JwtClaims claims, String registrationAudience) {
+    static void check(Map<String, Object> header, UnverifiedClaims claims, String registrationAudience) {
         check(header, claims, registrationAudience, SUPPORTED_CRITICAL_CLAIMS);
     }
 
-    /** As {@link #check(Map, JwtClaims, String)}, with the extension claims this caller understands. */
-    static void check(Map<String, Object> header, JwtClaims claims, String registrationAudience, Set<String> understood) {
-        Map<String, Object> raw = claims.getClaimsMap();
+    /** As {@link #check(Map, UnverifiedClaims, String)}, with the extension claims this caller understands. */
+    static void check(Map<String, Object> header, UnverifiedClaims claims, String registrationAudience, Set<String> understood) {
+        Map<String, Object> raw = claims.unverifiedClaimsMap();
         String iss = entityId(raw, "iss", null, null);
         String sub = entityId(raw, "sub", iss, null);
         boolean configuration = EntityId.same(iss, sub);
@@ -221,18 +221,14 @@ final class EntityStatementChecks {
         if (!(raw.get("metadata_policy") instanceof Map<?, ?> types)) {
             throw refuse(Kind.SYNTAX, iss, sub, "metadata_policy is not a JSON object (§6.1.2)");
         }
+        // Its shape only. The operators themselves are parsed once the statement's signature has verified, when the chain's
+        // policy is resolved (TrustChainValidator): nothing a statement says is interpreted before a key vouches for it, and
+        // a policy that does not parse fails the chain there, after the signature (plan item H-FED-8). §3.2 lets the steps
+        // run "in a different order, provided that the result - accepting or rejecting the Entity Statement - is the same".
         for (Map.Entry<?, ?> type : types.entrySet()) {
             if (!(type.getValue() instanceof Map<?, ?>)) {
                 throw refuse(Kind.SYNTAX, iss, sub, "metadata_policy for " + LogSafe.value(String.valueOf(type.getKey()))
                         + " is not a JSON object (§6.1.2)");
-            }
-            try {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> policy = (Map<String, Object>) type.getValue();
-                MetadataPolicy.parse(policy, null);
-            } catch (MetadataPolicy.PolicyException e) {
-                throw new TrustChainValidationException(Kind.POLICY, iss, sub, "metadata_policy for "
-                        + LogSafe.value(String.valueOf(type.getKey())) + " is not valid: " + e.getMessage(), e);
             }
         }
     }
@@ -251,7 +247,7 @@ final class EntityStatementChecks {
             }
             Object inner;
             try {
-                inner = JwtCodec.parseUnverifiedClaims(jwt).getClaimValue("trust_mark_type");
+                inner = JwtCodec.parseUnverifiedClaims(jwt).unverifiedClaim("trust_mark_type");
             } catch (Exception e) {
                 throw refuse(Kind.SYNTAX, iss, sub, "a trust_marks entry does not hold a Trust Mark JWT (§3.2)");
             }
@@ -346,9 +342,9 @@ final class EntityStatementChecks {
             if ("trust_chain".equals(name)) {
                 String first;
                 try {
-                    JwtClaims firstClaims = JwtCodec.parseUnverifiedClaims((String) chain.get(0));
-                    first = firstClaims.getSubject();
-                    if (!EntityId.same(firstClaims.getIssuer(), first)) {
+                    UnverifiedClaims firstClaims = JwtCodec.parseUnverifiedClaims((String) chain.get(0));
+                    first = firstClaims.unverifiedSubject();
+                    if (!EntityId.same(firstClaims.unverifiedIssuer(), first)) {
                         first = null;
                     }
                 } catch (Exception e) {

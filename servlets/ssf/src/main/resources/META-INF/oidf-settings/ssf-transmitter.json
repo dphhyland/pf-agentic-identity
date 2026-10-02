@@ -1,0 +1,2167 @@
+{
+  "format": 1,
+  "component": "ssf-transmitter",
+  "module": "servlets/ssf",
+  "package": "com.pingidentity.ps.oidf.ssf",
+  "families": [
+    "OIDF_SSF_"
+  ],
+  "settings": [
+    {
+      "name": "OIDF_SSF_ISSUER",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The transmitter's issuer: the SETs' iss and the base of every endpoint it advertises, so the external base receivers use; unset, SSF is off (unless OIDF_SSF_ENABLED=true) and PingFederate starts regardless",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Unset: SSF is off (DISABLED). With OIDF_SSF_ENABLED=true it is FAILED_CONFIG, with an ERROR naming this setting"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "issuer"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.issuer"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_ISSUER"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_SIGNING_ALGORITHM",
+      "kind": "env",
+      "type": "choice",
+      "default": "RS256",
+      "choices": [
+        "RS256",
+        "PS256"
+      ],
+      "description": "How the transmitter signs its SETs",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but RS256 or PS256 (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "signingAlgorithm"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.signingAlgorithm"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_SIGNING_ALGORITHM"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_DATA_STORE_ID",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "A PingFederate JDBC data store, on PostgreSQL, whose pool the SSF store uses; with neither this nor a JDBC URL the store is in memory, lost at a restart and seen by one node only, which production allows only with the in-memory-state risk accepted",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "An unknown id, or its database down: SSF is FAILED_DEPENDENCY, its endpoints answer 503, and the supervisor starts it again (a wait of up to 5 s doubling to 300 s), with an ERROR each time naming the cause. A database that is not PostgreSQL is refused in production (REFUSED)"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "dataStoreId"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.dataStoreId"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_DATA_STORE_ID"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_STORE_DIALECT",
+      "kind": "env",
+      "type": "choice",
+      "default": "tables",
+      "choices": [
+        "tables",
+        "ldm"
+      ],
+      "description": "The SSF store's layout: tables, its own three ssf_ tables, or ldm, the Identity Object Model's entry store; only read with a data store or a JDBC URL",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but tables or ldm (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "storeDialect"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.storeDialect"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_STORE_DIALECT"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_JDBC_URL",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "A direct database for the SSF store, for development; wins over the data store. jdbc:h2: and jdbc:hsqldb: are refused, and in production anything but jdbc:postgresql:",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "A database that cannot be opened: SSF is FAILED_DEPENDENCY, its endpoints answer 503, and the supervisor starts it again (a wait of up to 5 s doubling to 300 s), with an ERROR each time naming the cause; the ERROR shows <jdbcUrl> for the URL. A URL that is not jdbc:postgresql: is refused in production (REFUSED)"
+      },
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "jdbcUrl"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.jdbcUrl"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_JDBC_URL"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_JDBC_USERNAME",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The user for the direct database",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "As the JDBC URL, the store does not open: SSF is FAILED_DEPENDENCY, its endpoints answer 503, and the supervisor starts it again (a wait of up to 5 s doubling to 300 s), with an ERROR each time naming the cause"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "jdbcUsername"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.jdbcUsername"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_JDBC_USERNAME"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_JDBC_PASSWORD",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The password for the direct database",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "As the JDBC URL, the store does not open: SSF is FAILED_DEPENDENCY, its endpoints answer 503, and the supervisor starts it again (a wait of up to 5 s doubling to 300 s), with an ERROR each time naming the cause"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "jdbcPassword"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.jdbcPassword"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_JDBC_PASSWORD"
+        }
+      ],
+      "aliases": [],
+      "file": true
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_ENABLED",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether every SET is also published to Kafka; off, no Kafka class is loaded",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but true or false (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The development profile reads a legacy spelling (yes, no, 1, 0, on, off) as false, with a warning naming the strict spelling; production refuses it; true without the bootstrap servers is FAILED_CONFIG too"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaEnabled"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaEnabled"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_ENABLED"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_BOOTSTRAP_SERVERS",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The Kafka brokers, host:port comma-separated; required with Kafka on",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Unset with Kafka on: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaBootstrapServers"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaBootstrapServers"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_BOOTSTRAP_SERVERS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_TOPIC",
+      "kind": "env",
+      "type": "string",
+      "default": "sse-events",
+      "description": "The Kafka topic SETs are published to",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Passed to Kafka as it is"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaTopic"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaTopic"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_TOPIC"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SECURITY_PROTOCOL",
+      "kind": "env",
+      "type": "choice",
+      "default": "SSL",
+      "choices": [
+        "SSL",
+        "SASL_SSL",
+        "PLAINTEXT",
+        "SASL_PLAINTEXT"
+      ],
+      "description": "Kafka's security.protocol: SSL (the default), SASL_SSL, or PLAINTEXT and SASL_PLAINTEXT, which send SETs (and a SASL password) in clear and which the production profile refuses",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but SSL, SASL_SSL, PLAINTEXT or SASL_PLAINTEXT (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. PLAINTEXT or SASL_PLAINTEXT under the production profile: SSF is REFUSED, by the start-up sweep whether Kafka is on or not, and by KafkaSetPublisher again when Kafka starts, for a value that reached it another way (an init-param); under development each is used, with a WARN. A protocol the brokers do not speak: every publish fails and is logged, and the streams still get their SETs"
+      },
+      "profile": "forbidden-in-production",
+      "governed": [
+        "PLAINTEXT",
+        "SASL_PLAINTEXT"
+      ],
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSecurityProtocol"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSecurityProtocol"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SECURITY_PROTOCOL"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SASL_MECHANISM",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "Kafka's sasl.mechanism when the protocol is a SASL one; PLAIN when unset",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Passed to Kafka as it is"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSaslMechanism"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSaslMechanism"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SASL_MECHANISM"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SASL_USERNAME",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The SASL user for Kafka",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Passed to Kafka as it is"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSaslUsername"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSaslUsername"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SASL_USERNAME"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SASL_PASSWORD",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The SASL password for Kafka",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Passed to Kafka as it is"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSaslPassword"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSaslPassword"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SASL_PASSWORD"
+        }
+      ],
+      "aliases": [],
+      "file": true
+    },
+    {
+      "name": "OIDF_SSF_PUSH_RETRY_MAX_ATTEMPTS",
+      "kind": "env",
+      "type": "int",
+      "default": 5,
+      "min": -2147483648,
+      "max": 2147483647,
+      "description": "How many failed pushes of one SET a push stream takes before it is paused as dead-lettered; 1 or less pauses it on the first failed push",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "pushRetryMaxAttempts"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.pushRetryMaxAttempts"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_PUSH_RETRY_MAX_ATTEMPTS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_PUSH_RETRY_BACKOFF_SECONDS",
+      "kind": "env",
+      "type": "int",
+      "default": 5,
+      "min": -2147483648,
+      "max": 2147483647,
+      "description": "The background loop's tick, and the base of the push retry's doubling backoff; below 1 means 1",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "pushRetryBackoffSeconds"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.pushRetryBackoffSeconds"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_PUSH_RETRY_BACKOFF_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_POLL_MAX_EVENTS",
+      "kind": "env",
+      "type": "int",
+      "default": 100,
+      "min": -2147483648,
+      "max": 2147483647,
+      "description": "The most SETs a poll answers when the receiver asks for no number, and the most the receiver's own poll asks for (100 when this is 0 or less)",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "pollMaxEvents"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.pollMaxEvents"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_POLL_MAX_EVENTS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_SET_TTL_SECONDS",
+      "kind": "env",
+      "type": "long",
+      "default": 604800,
+      "min": -9223372036854775808,
+      "max": 9223372036854775807,
+      "description": "How long an undelivered SET is kept before it is deleted; 0 or less keeps it for ever",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "setTtlSeconds"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.setTtlSeconds"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_SET_TTL_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_SCOPE",
+      "kind": "env",
+      "type": "string",
+      "default": "ssf.manage",
+      "description": "The scope a bearer token needs for the stream management API and the poll",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "A scope no client holds: every call is a 403"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverScope"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverScope"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_SCOPE"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_UNOWNED_STREAM_OWNER",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The one client admitted to streams that record no owner; unset, nobody is",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "An id that names no client admits nobody"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "unownedStreamOwner"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.unownedStreamOwner"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_UNOWNED_STREAM_OWNER"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_PROVISIONER_SCOPE",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The scope that admits a client to the SCIM endpoint and events:emit; unset, nobody is. Never the receiver scope",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "The receiver scope: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming both settings"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "provisionerScope"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.provisionerScope"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_PROVISIONER_SCOPE"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_ALLOWED_AUDIENCES",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The aud values a client may name when it creates a stream besides its own id, as clientA=aud1,aud2;clientB=aud3",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "An entry that is not clientId=aud[,aud]: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "allowedAudiences"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.allowedAudiences"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_ALLOWED_AUDIENCES"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_INTROSPECTION_ENDPOINT",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "Where receivers' and provisioners' bearer tokens are introspected (RFC 7662), through platform's TokenIntrospector: 1 s to connect, 2.5 s in all, and no answer is a 503; <issuer>/as/introspect.oauth2 when unset. An active answer is also held to its exp and nbf, to aud containing OIDF_SSF_ISSUER when it carries an aud, and to carrying a client_id; a token bound to a key or certificate (cnf) is refused, because the SSF endpoints take bearer tokens only",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not an http or https URL with a host: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. A URL that is not an introspection endpoint: every authenticated call is a 503"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "introspectionEndpoint"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.introspectionEndpoint"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_INTROSPECTION_ENDPOINT"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_INTROSPECTION_CLIENT_ID",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The client that introspects receivers' tokens; unset, no receiver can authenticate",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Wrong: every authenticated call is a 503"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "introspectionClientId"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.introspectionClientId"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_INTROSPECTION_CLIENT_ID"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_INTROSPECTION_CLIENT_SECRET",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The introspecting client's secret",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Wrong: every authenticated call is a 503"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "introspectionClientSecret"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.introspectionClientSecret"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_INTROSPECTION_CLIENT_SECRET"
+        }
+      ],
+      "aliases": [],
+      "file": true
+    },
+    {
+      "name": "OIDF_SSF_INTROSPECTION_INSECURE_TLS",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Trusts any certificate on the introspection call, through platform's InsecureTls; the host name is still checked",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but true or false (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The development profile reads a legacy spelling (yes, no, 1, 0, on, off) as false, with a warning naming the strict spelling; production refuses it"
+      },
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "introspectionInsecureTls"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.introspectionInsecureTls"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_INTROSPECTION_INSECURE_TLS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_DEFAULT_EVENT_TYPES",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "The event types the transmitter advertises as events_supported, comma-separated; the five CAEP and RISC types it emits when unset",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Taken as written, split at commas and blanks; set to nothing but separators: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "defaultEventTypes"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.defaultEventTypes"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_DEFAULT_EVENT_TYPES"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_DEFAULT_SUBJECTS",
+      "kind": "env",
+      "type": "choice",
+      "default": "NONE",
+      "choices": [
+        "NONE",
+        "ALL"
+      ],
+      "description": "What a stream hears before any subject is added to it: NONE, or ALL, every subject (SSF 1.0 7.1.1)",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but ALL or NONE (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "defaultSubjects"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.defaultSubjects"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_DEFAULT_SUBJECTS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_VERIFICATION_EVENT_ENABLED",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether a receiver may ask for a verification event",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but true or false (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The development profile reads a legacy spelling (yes, no, 1, 0, on, off) as false, with a warning naming the strict spelling; production refuses it"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "verificationEventEnabled"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.verificationEventEnabled"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_VERIFICATION_EVENT_ENABLED"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_EXPECTED_ISSUER",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The transmitter whose SETs this PingFederate accepts; set, the receiver is on (unless OIDF_SSF_RECEIVER_ENABLED=false)",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Wrong: every SET is refused"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverExpectedIssuer"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverExpectedIssuer"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_EXPECTED_ISSUER"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_JWKS_URL",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "The JWKS inbound SETs are verified against; <receiverExpectedIssuer>/pf/JWKS when unset",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not an http or https URL with a host: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The wrong JWKS: every SET is refused"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverJwksUrl"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverJwksUrl"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_JWKS_URL"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_AUDIENCE",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The aud an inbound SET must carry; required with the receiver on",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Unset with the receiver on: SSF_RECEIVER is FAILED_CONFIG and its endpoint answers 503, with an ERROR naming it"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverAudience"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverAudience"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_AUDIENCE"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_ENDPOINT_AUTH_TOKEN",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The bearer token a transmitter must present to push to this receiver; required with the receiver on",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Unset with the receiver on: SSF_RECEIVER is FAILED_CONFIG and its endpoint answers 503, with an ERROR naming it"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverEndpointAuthToken"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverEndpointAuthToken"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_ENDPOINT_AUTH_TOKEN"
+        }
+      ],
+      "aliases": [],
+      "file": true,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_JWKS_CACHE_SECONDS",
+      "kind": "env",
+      "type": "long",
+      "default": 300,
+      "min": -9223372036854775808,
+      "max": 9223372036854775807,
+      "description": "How long the receiver keeps the transmitter's JWKS; 0 or less fetches it for each SET",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverJwksCacheSeconds"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverJwksCacheSeconds"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_JWKS_CACHE_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_INSECURE_TLS",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Trusts any certificate on the receiver's JWKS fetch, poll and stream calls, through platform's InsecureTls; the host name is still checked",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but true or false (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The development profile reads a legacy spelling (yes, no, 1, 0, on, off) as false, with a warning naming the strict spelling; production refuses it"
+      },
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverInsecureTls"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverInsecureTls"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_INSECURE_TLS"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_POLL_URL",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "A transmitter's poll endpoint to pull SETs from; unset, the receiver takes pushes only",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not an http or https URL with a host: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The wrong endpoint: each poll fails and is logged"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverPollUrl"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverPollUrl"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_POLL_URL"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_POLL_TOKEN",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "A static bearer token for the receiver's poll and stream calls, for development only: it never expires or rotates, and the receiver cannot fetch a new one when the transmitter refuses it; production uses a client (OIDF_SSF_RECEIVER_TOKEN_ENDPOINT)",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Wrong: each poll fails and is logged. Set beside OIDF_SSF_RECEIVER_TOKEN_ENDPOINT: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverPollToken"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverPollToken"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_POLL_TOKEN"
+        }
+      ],
+      "aliases": [],
+      "file": true,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_POLL_INTERVAL_SECONDS",
+      "kind": "env",
+      "type": "long",
+      "default": 10,
+      "min": -9223372036854775808,
+      "max": 9223372036854775807,
+      "description": "How often the receiver polls; below 1 means 1",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverPollIntervalSeconds"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverPollIntervalSeconds"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_POLL_INTERVAL_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_ACTIONS_ENABLED",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether an inbound revocation signal acts on PingFederate, revoking the subject's grants",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but true or false (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The development profile reads a legacy spelling (yes, no, 1, 0, on, off) as false, with a warning naming the strict spelling; production refuses it"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverActionsEnabled"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverActionsEnabled"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_ACTIONS_ENABLED"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_INSTANCE_REGISTRY",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether inbound CAEP signals act on the agent instance registry; needs the ldm store, and is refused with a warning on any other",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but true or false (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The development profile reads a legacy spelling (yes, no, 1, 0, on, off) as false, with a warning naming the strict spelling; production refuses it"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverInstanceRegistry"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverInstanceRegistry"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_INSTANCE_REGISTRY"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_AUDIT_EVENTS_ENABLED",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether PingFederate's security audit events are turned into SETs",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but true or false (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The development profile reads a legacy spelling (yes, no, 1, 0, on, off) as false, with a warning naming the strict spelling; production refuses it"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "auditEventsEnabled"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.auditEventsEnabled"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_AUDIT_EVENTS_ENABLED"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_AUDIT_EVENT_MAP",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "EVENT=action pairs, comma-separated, that extend or override which audit events become which SETs",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Taken as written"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "auditEventMap"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.auditEventMap"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_AUDIT_EVENT_MAP"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_TOKEN_ENDPOINT",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "The transmitter's authorization server token endpoint, where the receiver gets its poll and stream token by client credentials",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not an http or https URL with a host, or set without OIDF_SSF_RECEIVER_CLIENT_ID and one of its secret or key: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The wrong endpoint: each poll fails and is logged, and a managed stream leaves SSF_RECEIVER FAILED_DEPENDENCY. An http URL under the production profile refuses SSF_RECEIVER: the client's credentials and the token it gets would cross the network in clear (RFC 6749 §3.2: the authorization server \"MUST require the use of TLS\" at the token endpoint)"
+      },
+      "profile": "forbidden-in-production",
+      "governed": {
+        "schemes": [
+          "http"
+        ]
+      },
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverTokenEndpoint"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverTokenEndpoint"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_TOKEN_ENDPOINT"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_CLIENT_ID",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The receiver's client id at the transmitter's authorization server",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Set without OIDF_SSF_RECEIVER_TOKEN_ENDPOINT: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. Wrong: the token endpoint refuses it, each poll fails and is logged"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverClientId"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverClientId"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_CLIENT_ID"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_CLIENT_SECRET",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The receiver client's secret, sent as client_secret_basic; set this or OIDF_SSF_RECEIVER_CLIENT_KEY",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Set with OIDF_SSF_RECEIVER_CLIENT_KEY, or without OIDF_SSF_RECEIVER_TOKEN_ENDPOINT: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. Wrong: the token endpoint refuses it, each poll fails and is logged"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverClientSecret"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverClientSecret"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_CLIENT_SECRET"
+        }
+      ],
+      "aliases": [],
+      "file": true,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_CLIENT_KEY",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The receiver client's private key as a JWK, signing a private_key_jwt assertion; set this or OIDF_SSF_RECEIVER_CLIENT_SECRET",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a private RSA, EC or OKP JWK, set with OIDF_SSF_RECEIVER_CLIENT_SECRET, or without OIDF_SSF_RECEIVER_TOKEN_ENDPOINT: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. A key the server does not know: each poll fails and is logged"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverClientKey"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverClientKey"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_CLIENT_KEY"
+        }
+      ],
+      "aliases": [],
+      "file": true,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_CLIENT_SCOPE",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The scope the receiver asks for with its client credentials; unset, it asks for none and takes the server's default",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Wrong: the token lacks what the transmitter asks for, each poll fails and is logged"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverClientScope"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverClientScope"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_CLIENT_SCOPE"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "The transmitter's configuration metadata (its /.well-known/ssf-configuration); set, the receiver creates or finds its own stream there at start-up and keeps it in step with its settings",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not an http or https URL with a host, set with OIDF_SSF_RECEIVER_POLL_URL, or set with no token (OIDF_SSF_RECEIVER_TOKEN_ENDPOINT or, in development, OIDF_SSF_RECEIVER_POLL_TOKEN): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. A transmitter that cannot be reached or refuses: SSF_RECEIVER is FAILED_DEPENDENCY and retried; one whose issuer or stream audience is not the receiver's: SSF_RECEIVER is FAILED_CONFIG. An http URL under the production profile refuses SSF_RECEIVER: the receiver's token, and a push stream's endpoint token, would cross the network in clear; the transmitter's endpoints must then be https too (SSF 1.0 §7.1)"
+      },
+      "profile": "forbidden-in-production",
+      "governed": {
+        "schemes": [
+          "http"
+        ]
+      },
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverTransmitterConfigurationUrl"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverTransmitterConfigurationUrl"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "Where the transmitter should push to - this receiver's public /ssf/receiver/events URL - for the stream the receiver manages; unset, the stream is a poll stream",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not an http or https URL with a host, or set without OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The wrong URL: nothing arrives. An http URL under the production profile refuses SSF_RECEIVER: the transmitter would push SETs and present the receiver's endpoint token in clear"
+      },
+      "profile": "forbidden-in-production",
+      "governed": {
+        "schemes": [
+          "http"
+        ]
+      },
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverPushEndpointUrl"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverPushEndpointUrl"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_EVENTS_REQUESTED",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "The event types the receiver's managed stream asks for, comma-separated; unset, the five its handlers act on (CAEP session-revoked, credential-change and device-compliance-change, RISC account-disabled and account-credential-change-required)",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Set to nothing but separators: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. A type the transmitter does not deliver: it is left out of events_delivered and never arrives"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverEventsRequested"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverEventsRequested"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_EVENTS_REQUESTED"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_POLL_MAX_EVENTS_CAP",
+      "kind": "env",
+      "type": "int",
+      "default": 100,
+      "min": 1,
+      "max": 1000,
+      "description": "The most SETs one poll answer carries, whatever maxEvents the receiver asks for (RFC 8936 lets the transmitter return fewer, with moreAvailable)",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number from 1 to 1000: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "pollMaxEventsCap"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.pollMaxEventsCap"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_POLL_MAX_EVENTS_CAP"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_POLL_LONG_POLL_WAIT_SECONDS",
+      "kind": "env",
+      "type": "int",
+      "default": 10,
+      "min": 0,
+      "max": 30,
+      "description": "How long a poll with returnImmediately false (or absent, RFC 8936's default) is held when there is nothing to return; 0 answers at once",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number from 0 to 30: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "pollLongPollWaitSeconds"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.pollLongPollWaitSeconds"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_POLL_LONG_POLL_WAIT_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_SUBJECT_ISSUERS",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "The issuers, besides the transmitter's own and this PingFederate's SSF issuer, whose iss_sub subjects name a user here (an identity provider the transmitter speaks for), comma-separated; an iss_sub from any other issuer maps to no one",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Set to nothing but separators: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. An issuer missing: SETs about its users are logged as unmapped and acted on by no handler"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverSubjectIssuers"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.receiverSubjectIssuers"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_SUBJECT_ISSUERS"
+        }
+      ],
+      "aliases": [],
+      "file": false,
+      "components": [
+        "SSF_RECEIVER"
+      ]
+    },
+    {
+      "name": "OIDF_SSF_MAX_STREAMS_PER_CLIENT",
+      "kind": "env",
+      "type": "int",
+      "default": 10,
+      "min": 1,
+      "max": 1000,
+      "description": "The most streams one receiver client may have at once; creating one more is refused with 409 Conflict, as SSF 1.0 answers a transmitter that allows a receiver no more streams",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number from 1 to 1000: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. Too low: a receiver that needs more streams is refused them"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "maxStreamsPerClient"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.maxStreamsPerClient"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_MAX_STREAMS_PER_CLIENT"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_MIN_VERIFICATION_INTERVAL_SECONDS",
+      "kind": "env",
+      "type": "int",
+      "default": 30,
+      "min": 0,
+      "max": 86400,
+      "description": "The min_verification_interval a new stream is given: a verification request on a stream sooner than this after its last one is answered 429 with Retry-After; 0 gives new streams none and never refuses",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number from 0 to 86400: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. 0: a receiver can have the transmitter sign verification events as fast as it asks"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "minVerificationIntervalSeconds"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.minVerificationIntervalSeconds"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_MIN_VERIFICATION_INTERVAL_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_INACTIVITY_TIMEOUT_SECONDS",
+      "kind": "env",
+      "type": "long",
+      "default": 0,
+      "min": 0,
+      "max": 31536000,
+      "description": "The inactivity_timeout a new stream is given and reported; 0 gives new streams none. Recorded and reported only: this release does not pause or delete an inactive stream",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number from 0 to 31536000: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "inactivityTimeoutSeconds"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.inactivityTimeoutSeconds"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_INACTIVITY_TIMEOUT_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SSL_TRUSTSTORE_LOCATION",
+      "kind": "env",
+      "type": "path",
+      "default": null,
+      "description": "Kafka's ssl.truststore.location: the file of the CAs that sign the brokers' certificates, with SSL or SASL_SSL; unset, the JVM's own CAs",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a path: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. A file that is missing or not a trust store Kafka can read: the Kafka producer is not built, an ERROR says why, and SSF runs without Kafka"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSslTruststoreLocation"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSslTruststoreLocation"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SSL_TRUSTSTORE_LOCATION"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SSL_TRUSTSTORE_PASSWORD",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "Kafka's ssl.truststore.password",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Passed to Kafka as it is; wrong, the producer is not built, an ERROR says why, and SSF runs without Kafka"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSslTruststorePassword"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSslTruststorePassword"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SSL_TRUSTSTORE_PASSWORD"
+        }
+      ],
+      "aliases": [],
+      "file": true
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SSL_TRUSTSTORE_TYPE",
+      "kind": "env",
+      "type": "choice",
+      "default": null,
+      "choices": [
+        "JKS",
+        "PKCS12",
+        "PEM"
+      ],
+      "description": "Kafka's ssl.truststore.type: JKS, PKCS12 or PEM; unset, Kafka's default (JKS)",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but JKS, PKCS12 or PEM (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSslTruststoreType"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSslTruststoreType"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SSL_TRUSTSTORE_TYPE"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SSL_KEYSTORE_LOCATION",
+      "kind": "env",
+      "type": "path",
+      "default": null,
+      "description": "Kafka's ssl.keystore.location: the client certificate and key, for brokers that require mutual TLS; unset, none",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a path: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. A file that is missing or not a key store Kafka can read: the Kafka producer is not built, an ERROR says why, and SSF runs without Kafka"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSslKeystoreLocation"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSslKeystoreLocation"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SSL_KEYSTORE_LOCATION"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SSL_KEYSTORE_PASSWORD",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "Kafka's ssl.keystore.password",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Passed to Kafka as it is; wrong, the producer is not built, an ERROR says why, and SSF runs without Kafka"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSslKeystorePassword"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSslKeystorePassword"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SSL_KEYSTORE_PASSWORD"
+        }
+      ],
+      "aliases": [],
+      "file": true
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SSL_KEYSTORE_TYPE",
+      "kind": "env",
+      "type": "choice",
+      "default": null,
+      "choices": [
+        "JKS",
+        "PKCS12",
+        "PEM"
+      ],
+      "description": "Kafka's ssl.keystore.type: JKS, PKCS12 or PEM; unset, Kafka's default (JKS)",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but JKS, PKCS12 or PEM (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSslKeystoreType"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSslKeystoreType"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SSL_KEYSTORE_TYPE"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SSL_KEY_PASSWORD",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "Kafka's ssl.key.password: the private key's own password in the keystore",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Passed to Kafka as it is; wrong, the producer is not built, an ERROR says why, and SSF runs without Kafka"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSslKeyPassword"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSslKeyPassword"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SSL_KEY_PASSWORD"
+        }
+      ],
+      "aliases": [],
+      "file": true
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SSL_HOSTNAME_VERIFICATION",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether the broker's certificate is checked against its host name (Kafka's ssl.endpoint.identification.algorithm, https when true, empty when false); false only on a development rig",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but true or false (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The development profile reads a legacy spelling (yes, no, 1, 0, on, off) as false, with a warning naming the strict spelling; production refuses it. false under the production profile: SSF is REFUSED, by the start-up sweep whether Kafka is on or not, and by KafkaSetPublisher again when Kafka starts; under development the producer takes any certificate its truststore's CAs signed, with a WARN"
+      },
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSslHostnameVerification"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSslHostnameVerification"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SSL_HOSTNAME_VERIFICATION"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_REQUEST_TIMEOUT_MS",
+      "kind": "env",
+      "type": "millis",
+      "default": 10000,
+      "min": 1000,
+      "max": 60000,
+      "description": "Kafka's request.timeout.ms: how long the producer waits for a broker's answer to one request, 1000-60000",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number, or outside 1000-60000: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaRequestTimeoutMs"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaRequestTimeoutMs"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_REQUEST_TIMEOUT_MS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_DELIVERY_TIMEOUT_MS",
+      "kind": "env",
+      "type": "millis",
+      "default": 30000,
+      "min": 1000,
+      "max": 300000,
+      "description": "Kafka's delivery.timeout.ms: how long a SET may take to reach Kafka, retries included, before the send is reported failed, 1000-300000 and at least OIDF_SSF_KAFKA_REQUEST_TIMEOUT_MS",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number, outside 1000-300000, or less than OIDF_SSF_KAFKA_REQUEST_TIMEOUT_MS (Kafka's producer requires delivery.timeout.ms >= request.timeout.ms + linger.ms, and linger.ms is 0 here): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaDeliveryTimeoutMs"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaDeliveryTimeoutMs"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_DELIVERY_TIMEOUT_MS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_MAX_BLOCK_MS",
+      "kind": "env",
+      "type": "millis",
+      "default": 2000,
+      "min": 0,
+      "max": 10000,
+      "description": "Kafka's max.block.ms: the longest a send blocks the thread that raised the event (a PingFederate request, or its audit logging) waiting for metadata or buffer space, 0-10000; Kafka's own default is a minute",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number, or outside 0-10000: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. Too short for the brokers: sends fail while metadata is fetched, and are logged"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaMaxBlockMs"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaMaxBlockMs"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_MAX_BLOCK_MS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_SECRET_KEY",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "32 bytes, base64 (openssl rand -base64 32): the AES-256-GCM key that encrypts a push stream's authorization_header in the SSF store; a value sealed under it carries its key id",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not 32 bytes of base64: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. Unset under the production profile with a JDBC or ldm store: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting (and counting the push headers the store already holds); under development headers are stored in clear, with a WARN. Changed without the old key in OIDF_SSF_SECRET_KEY_PREVIOUS: headers sealed under the old key stay sealed, an ERROR names its key id, and those streams' pushes are refused by their receivers"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "secretKey"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.secretKey"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_SECRET_KEY"
+        }
+      ],
+      "aliases": [],
+      "file": true
+    },
+    {
+      "name": "OIDF_SSF_SECRET_KEY_PREVIOUS",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The key OIDF_SSF_SECRET_KEY replaced, during a rotation: headers sealed under it still open, and each is sealed under the new key on its stream's next write",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not 32 bytes of base64, or set without OIDF_SSF_SECRET_KEY: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "secretKeyPrevious"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.secretKeyPrevious"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_SECRET_KEY_PREVIOUS"
+        }
+      ],
+      "aliases": [],
+      "file": true
+    }
+  ],
+  "removed": [
+    {
+      "name": "OIDF_SSF_BASE_PATH",
+      "from": "env",
+      "replacement": null,
+      "release": "0.6.0"
+    },
+    {
+      "name": "oidf.ssf.basePath",
+      "from": "system-property",
+      "replacement": null,
+      "release": "0.6.0"
+    },
+    {
+      "name": "basePath",
+      "from": "init-param",
+      "replacement": null,
+      "release": "0.6.0"
+    }
+  ]
+}

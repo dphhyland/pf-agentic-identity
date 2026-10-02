@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -39,6 +40,16 @@ import org.jose4j.json.JsonUtil;
  * MUST attributes only, so the attribute needs no migration to be written - and it has to stay a MAY if
  * the model repo declares it, because the trigger runs on UPDATE too and the streams already there have none.
  *
+ * <p>The model declares no attribute for the optional stream members of SSF 1.0 §8.1.1 (plan item H-SSF-3) and no
+ * class for the SCIM endpoint's user records (H-SSF-4), and this repo does not change the model: the Phase 3 plan's
+ * cross-repo rule raises them in the model repo as MAY attributes and a class of their own (the 0.6.0 release notes'
+ * owner action, F-0387). Until they land this store keeps neither ({@link #keepsOptionalStreamMembers},
+ * {@link #keepsScimUsers}): a stream reads back with no {@code description}, {@code minVerificationInterval} or
+ * {@code inactivityTimeout}, so the service refuses a {@code description} and reports the transmitter's settings for
+ * the two Transmitter-Supplied members, which SSF 1.0 makes OPTIONAL; and the SCIM endpoint sees only the subjects
+ * the streams hold. No {@code ssfStreamSubject} is written without a stream as its parent, which is the class's
+ * meaning in the model.
+ *
  * <p>Postgres-specific SQL (JSONB operators, {@code ANY(object_classes)}). The schema is owned by the
  * model repo's migration workflow — this store never creates tables. Connections come from the supplied
  * {@link DataSource} (in PF, the managed pool for the configured JDBC data store).
@@ -51,9 +62,21 @@ public final class LdmSsfStore implements SsfStore {
     private static final String OWNER_ATTR = "ownerClientId";
 
     private final DataSource dataSource;
+    private final PushHeaderCipher headers;
 
+    /** A store that keeps a push {@code authorization_header} in clear, as every version before 0.6.0 did. */
     public LdmSsfStore(DataSource dataSource) {
+        this(dataSource, PushHeaderCipher.CLEAR);
+    }
+
+    /**
+     * A store that seals a push stream's {@code authorization_header} with {@code headers} on write and opens it on read
+     * (plan item H-SSF-7): the entry's {@code pushAuthorizationHeader} attribute holds the sealed value, and an earlier
+     * version's clear value is read as it is and sealed on the stream's next write.
+     */
+    public LdmSsfStore(DataSource dataSource, PushHeaderCipher headers) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
+        this.headers = Objects.requireNonNull(headers, "headers");
     }
 
     /**
@@ -221,10 +244,12 @@ public final class LdmSsfStore implements SsfStore {
                 });
     }
 
+    /** SsfStore#peek's order: oldest first, then {@code jti} bytewise (C), whatever the database's collation - as {@link #SELECT_DUE_FOR_PUSH}. */
+    static final String ORDER_PEEK = "ORDER BY (attrs->>'issuedAt')::bigint, attrs->>'jti' COLLATE \"C\" LIMIT ?";
+
     @Override
     public List<PendingSet> peek(String streamId, int max) {
-        return query(pendingSelect() + " WHERE parent_id = ?::uuid AND ? = ANY (object_classes) "
-                        + "ORDER BY (attrs->>'issuedAt')::bigint LIMIT ?",
+        return query(pendingSelect() + " WHERE parent_id = ?::uuid AND ? = ANY (object_classes) " + ORDER_PEEK,
                 ps -> {
                     ps.setString(1, streamId);
                     ps.setString(2, PENDING_CLASS);
@@ -249,14 +274,30 @@ public final class LdmSsfStore implements SsfStore {
         return removed;
     }
 
+    /**
+     * The stream's state is in the query (SsfStore#dueForPush): the pending entry joined to its parent
+     * stream entry, so the batch is only ever deliverable SETs. The same columns {@link #pendingSelect}
+     * names, qualified, because both sides of the join are {@code idm.entry}; and the same order as
+     * {@link #ORDER_PEEK}, so the push executor's hold and its batch agree on which SET of a stream is first.
+     */
+    static final String SELECT_DUE_FOR_PUSH =
+            "SELECT p.parent_id::text AS stream_id, p.attrs::text AS attrs, "
+                    + "COALESCE(extract(epoch FROM p.expires_at)::bigint, 0) AS expires_epoch "
+                    + "FROM idm.entry p JOIN idm.entry s ON s.entry_uuid = p.parent_id AND ? = ANY (s.object_classes) "
+                    + "WHERE ? = ANY (p.object_classes) AND s.attrs->>'deliveryMethod' = ? AND s.attrs->>'streamStatus' = ? "
+                    + "AND (p.attrs->>'nextAttemptAt')::bigint <= ? "
+                    + "ORDER BY (p.attrs->>'issuedAt')::bigint, p.attrs->>'jti' COLLATE \"C\" LIMIT ?";
+
     @Override
     public List<PendingSet> dueForPush(long now, int max) {
-        return query(pendingSelect() + " WHERE ? = ANY (object_classes) AND (attrs->>'nextAttemptAt')::bigint <= ? "
-                        + "ORDER BY (attrs->>'issuedAt')::bigint LIMIT ?",
+        return query(SELECT_DUE_FOR_PUSH,
                 ps -> {
-                    ps.setString(1, PENDING_CLASS);
-                    ps.setLong(2, now);
-                    ps.setInt(3, Math.max(0, max));
+                    ps.setString(1, STREAM_CLASS);
+                    ps.setString(2, PENDING_CLASS);
+                    ps.setString(3, DeliveryMethod.PUSH.urn());
+                    ps.setString(4, StreamStatus.ENABLED.value());
+                    ps.setLong(5, now);
+                    ps.setInt(6, Math.max(0, max));
                 }, this::mapPending);
     }
 
@@ -280,9 +321,44 @@ public final class LdmSsfStore implements SsfStore {
                 });
     }
 
+    // ─────────────────────────────── what the model has no place for ───────────────────────────────
+
+    /** {@code false} until the model declares the members as MAY attributes of {@code ssfStream} (the class comment). */
+    @Override
+    public boolean keepsOptionalStreamMembers() {
+        return false;
+    }
+
+    /** {@code false} until the model has a class for a SCIM user record (the class comment). */
+    @Override
+    public boolean keepsScimUsers() {
+        return false;
+    }
+
+    @Override
+    public Optional<ScimUser> getScimUser(String id) {
+        return Optional.empty();
+    }
+
+    @Override
+    public List<ScimUser> listScimUsers() {
+        return List.of();
+    }
+
+    /** Kept nowhere: see {@link #keepsScimUsers}. */
+    @Override
+    public void putScimUser(ScimUser user) {
+        // The model has no class for it yet.
+    }
+
+    @Override
+    public boolean deleteScimUser(String id) {
+        return false;
+    }
+
     // ─────────────────────────────── attrs mapping ───────────────────────────────
 
-    private static Map<String, Object> streamAttrs(Stream s) {
+    private Map<String, Object> streamAttrs(Stream s) {
         LinkedHashMap<String, Object> attrs = new LinkedHashMap<>();
         attrs.put("audience", s.audience());
         if (s.ownerClientId() != null) {
@@ -294,7 +370,7 @@ public final class LdmSsfStore implements SsfStore {
             attrs.put("pushEndpointUrl", s.pushEndpointUrl());
         }
         if (s.pushAuthorizationHeader() != null) {
-            attrs.put("pushAuthorizationHeader", s.pushAuthorizationHeader());
+            attrs.put("pushAuthorizationHeader", this.headers.seal(s.id(), s.pushAuthorizationHeader()));
         }
         attrs.put("eventsRequested", s.eventsRequested());
         attrs.put("eventsDelivered", s.eventsDelivered());
@@ -306,13 +382,14 @@ public final class LdmSsfStore implements SsfStore {
 
     private Stream mapStream(ResultSet rs) throws SQLException {
         Map<String, Object> attrs = parseJson(rs.getString("attrs"));
+        String id = rs.getString("id");
         return Stream.builder()
-                .id(rs.getString("id"))
+                .id(id)
                 .audience((String) attrs.get("audience"))
                 .ownerClientId(attrs.get(OWNER_ATTR) instanceof String owner ? owner : null)
                 .deliveryMethod(DeliveryMethod.fromUrn((String) attrs.get("deliveryMethod")))
                 .pushEndpointUrl((String) attrs.get("pushEndpointUrl"))
-                .pushAuthorizationHeader((String) attrs.get("pushAuthorizationHeader"))
+                .pushAuthorizationHeader(this.headers.open(id, (String) attrs.get("pushAuthorizationHeader")))
                 .eventsRequested(stringList(attrs.get("eventsRequested")))
                 .eventsDelivered(stringList(attrs.get("eventsDelivered")))
                 .status(StreamStatus.fromValue((String) attrs.get("streamStatus")))

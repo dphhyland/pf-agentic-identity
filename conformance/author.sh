@@ -14,10 +14,12 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 : "${PF_AUTHOR_ENV:?set PF_AUTHOR_ENV to a KEY=VALUE file holding PING_IDENTITY_PASSWORD}"
 NAME="${PF_AUTHOR_NAME:-pf-conformance-author}"
 PING_CONFIG="${PING_DEVOPS_CONFIG:-$HOME/.pingidentity/config}"
+# shellcheck source=layout.sh
+. "$HERE/layout.sh"
 # The image the rig's Dockerfile is built FROM, pulled by the same digest: build/pf-version.env is the one
-# place it is written down.
-# shellcheck disable=SC1091
-. "${PF_AGENTIC_IDENTITY_HOME:-$HERE/..}/build/pf-version.env"
+# place it is written down (layout.sh finds it in either tree).
+# shellcheck disable=SC1090,SC1091
+. "$PFAI_VERSION_ENV"
 IMAGE="${PF_IMAGE:?}@${PF_IMAGE_DIGEST:?}"
 ADMIN_PORT="${PF_AUTHOR_ADMIN_PORT:-19999}"; RUNTIME_PORT="${PF_AUTHOR_RUNTIME_PORT:-19031}"
 
@@ -36,11 +38,12 @@ STAGE="$(mktemp -d)"; trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/instance/server/default/data/config-store" "$STAGE/instance/server/default/deploy"
 cp "$HERE"/config-store/*.xml "$STAGE/instance/server/default/data/config-store/"
 # The CIBA simulator plugin, so terraform/ciba.tf can create an instance of it: PingFederate lists a
-# plugin descriptor only for a jar in its deploy directory. Built by the reactor (up.sh builds before
-# it authors); refused rather than skipped, because an archive authored without it has no CIBA and the
-# first sign would be the FAPI-CIBA plan failing on every module.
-PLUGIN="${PF_AGENTIC_IDENTITY_HOME:-$HERE/..}/plugins/ciba-sim/target/pf.plugins.ciba-sim.jar"
-[[ -f "$PLUGIN" ]] || { echo "ERROR: $PLUGIN not built - run 'mvn -q -DskipTests package' at the repo root first" >&2; exit 1; }
+# plugin descriptor only for a jar in its deploy directory. Taken from the conformance stage, which up.sh
+# writes before it authors, from the reactor or from a release; refused rather than skipped, because an
+# archive authored without it has no CIBA and the first sign would be the FAPI-CIBA plan failing on every
+# module.
+PLUGIN="$PFAI_IMAGE_DIR/modules/pf.plugins.ciba-sim.jar"
+[[ -f "$PLUGIN" ]] || { echo "ERROR: no $PLUGIN - stage the conformance profile first; up.sh does (stage-modules.sh or stage-from-release.sh, --profile conformance)" >&2; exit 1; }
 cp "$PLUGIN" "$STAGE/instance/server/default/deploy/"
 docker cp "$STAGE/instance" "$NAME:/opt/in/"
 docker start "$NAME" >/dev/null

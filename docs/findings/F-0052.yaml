@@ -3,13 +3,33 @@ title: Dead federation code
 severity: medium
 area: openid-federation
 source: reviewer-report
-status: open
+status: closed
 plan_items: [H-FED-10]
-prs: []
-verification: ''
+prs: [91, 99]
+verification: >
+  2026-10-01, branch prod/p3-federation-dead-code (HFEDD, PR 99), on origin/main e377dbae. Each item was shown dead
+  before it went: /usr/bin/grep over every reactor module's main code found no caller, and none of pf-oidf-modules
+  (55629cc), idp-agentic-demo (9eee704), idp-fed-agentic-connector (87d166e) or pf-agentic-identity-domain-authority
+  (46fdcc3) imports one (their only mentions are prose and comments). Removed: ClientEntityAuthorizer and its test;
+  TrustControllerGateway.fetchEntityConfiguration() and fetchMembers() (the gateway side of /list - the list endpoint
+  FederationService.listSubordinates(ListRequest) serves is kept) and both fetchEntityConfigurationOf overloads, with
+  their HttpTrustControllerGateway and LocalFirstTrustControllerGateway implementations (S5B had moved the one
+  production read to the private configurationOf, which the coverage gate now names); BridgeSigners.require; and
+  every @Deprecated member of main code that nothing called - JwtCodec's three overloads without a
+  VerificationPolicy, FederationService.fetchEntityStatement(String, String, String) and listSubordinates(String),
+  TrustChainValidationResult.leafMetadata() - except RarEntitlement, whose deletion F-0100 leaves to the owner. The public resetForTests of TrustMarkSupport, AuthoritySupport,
+  KeyHistorySupport, FederationRuntimeConfig and FederationPolicySupport are package-private; tests in other packages
+  and modules reach them through <Class>TestAccess in openid-federation's test-jar and in a new pf-integration
+  test-jar. The deprecated members that still have production callers are kept, each with its removal release in
+  the javadoc (F-0430, F-0431). The build's compiler is the second proof: mvn -B clean verify of the whole reactor
+  passed on JDK 17 and the affected modules on JDK 20 and 21 with every jacoco gate met.
 target_release: 0.6.0
 notes: >
   From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
   register's rule for these items. ClientEntityAuthorizer, fetchMembers and fetchEntityConfiguration (/list),
   dead FederationConfiguration methods, deprecated overloads, BridgeSigners.require, public resetForTests. The
   exposure is maintenance, not security; medium is the rule, not a judgement of risk.
+  ST5F (PR #91, 2026-09-30) removed FederationConfiguration's dead methods - trustControllerHost(),
+  trustAnchorIssuers(), defaultTrustAnchorIssuer(), findTrustAnchor(String), the 4-, 9- and 10-argument
+  constructors and the trustControllerHost field - with the greps in the PR body showing them unused; the rest of
+  H-FED-10 is HFEDD's, and this finding stays open for it.

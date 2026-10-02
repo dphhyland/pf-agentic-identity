@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.federation;
 
+import com.pingidentity.ps.oidf.jose.VerificationPolicy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -38,7 +39,7 @@ class FederationServiceEndpointsTest {
 
     private static FederationConfiguration configuration(List<String> subordinates, List<String> registrationTypes,
                                                          FederationConfiguration.ResolveDiscovery discovery, String organization) {
-        return new FederationConfiguration(List.of(PF), subordinates, null, false, false, null, null, null, 0, "RS256",
+        return new FederationConfiguration(List.of(PF), subordinates, false, false, null, null, null, 0, "RS256",
                 AttestationMetadataConfig.defaults(), null, organization, registrationTypes, discovery);
     }
 
@@ -74,8 +75,10 @@ class FederationServiceEndpointsTest {
                         Set.of(), ValidatorOptions.defaults());
     }
 
+    /** The claims of a JWT the service under test signed, read without checking the signature. */
     private static JwtClaims claims(String jwt) throws Exception {
-        return JwtCodec.parseUnverifiedClaims(jwt);
+        return JwtClaims.parse(new String(java.util.Base64.getUrlDecoder().decode(jwt.split("\\.")[1]),
+                java.nio.charset.StandardCharsets.UTF_8));
     }
 
     private static FederationException refusal(FederationError expected, org.junit.jupiter.api.function.Executable call) {
@@ -94,7 +97,7 @@ class FederationServiceEndpointsTest {
         String jwt = service.fetchSubordinateStatement(null, HOSTED, PF);
         String withIss = service.fetchSubordinateStatement(PF + "/", HOSTED, PF);
 
-        JwtClaims claims = JwtCodec.verifyAgainstKeys(jwt, List.of(PF_KEY), PF, Set.of());
+        JwtClaims claims = JwtCodec.verifyAgainstKeys(jwt, List.of(PF_KEY), PF, Set.of(), VerificationPolicy.legacy());
         assertEquals(HOSTED, claims.getSubject());
         assertEquals(Keys.publicJwks(HOSTED_KEY), claims.getClaimValue("jwks"), "the subordinate's keys, not this entity's");
         assertEquals(PF + "/oidf/federation/fetch", claims.getClaimValue("source_endpoint"));
@@ -122,6 +125,27 @@ class FederationServiceEndpointsTest {
         FederationService service = pf(configuration(), http).build();
 
         refusal(FederationError.TEMPORARILY_UNAVAILABLE, () -> service.fetchSubordinateStatement(null, FOREIGN, PF));
+    }
+
+    /**
+     * F-0415: the keys this entity asserts for a configured subordinate come from that subordinate's Entity
+     * Configuration, fetched live. Until 0.6.0 they were read from it without checking its signature; now a
+     * configuration that does not verify under one of its own keys (OpenID Federation 1.0 §3.2) vouches for nothing.
+     */
+    @Test
+    void aForeignSubordinateWhoseConfigurationIsNotSignedWithItsOwnKeysIsNotVouchedFor() throws Exception {
+        String forged = Statements.spec(Statements.ENTITY_STATEMENT_TYP).claim("iss", FOREIGN).claim("sub", FOREIGN)
+                .claim("jwks", Keys.publicJwks(FOREIGN_KEY)).claim("authority_hints", List.of(PF)).claim("metadata", Map.of())
+                .sign(Keys.ec("foreign-1"), Clock.systemUTC());
+        FederationService forgedService = pf(configuration(), new ServingMap().entityConfiguration(FOREIGN, forged)).build();
+
+        refusal(FederationError.TEMPORARILY_UNAVAILABLE, () -> forgedService.fetchSubordinateStatement(null, FOREIGN, PF));
+
+        FederationService service = pf(configuration(), new ServingMap().entityConfiguration(FOREIGN, foreignConfiguration(Map.of())))
+                .build();
+        JwtClaims statement = JwtCodec.verifyAgainstKeys(service.fetchSubordinateStatement(null, FOREIGN, PF), List.of(PF_KEY), PF,
+                Set.of(), com.pingidentity.ps.oidf.jose.VerificationPolicy.legacy());
+        assertEquals(Keys.publicJwks(FOREIGN_KEY), statement.getClaimValue("jwks"), "a configuration that verifies is vouched for");
     }
 
     @Test
@@ -199,10 +223,10 @@ class FederationServiceEndpointsTest {
     }
 
     @Test
-    void theSingleTypeListStillWorks() {
+    void aSingleTypeListFilters() {
         FederationService service = pf(configuration(), new ServingMap()).build();
-        assertEquals(List.of(HOSTED), service.listSubordinates("oauth_client"));
-        assertEquals(List.of(FOREIGN, HOSTED), service.listSubordinates(" "));
+        assertEquals(List.of(HOSTED), service.listSubordinates(new ListRequest(List.of("oauth_client"), null, null, null)));
+        assertEquals(List.of(FOREIGN, HOSTED), service.listSubordinates(new ListRequest(List.of(" "), null, null, null)));
         assertEquals(List.of(FOREIGN), FederationService.builder(configuration(), Keys.signingKeys(PF_KEY)).build()
                 .listSubordinates(ListRequest.all()));
     }
@@ -220,7 +244,7 @@ class FederationServiceEndpointsTest {
 
         assertEquals("resolve-response+jwt", JwtCodec.getJwtHeaders(jwt).get("typ"));
         assertEquals("pf-1", JwtCodec.getJwtHeaders(jwt).get("kid"));
-        JwtClaims response = JwtCodec.verifyAgainstKeys(jwt, List.of(PF_KEY), PF, Set.of());
+        JwtClaims response = JwtCodec.verifyAgainstKeys(jwt, List.of(PF_KEY), PF, Set.of(), VerificationPolicy.legacy());
         assertEquals(HOSTED, response.getSubject());
         @SuppressWarnings("unchecked")
         List<String> chain = (List<String>) response.getClaimValue("trust_chain");
@@ -323,6 +347,33 @@ class FederationServiceEndpointsTest {
         assertEquals(PF, claims(chain.get(0)).getSubject());
     }
 
+    /**
+     * H-FED-9: the endpoint's resolve is capped per caller and answers a repeated request from what it kept; a request
+     * without a subject is refused as before, uncounted.
+     */
+    @Test
+    @Requirement({"OIDFED §18.1(1)", "OIDFED §18.1(7)"})
+    void theEndpointsResolveIsCappedPerCallerAndKeptBriefly() throws Exception {
+        ServingMap http = new ServingMap();
+        FederationService service = pf(configuration(), http).build();
+        MutableClock clock = new MutableClock(java.time.Instant.now());
+        service.resolveGuard(new ResolveGuard(1, java.time.Duration.ofSeconds(60), clock));
+        ResolveRequest request = new ResolveRequest(HOSTED, List.of(PF), List.of());
+
+        String first = service.resolve(request, PF, null, "192.0.2.1");
+        assertEquals(first, service.resolve(request, PF, null, "192.0.2.1"), "the same request is answered from what was kept");
+        FederationException limited = refusal(FederationError.TEMPORARILY_UNAVAILABLE,
+                () -> service.resolve(new ResolveRequest(PF, List.of(PF), List.of()), PF, null, "192.0.2.1"));
+        assertTrue(limited instanceof ResolveGuard.Limited);
+        assertEquals(PF, claims(service.resolve(new ResolveRequest(PF, List.of(PF), List.of()), PF, null, "192.0.2.2")).getSubject(),
+                "another caller has its own minute");
+        refusal(FederationError.INVALID_REQUEST, () -> service.resolve(new ResolveRequest(null, List.of(PF), null), PF, null, "192.0.2.1"));
+        refusal(FederationError.INVALID_REQUEST, () -> service.resolve(new ResolveRequest(" ", List.of(PF), null), PF, null, "192.0.2.1"));
+        FederationService fresh = FederationService.builder(configuration(), Keys.signingKeys(PF_KEY)).build();
+        ResolveGuard read = fresh.resolveGuard();
+        assertTrue(read != null && read == fresh.resolveGuard(), "a service reads its guard from the settings once, on first use");
+    }
+
     @Test
     @Requirement({"OIDFED §8.3.1(2.2)", "OIDFED §8.3.1(2.4)", "OIDFED §8.9(2.2.4.7)"})
     void resolveNeedsASubjectAndAnAnchorItTrusts() {
@@ -370,7 +421,7 @@ class FederationServiceEndpointsTest {
         assertEquals(PF + "/oidf/federation/resolve", superior.get("federation_resolve_endpoint"));
         assertEquals("PF Ltd", superior.get("organization_name"));
 
-        FederationConfiguration leafOnly = new FederationConfiguration(List.of(OTHER_TA), List.of(), null, false, false, null, null, null, 0,
+        FederationConfiguration leafOnly = new FederationConfiguration(List.of(OTHER_TA), List.of(), false, false, null, null, null, 0,
                 "RS256", AttestationMetadataConfig.defaults(), null, null, List.of(), FederationConfiguration.ResolveDiscovery.KNOWN);
         Map<?, ?> leaf = federationEntity(FederationService.builder(leafOnly, Keys.signingKeys(PF_KEY)).build());
         assertNull(leaf.get("federation_fetch_endpoint"), "Leaf Entities MUST NOT publish a fetch endpoint");
@@ -399,10 +450,41 @@ class FederationServiceEndpointsTest {
     @Test
     void aSelfAnchoredEntityPublishesNoAuthorityHints() throws Exception {
         assertFalse(claims(pf(configuration(), new ServingMap()).build().createEntityConfigurationJwt(PF)).hasClaim("authority_hints"));
-        FederationConfiguration underAnother = new FederationConfiguration(List.of(OTHER_TA), List.of(), null, false, false, null, null,
+        FederationConfiguration underAnother = new FederationConfiguration(List.of(OTHER_TA), List.of(), false, false, null, null,
                 null, 0, "RS256", AttestationMetadataConfig.defaults(), null);
         assertEquals(List.of(OTHER_TA), claims(FederationService.builder(underAnother, Keys.signingKeys(PF_KEY)).build()
                 .createEntityConfigurationJwt(PF)).getStringListClaimValue("authority_hints"));
+    }
+
+    /**
+     * H-FED-8: {@code /federation/entity?sub=self} and the Entity Configuration carry the same {@code authority_hints},
+     * decided by this entity's role: none for a Trust Anchor with no superiors (never {@code []}), its superiors - each
+     * once, whichever spelling the configuration used - for a Leaf or an Intermediate.
+     */
+    @Test
+    @Requirement("OIDFED §3.1.2(1.2)")
+    void bothSelfStatementsCarryTheAuthorityHintsOfThisEntitysRole() throws Exception {
+        // A Trust Anchor: it names itself among the anchors, in the other spelling too.
+        FederationConfiguration anchor = new FederationConfiguration(List.of(PF + "/", OTHER_TA), List.of(), false, false, null,
+                null, null, 0, "RS256", AttestationMetadataConfig.defaults(), null);
+        // A Leaf or Intermediate under two superiors, one named twice.
+        FederationConfiguration subordinate = new FederationConfiguration(List.of(OTHER_TA, OTHER_TA + "/", "https://ta3.example"),
+                List.of(), false, false, null, null, null, 0, "RS256", AttestationMetadataConfig.defaults(), null);
+        // Neither: nothing configured above it.
+        FederationConfiguration none = new FederationConfiguration(List.of(), List.of(), false, false, null, null, null, 0,
+                "RS256", AttestationMetadataConfig.defaults(), null);
+
+        for (FederationConfiguration configuration : List.of(anchor, none)) {
+            FederationService service = FederationService.builder(configuration, Keys.signingKeys(PF_KEY)).build();
+            assertFalse(claims(service.createEntityConfigurationJwt(PF)).hasClaim("authority_hints"));
+            assertFalse(claims(service.createEntityStatement(PF, null, PF)).hasClaim("authority_hints"), "sub=self agrees");
+            assertFalse(claims(service.createEntityStatement(PF + "/", null, PF)).hasClaim("authority_hints"), "in either spelling");
+        }
+        FederationService service = FederationService.builder(subordinate, Keys.signingKeys(PF_KEY)).build();
+        assertEquals(List.of(OTHER_TA, "https://ta3.example"), claims(service.createEntityConfigurationJwt(PF)).getStringListClaimValue("authority_hints"));
+        JwtClaims self = claims(service.createEntityStatement(PF + "/", null, PF));
+        assertEquals(List.of(OTHER_TA, "https://ta3.example"), self.getStringListClaimValue("authority_hints"));
+        assertEquals(PF, self.getSubject(), "sub=self is the Entity Configuration: iss and sub are the same");
     }
 
     // ---- edges ---------------------------------------------------------------------------------------
@@ -413,7 +495,7 @@ class FederationServiceEndpointsTest {
         FederationService service = pf(configuration(), http).build();
 
         assertEquals(HOSTED, claims(service.fetchSubordinateStatement(" ", HOSTED, PF)).getSubject(), "a blank iss is no iss");
-        assertEquals(HOSTED, claims(service.fetchEntityStatement(PF, HOSTED, PF)).getSubject());
+        assertEquals(HOSTED, claims(service.fetchSubordinateStatement(PF, HOSTED, PF)).getSubject(), "an iss naming this entity");
         service.fetchSubordinateStatement(null, FOREIGN, PF);
         service.fetchSubordinateStatement(null, FOREIGN, PF);
         assertEquals(1, http.hits(FOREIGN + "/.well-known/openid-federation"), "the second statement uses the cached keys");
@@ -444,7 +526,7 @@ class FederationServiceEndpointsTest {
 
         assertEquals(List.of(), service.listSubordinates(new ListRequest(List.of("openid_provider"), null, null, true)),
                 "a subordinate that publishes no fetch endpoint is not an Intermediate");
-        assertEquals(List.of(FOREIGN, HOSTED), service.listSubordinates((String) null));
+        assertEquals(List.of(FOREIGN, HOSTED), service.listSubordinates(ListRequest.all()));
     }
 
     @Test
@@ -474,7 +556,7 @@ class FederationServiceEndpointsTest {
     void theChallengeEndpointIsAdvertisedOnlyWhenEnabled() throws Exception {
         AttestationMetadataConfig noChallenge = new AttestationMetadataConfig(List.of("private_key_jwt"), List.of("ES256"), List.of("ES256"),
                 List.of("ES256"), List.of(), List.of(), false);
-        FederationConfiguration configuration = new FederationConfiguration(List.of(PF), List.of(), null, false, false, null, null, null,
+        FederationConfiguration configuration = new FederationConfiguration(List.of(PF), List.of(), false, false, null, null, null,
                 0, "RS256", noChallenge, null);
 
         assertFalse(openidProvider(FederationService.builder(configuration, Keys.signingKeys(PF_KEY)).build()).containsKey("challenge_endpoint"));
@@ -483,7 +565,7 @@ class FederationServiceEndpointsTest {
 
     @Test
     void anEntityThatOnlyHostsIsStillASuperior() throws Exception {
-        FederationConfiguration hostOnly = new FederationConfiguration(List.of(), List.of(), null, false, false, null, null, null, 0,
+        FederationConfiguration hostOnly = new FederationConfiguration(List.of(), List.of(), false, false, null, null, null, 0,
                 "RS256", AttestationMetadataConfig.defaults(), null);
         FederationService service = FederationService.builder(hostOnly, Keys.signingKeys(PF_KEY)).hosting(() -> true).build();
 

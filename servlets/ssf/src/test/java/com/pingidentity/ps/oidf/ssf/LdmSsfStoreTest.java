@@ -17,6 +17,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -235,5 +236,43 @@ class LdmSsfStoreTest {
                 + "AND expires_at IS NOT NULL AND expires_at <= to_timestamp(?)");
         verify(ps).setString(1, "ssfPendingSet");
         verify(ps).setLong(2, 300L);
+    }
+
+    /**
+     * As for the tables store: the pending entry joined to its parent stream entry, read only where the
+     * stream's {@code deliveryMethod} is the push URN and its {@code streamStatus} is {@code enabled} - the
+     * keys and values {@code streamAttrs} writes.
+     */
+    @Test
+    void dueForPushJoinsThePendingEntryToAnEnabledPushStreamEntry() throws Exception {
+        ResultSet rs = mock(ResultSet.class);
+        when(ps.executeQuery()).thenReturn(rs);
+        when(rs.next()).thenReturn(false);
+
+        assertTrue(store.dueForPush(300, 500).isEmpty());
+
+        verify(conn).prepareStatement(LdmSsfStore.SELECT_DUE_FOR_PUSH);
+        assertTrue(LdmSsfStore.SELECT_DUE_FOR_PUSH.contains("JOIN idm.entry s ON s.entry_uuid = p.parent_id"));
+        assertTrue(LdmSsfStore.SELECT_DUE_FOR_PUSH.contains("s.attrs->>'deliveryMethod' = ? AND s.attrs->>'streamStatus' = ?"));
+        verify(ps).setString(1, "ssfStream");
+        verify(ps).setString(2, "ssfPendingSet");
+        verify(ps).setString(3, "urn:ietf:rfc:8935");
+        verify(ps).setString(4, "enabled");
+        verify(ps).setLong(5, 300L);
+        verify(ps).setInt(6, 500);
+    }
+
+    /** As for the tables store: both reads of the queue in one order, the {@code jti} breaking a second's ties. */
+    @Test
+    void peekAndDueForPushShareOneOrder() throws Exception {
+        ResultSet rs = mock(ResultSet.class);
+        when(ps.executeQuery()).thenReturn(rs);
+        when(rs.next()).thenReturn(false);
+
+        assertTrue(store.peek("00000000-0000-0000-0000-000000000001", 1).isEmpty());
+
+        verify(conn).prepareStatement(org.mockito.ArgumentMatchers.endsWith(" " + LdmSsfStore.ORDER_PEEK));
+        assertEquals("ORDER BY (attrs->>'issuedAt')::bigint, attrs->>'jti' COLLATE \"C\" LIMIT ?", LdmSsfStore.ORDER_PEEK);
+        assertTrue(LdmSsfStore.SELECT_DUE_FOR_PUSH.endsWith(" ORDER BY (p.attrs->>'issuedAt')::bigint, p.attrs->>'jti' COLLATE \"C\" LIMIT ?"));
     }
 }

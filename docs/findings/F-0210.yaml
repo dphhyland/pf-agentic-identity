@@ -1,0 +1,21 @@
+id: F-0210
+title: When PingFederate stops, the lifecycle listener's shutdown line never reaches server.log
+severity: low
+area: platform-pf
+source: design
+status: open
+plan_items: [O-6]
+prs: [57]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found by package F2 (2026-09-28) on the rig (PingFederate 13.1.3.0). On a SIGTERM - docker stop -t 30, or docker
+  kill -s TERM - server.log ends with PingFederate's "PingFederate shutdown..." and Jetty's "Shutdown oejs.Server"
+  lines, and no context of any war logs its stop, PingFederate's own included: log4j's own shutdown hook is disabled
+  in PingFederate's log4j2.xml, so it is PingFederate's shutdown that ends the logging first. The contexts are still
+  destroyed: a probe listener in pf-runtime.war wrote a file from its contextDestroyed during the same kind of stop.
+  So LifecycleListener's "Lifecycle listener: / (ROOT) stopped; closed n: ..." line, and Lifecycle's own, are lost
+  at a JVM stop; they reach server.log when a war is undeployed (gm-api.war removed from server/default/deploy,
+  seen on the rig: the MXBean unregistered and the line logged). An operator cannot tell from the log whether a
+  close hung at shutdown. Who and when: O-6 (logging, Phase 4) decides where shutdown is reported instead, somewhere
+  that outlives PingFederate's logging.

@@ -1,0 +1,21 @@
+id: F-0355
+title: libs/platform's README still describes the harness's host name switch and the gm-api example's --insecure as before 0.6.0
+severity: low
+area: platform
+source: design
+status: closed
+plan_items: [PR-3]
+prs: [85]
+verification: >
+  Closed 2026-10-01 by the v0.6.0 release package (docs only): libs/platform/README.md's table of InsecureTls's
+  callers now says the harness sets the JVM host name property only with OIDF_HARNESS_INSECURE_TLS=true (F-0162,
+  closed by ST5S), as AttestationFlowHarness.main does (`relaxHostnameCheck(insecureTls(System::getenv))`), and that
+  the gm-api example has no --insecure and takes --cacert (F-0163; GrantManagementClient.java line 191).
+target_release: 0.6.0
+notes: >
+  Found by package ST5S (2026-09-30). The table of InsecureTls's callers in libs/platform/README.md (the rows for the
+  harness's AttestationFlowHarness and gm-api's examples/java/GrantManagementClient.java) says the harness sets the
+  JVM host name property on every run and that the example's --insecure trusts any chain, exempt from the trust
+  scan. From ST5S the harness sets it only with OIDF_HARNESS_INSECURE_TLS=true (F-0162) and the example takes
+  --cacert with no trust-all and no exemption (F-0163). ST5S may not edit libs/platform (the Phase 3 plan's rule for
+  platform), so the two rows are left for the next package that owns that README, or the v0.6.0 release package.

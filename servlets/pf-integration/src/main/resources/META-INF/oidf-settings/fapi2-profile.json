@@ -1,0 +1,44 @@
+{
+  "format": 1,
+  "component": "fapi2-profile",
+  "module": "servlets/pf-integration",
+  "package": "com.pingidentity.ps.oidf.servlet.fapi2",
+  "families": ["OIDF_FAPI2_"],
+  "settings": [
+    {
+      "name": "OIDF_FAPI2_CLIENTS",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "The FAPI clients, space- or comma-separated; * is every client. The FAPI 2.0 filter holds them to issuer-only assertion audiences and PS256, ES256 or EdDSA DPoP proofs, and at UserInfo the resource-server filter sets x-fapi-interaction-id for them and refuses their access tokens in the query",
+      "when_wrong": {"effect": "doesnt-start", "detail": "A list of nothing (a comma alone): FAPI does not start. An id that names no client holds nobody"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "init-param", "name": "clients"},
+        {"from": "system-property", "name": "oidf.fapi2.clients"},
+        {"from": "env", "name": "OIDF_FAPI2_CLIENTS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FAPI_RESOURCE_CLIENTS",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "More clients the resource-server filter holds to the FAPI rules at UserInfo (x-fapi-interaction-id set, access tokens in the query refused), space- or comma-separated; * is every client. For FAPI 1.0 clients, such as FAPI-CIBA's, whose token requests are not the FAPI 2.0 filter's to judge; the clients OIDF_FAPI2_CLIENTS lists are held to the rules without being named here",
+      "when_wrong": {"effect": "per-request", "detail": "A list of nothing (a comma alone): the rules apply to every client at UserInfo, and a warning says so. An id that names no client holds nobody"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "init-param", "name": "resourceClients"},
+        {"from": "system-property", "name": "oidf.fapi.resource.clients"},
+        {"from": "env", "name": "OIDF_FAPI_RESOURCE_CLIENTS"}
+      ],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

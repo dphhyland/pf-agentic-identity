@@ -3,10 +3,15 @@ title: 'The unused, non-conformant SdJwt; no minimum key sizes in LocalJwkSigner
 severity: medium
 area: oidf-jose
 source: reviewer-report
-status: open
+status: closed
 plan_items: [H-JOSE-2]
-prs: []
-verification: ''
+prs: [93]
+verification: >
+  2026-10-01, branch prod/p3-jose-hardening (PR 93): SdJwt, SdJwtException and SdJwtTest are removed (no main-code
+  user, and no Requirement id named them). LocalJwkSigner refuses an RSA key under 2048 bits (RFC 7518 §3.3, §3.5),
+  an EC key off P-256/P-384/P-521 and one declared with another curve's alg (§3.4; RFC 8725 §3.1), when it is built
+  (LocalJwkSignerTest). oidf-jose has a mutation profile in openid-federation's shape; its first run, on JDK 20,
+  killed 322 of 349 mutations (92%, test strength 96%), recorded in its README. R-CI8 makes it a gate in Phase 7.
 target_release: 0.6.0
 notes: >
   From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the

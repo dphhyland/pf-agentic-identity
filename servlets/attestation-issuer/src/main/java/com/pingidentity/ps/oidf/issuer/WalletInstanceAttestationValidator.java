@@ -52,6 +52,12 @@ public final class WalletInstanceAttestationValidator implements InstanceAttesta
 
     private static final Set<String> PERMITTED_ALGORITHMS = ClientAttestationConfig.DEFAULT_ASYMMETRIC_ALGORITHMS;
 
+    /**
+     * The selector names this validator proves: the WIA's {@code provider} ({@code iss}, whose keys verified it) and
+     * {@code instance} ({@code sub}, the wallet instance id).
+     */
+    static final List<String> SELECTOR_NAMES = List.of("provider", "instance");
+
     private final AttesterKeyResolver walletProviderKeys;
     private final long allowedClockSkewSeconds;
 
@@ -89,6 +95,11 @@ public final class WalletInstanceAttestationValidator implements InstanceAttesta
     public String description() {
         return "A Wallet Instance Attestation signed by the wallet provider, whose keys are resolved "
                 + "through an OpenID Federation trust chain or a static pin. Binds the instance key via cnf.jwk.";
+    }
+
+    @Override
+    public List<String> selectorNames() {
+        return SELECTOR_NAMES;
     }
 
     /**
@@ -211,8 +222,30 @@ public final class WalletInstanceAttestationValidator implements InstanceAttesta
         LinkedHashMap<String, Object> workload = new LinkedHashMap<>();
         workload.put("wallet_provider", provider);
         workload.put("wallet_instance", subject);
-        workload.put("instance_attestation", presented);
-        return new InstanceIdentity(FORMAT, subject, provider, boundKey, workload, exp);
+        // The WIA itself stays here: the attestation carries its digest, type and expiry (F-0002).
+        return new InstanceIdentity(FORMAT, subject, provider, boundKey, workload, exp,
+                AttestationIssuanceConfig.EVIDENCE_WALLET_INSTANCE_ATTESTATION, InstanceIdentity.evidenceDigest(presented), aud,
+                issuedAt(claims), selectors(claims));
+    }
+
+    /**
+     * The WIA's selectors, built once every check has passed: {@code provider} and {@code instance}, from its
+     * {@code iss} and {@code sub} when they are JSON strings.
+     */
+    EvidenceSelectors selectors(JwtClaims claims) throws IssuanceException {
+        return EvidenceSelectors.of(this.id(), SELECTOR_NAMES, IssuanceException::invalidInstanceAttestation,
+                "provider", EvidenceSelectors.stringClaim(claims, "iss"),
+                "instance", EvidenceSelectors.stringClaim(claims, "sub"));
+    }
+
+    /** The WIA's {@code iat}, or 0 when it has none; a malformed one is treated as none, as {@code exp} bounds it anyway. */
+    static long issuedAt(JwtClaims claims) {
+        try {
+            NumericDate iat = claims.getIssuedAt();
+            return iat == null ? 0L : iat.getValue();
+        } catch (Exception e) {
+            return 0L;
+        }
     }
 
     @SuppressWarnings("unchecked")

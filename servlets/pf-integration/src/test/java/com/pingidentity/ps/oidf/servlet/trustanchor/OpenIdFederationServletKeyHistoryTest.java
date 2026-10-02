@@ -84,7 +84,7 @@ class OpenIdFederationServletKeyHistoryTest {
 
         verify(response).setStatus(200);
         verify(response).setContentType("application/jwk-set+jwt");
-        List<?> keys = (List<?>) JwtCodec.parseUnverifiedClaims(body.toString()).getClaimValue("keys");
+        List<?> keys = (List<?>) JwtCodec.parseUnverifiedClaims(body.toString()).unverifiedClaim("keys");
         assertEquals("pf-1", ((Map<?, ?>) keys.get(0)).get("kid"));
     }
 
@@ -122,6 +122,11 @@ class OpenIdFederationServletKeyHistoryTest {
 
             @Override
             public HistoricalKey revoke(String kid, Instant revokedAt, String reason) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public HistoricalKey revokeUnrevoked(String kid, Instant revokedAt, String reason) {
                 throw new UnsupportedOperationException();
             }
 

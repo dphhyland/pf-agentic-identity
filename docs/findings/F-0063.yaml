@@ -3,10 +3,19 @@ title: 'Legacy JwtCodec overloads; 27 parseUnverifiedClaims and 15 raw verifySig
 severity: medium
 area: oidf-jose
 source: reviewer-report
-status: open
+status: closed
 plan_items: [H-JOSE-1]
-prs: []
-verification: ''
+prs: [93]
+verification: >
+  2026-10-01, branch prod/p3-jose-hardening (PR 93): JwtCodec.parseUnverifiedClaims returns UnverifiedClaims, which
+  is not a JwtClaims and hands none out (UnverifiedClaimsTest holds that shape). Every call site on main - 29 reads in
+  client-attestation, openid-federation and pf-integration, and the 16 signature checks outside JwtCodec's claim
+  verifiers - is retyped or shown safe, and classed in the oidf-jose README ("Reading a JWT before its signature is
+  checked") and the PR: routing, refuse-first or logging, and one bug, F-0415, fixed. Three reads now use verified
+  claims where they read unverified ones (TrustMarkValidator.validateOne and anchorConfiguration,
+  FederationService.trustMarkStatus, RequestObject.verify). The overloads that take no VerificationPolicy are
+  deprecated for removal (H-FED-10) and no main code calls them; every verifier refuses none and the MAC algorithms
+  whatever the caller's set names and tries only asymmetric keys not marked enc (JwtCodecAlgorithmTest).
 target_release: 0.6.0
 notes: >
   From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the

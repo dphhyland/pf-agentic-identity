@@ -54,7 +54,11 @@ class Fapi2ProfileFilterTest {
     }
 
     private Fapi2ProfileFilter initialised(FilterConfig config, Function<String, String> environment) throws Exception {
-        when(response.getWriter()).thenReturn(new PrintWriter(body, true));
+        // A writer per response, as a container gives: the refusal closes the one it wrote.
+        when(response.getWriter()).thenAnswer(call -> {
+            body.getBuffer().setLength(0);
+            return new PrintWriter(body, true);
+        });
         Fapi2ProfileFilter f = new Fapi2ProfileFilter(request -> ISSUER, environment);
         f.init(config);
         return f;
@@ -88,12 +92,27 @@ class Fapi2ProfileFilterTest {
     @Test
     void withNoClientNamedItPassesEverythingThrough() throws Exception {
         HttpServletRequest bad = tokenRequest(assertion(FAPI_CLIENT, TOKEN_ENDPOINT), RS256_PROOF);
-        for (String setting : new String[] { null, "", "  ", " , ,, " }) {
+        for (String setting : new String[] { null, "", "  " }) {
             FilterChain c = mock(FilterChain.class);
             filterFor(setting).doFilter(bad, response, c);
             verify(c).doFilter(bad, response);
         }
         verify(response, never()).setStatus(anyInt());
+    }
+
+    /**
+     * The list is read through its catalogue entry (plan item ST-5): the init-param, then the system property, then the
+     * environment variable, space- or comma-separated; a list of nothing (a comma alone) is refused, naming the setting,
+     * where the reader before 0.6.0 read it as nobody.
+     */
+    @Test
+    void theClientListIsReadInOrderAndAListOfNothingIsRefused() {
+        Fapi2ProfileFilter f = new Fapi2ProfileFilter(request -> ISSUER, name -> Fapi2ProfileFilter.CLIENTS_ENV.equals(name) ? "env-client" : null);
+        assertEquals(java.util.Set.of("from-init", "another"), f.clients(name -> "clients".equals(name) ? "from-init another" : null));
+        assertEquals(java.util.Set.of("env-client"), f.clients(name -> null));
+        Fapi2ProfileFilter nothing = new Fapi2ProfileFilter(request -> ISSUER, name -> Fapi2ProfileFilter.CLIENTS_ENV.equals(name) ? " , ,, " : null);
+        assertEquals(Fapi2ProfileFilter.CLIENTS_ENV, org.junit.jupiter.api.Assertions.assertThrows(
+                com.pingidentity.ps.oidf.platform.settings.SettingRefused.class, () -> nothing.clients(name -> null)).setting());
     }
 
     /**
@@ -330,5 +349,87 @@ class Fapi2ProfileFilterTest {
         verify(response).setContentType("application/json");
         verify(response).setHeader("Cache-Control", "no-store");
         assertTrue(JsonUtil.parseJson(body.toString()).containsKey("error_description"));
+    }
+
+    // ─────────────────────────────── fapi.request.refused, and what the caller reads ───────────────────────────────
+
+    private static long refusedCount(String rule) {
+        for (com.pingidentity.ps.oidf.platform.metrics.MetricSnapshot metric : com.pingidentity.ps.oidf.platform.metrics.Metrics.snapshot()) {
+            if (metric.getName().equals("oidf_events_total")) {
+                long total = 0;
+                for (com.pingidentity.ps.oidf.platform.metrics.SeriesSnapshot series : metric.getSeries()) {
+                    if (series.getLabelValues().contains(FapiEvents.REFUSED)) {
+                        total += (long) series.getValue();
+                    }
+                }
+                return total;
+            }
+        }
+        return 0L;
+    }
+
+    /** Plan item O-2: each rule the filter refuses on is one fapi.request.refused, naming the client and counted. */
+    @Test
+    @Requirement({"FAPI2-SP §5.3.2.1(2.8)", "FAPI2-SP §5.4.1(2.1.2.2)"})
+    void everyRefusalIsAnEventNamingTheRuleAndTheClientAndIsCounted() throws Exception {
+        List<com.pingidentity.ps.oidf.platform.events.Event> events = new java.util.ArrayList<>();
+        com.pingidentity.ps.oidf.platform.events.Events.reset();
+        com.pingidentity.ps.oidf.platform.events.Events.configure(events::add);
+        try {
+            long before = refusedCount(null);
+            Fapi2ProfileFilter f = filterFor("*");
+            String unreadable = jwt("{\"alg\":\"PS256\"}", "{}");
+            f.doFilter(request("/as/token.oauth2", new String[] { assertion(FAPI_CLIENT, ISSUER), assertion(FAPI_CLIENT, ISSUER) }, null, null),
+                    response, chain);
+            f.doFilter(tokenRequest(unreadable), response, chain);
+            f.doFilter(tokenRequest(assertion(FAPI_CLIENT, TOKEN_ENDPOINT)), response, chain);
+            f.doFilter(tokenRequest(assertion(FAPI_CLIENT, ISSUER), "not-a-jwt"), response, chain);
+            f.doFilter(tokenRequest(assertion(FAPI_CLIENT, ISSUER), RS256_PROOF), response, chain);
+            // Only the refusals: starting the filter may record events of its own.
+            events.removeIf(e -> !FapiEvents.REFUSED.equals(e.code()));
+
+            assertEquals(List.of("repeated_client_assertion", "unreadable_client_assertion", "client_assertion_audience",
+                    "unreadable_dpop_proof", "dpop_algorithm"), events.stream().map(e -> e.fields().get("rule")).toList());
+            assertEquals(java.util.Arrays.asList(null, null, FAPI_CLIENT, FAPI_CLIENT, FAPI_CLIENT),
+                    events.stream().map(com.pingidentity.ps.oidf.platform.events.Event::subject).toList());
+            assertEquals(List.of("invalid_request", "invalid_client", "invalid_client", "invalid_dpop_proof", "invalid_dpop_proof"),
+                    events.stream().map(com.pingidentity.ps.oidf.platform.events.Event::reason).toList());
+            for (com.pingidentity.ps.oidf.platform.events.Event event : events) {
+                assertEquals(FapiEvents.REFUSED, event.code());
+                assertEquals(FapiEvents.PROFILE_FILTER, event.fields().get("filter"));
+                assertEquals("/as/token.oauth2", event.fields().get("endpoint"));
+                assertTrue(event.audit());
+            }
+            assertEquals(before + 5, refusedCount(null), "counted in oidf_events_total");
+        } finally {
+            com.pingidentity.ps.oidf.platform.events.Events.reset();
+        }
+    }
+
+    /** H-FED-4: the caller reads the code's fixed description and a reference, whatever its assertion or proof carried. */
+    @Test
+    @Requirement("RFC6749 §5.2")
+    void aHostileMarkerNeverReachesTheResponse() throws Exception {
+        String marker = "hfede-marker-" + java.util.UUID.randomUUID();
+        Fapi2ProfileFilter f = filterFor("*");
+        for (HttpServletRequest hostile : List.of(
+                tokenRequest(assertion(marker, "https://" + marker)),
+                tokenRequest(assertion(FAPI_CLIENT, ISSUER), jwt("{\"typ\":\"dpop+jwt\",\"alg\":\"" + marker + "\"}", "{}")),
+                tokenRequest(marker))) {
+            f.doFilter(hostile, response, chain);
+            assertTrue(!body.toString().contains(marker), body.toString());
+            com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert.assertGeneric(refusedWith(), body.toString());
+        }
+        assertEquals("unreadable_client_assertion", Fapi2ProfileFilter.rule(new Fapi2RequestPolicy.Violation("invalid_client",
+                Fapi2ProfileFilter.UNREADABLE_ASSERTION)));
+        assertEquals("client_assertion_audience", Fapi2ProfileFilter.rule(new Fapi2RequestPolicy.Violation("invalid_client", null)));
+    }
+
+    @Test
+    void anEventsEndpointIsThePathOrUnknown() {
+        HttpServletRequest none = mock(HttpServletRequest.class);
+        assertEquals("unknown", FapiEvents.endpoint(none));
+        when(none.getRequestURI()).thenReturn(" ");
+        assertEquals("unknown", FapiEvents.endpoint(none));
     }
 }

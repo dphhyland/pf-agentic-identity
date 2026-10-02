@@ -15,6 +15,8 @@ import static org.mockito.Mockito.when;
 import com.pingidentity.ps.oidf.federation.event.FederationEvent;
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.federation.event.LogSafe;
+import com.pingidentity.ps.oidf.platform.events.EventCatalogues;
+import com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink;
 import com.pingidentity.sdk.logging.LoggingUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
@@ -31,6 +33,7 @@ import org.mockito.MockedStatic;
  * The PingFederate sink: every event reaches {@code server.log}; audit events also reach the audit
  * writer, with the caller's address; nothing an audit write does can fail a request.
  */
+@SuppressWarnings("removal")
 class PfAuditEventSinkTest {
 
     @AfterEach
@@ -133,8 +136,10 @@ class PfAuditEventSinkTest {
             sdk.verify(() -> LoggingUtil.setPartnerId("https://ta.example"));
             sdk.verify(() -> LoggingUtil.setRole("OP"));
             sdk.verify(() -> LoggingUtil.setRequestJti("j-1"));
-            sdk.verify(LoggingUtil::cleanup);
+            // H-FED-7 (F-0049): the thread's context is put back as it was, never emptied by the SDK's cleanup.
+            sdk.verify(LoggingUtil::cleanup, never());
             assertEquals(PfAuditEventSink.PROTOCOL, atLog.get("protocol"));
+            assertNull(ThreadContext.get("protocol"), "the protocol the record set is gone again");
 
             sdk.clearInvocations();
             new PfAuditEventSink.LoggingUtilAuditWriter().write(bare, null);
@@ -147,8 +152,7 @@ class PfAuditEventSinkTest {
             sdk.verify(() -> LoggingUtil.setRole(anyString()), never());
             sdk.verify(() -> LoggingUtil.setRequestJti(anyString()), never());
         } finally {
-            // The SDK's cleanup, which empties the protocol column in PingFederate, was mocked.
-            ThreadContext.remove("protocol");
+            ThreadContext.clearMap();
         }
     }
 
@@ -189,6 +193,30 @@ class PfAuditEventSinkTest {
         assertTrue(PfAuditEventSink.auditSwitch("yes"), "a typo must not be what turns security auditing off");
         assertTrue(PfAuditEventSink.auditSwitch("off"));
         assertTrue(PfAuditEventSink.auditSwitch("0"));
+    }
+
+    /** The shim writes its constants out, for ConfigurationDocumentedTest; they are PfAuditSink's. */
+    @Test
+    void theShimsConstantsArePfAuditSinks() {
+        assertEquals(PfAuditSink.AUDIT_ENV, PfAuditEventSink.AUDIT_ENV);
+        assertEquals(PfAuditSink.AUDIT_PROP, PfAuditEventSink.AUDIT_PROP);
+        assertEquals(PfAuditSink.MAX_VALUE_LENGTH_ENV, PfAuditEventSink.MAX_VALUE_LENGTH_ENV);
+        assertEquals(PfAuditSink.DEFAULT_PROTOCOL, PfAuditEventSink.PROTOCOL);
+        assertEquals(PfAuditEventSink.PROTOCOL, PfAuditSink.protocolOf(
+                FederationEvents.event(FederationEvents.REGISTRATION_CREATED).build().toEvent(), EventCatalogues.current()));
+    }
+
+    @Test
+    void aFieldTheCatalogueDoesNotDeclareReachesNeitherLog() {
+        List<FederationEvent> serverLog = new ArrayList<>();
+        List<Written> audit = new ArrayList<>();
+        PfAuditEventSink sink = new PfAuditEventSink(serverLog::add, (e, r) -> audit.add(new Written(e, r)), true);
+
+        sink.emit(FederationEvents.event(FederationEvents.KEY_REVOKED).field("kid", "k1").field("private_key", "secret")
+                .audit().build());
+
+        assertEquals(Map.of("kid", "k1"), serverLog.get(0).fields());
+        assertEquals(Map.of("kid", "k1"), audit.get(0).event().fields());
     }
 
     // ---- tracking ----------------------------------------------------------------------------------

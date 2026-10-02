@@ -3,6 +3,8 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.signals.CaepRiscEvents;
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -53,7 +55,7 @@ public record EmitRequest(String eventType, SubjectId subject, Map<String, Objec
         if (!(subjectJson instanceof Map)) {
             throw new IllegalArgumentException("\"subject\" must be a subject identifier object");
         }
-        SubjectId subject = SubjectId.fromMap((Map<String, Object>) subjectJson);
+        SubjectId subject = SsfSubjects.parse((Map<String, Object>) subjectJson);
         Object eventJson = body.get("event");
         if (eventJson != null && !(eventJson instanceof Map)) {
             throw new IllegalArgumentException("\"event\" must be an object");

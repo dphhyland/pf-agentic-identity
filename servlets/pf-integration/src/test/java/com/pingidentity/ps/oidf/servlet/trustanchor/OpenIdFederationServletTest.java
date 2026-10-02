@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
+import com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -129,7 +130,7 @@ class OpenIdFederationServletTest {
         Exchange exchange = new Exchange(new OpenIdFederationServlet(service, configuration, req -> PF, discovery), "/.well-known/openid-federation",
                 Map.of());
 
-        Map<?, ?> metadata = (Map<?, ?>) JwtCodec.parseUnverifiedClaims(exchange.body.toString()).getClaimValue("metadata");
+        Map<?, ?> metadata = (Map<?, ?>) JwtCodec.parseUnverifiedClaims(exchange.body.toString()).unverifiedClaim("metadata");
         assertEquals(PF + "/pf/JWKS", ((Map<?, ?>) metadata.get("openid_provider")).get("jwks_uri"),
                 "the request that asked for the Entity Configuration read PingFederate's discovery first");
     }
@@ -150,7 +151,7 @@ class OpenIdFederationServletTest {
 
         verify(exchange.response).setStatus(200);
         verify(exchange.response).setContentType("application/entity-statement+jwt");
-        assertEquals(PF, JwtCodec.parseUnverifiedClaims(exchange.body.toString()).getSubject());
+        assertEquals(PF, JwtCodec.parseUnverifiedClaims(exchange.body.toString()).unverifiedSubject());
     }
 
     @Test
@@ -160,7 +161,7 @@ class OpenIdFederationServletTest {
 
         verify(exchange.response).setStatus(200);
         verify(exchange.response).setContentType("application/entity-statement+jwt");
-        assertEquals(HOSTED, JwtCodec.parseUnverifiedClaims(exchange.body.toString()).getSubject());
+        assertEquals(HOSTED, JwtCodec.parseUnverifiedClaims(exchange.body.toString()).unverifiedSubject());
     }
 
     @Test
@@ -171,6 +172,29 @@ class OpenIdFederationServletTest {
         assertError(get("/federation/fetch", Map.of("sub", new String[] {HOSTED}, "iss", new String[] {"https://other.example"})),
                 404, "invalid_issuer");
         assertError(get("/federation/fetch", Map.of("sub", new String[] {"https://stranger.example"})), 404, "not_found");
+    }
+
+    /**
+     * H-FED-4 (F-0046): whatever the caller put in a parameter - a subject, an issuer, a trust anchor, an entity type -
+     * the federation endpoints answer with the code's fixed description and a reference, never the value.
+     */
+    @Test
+    void aHostileMarkerNeverReachesTheResponse() throws Exception {
+        String marker = "hfede-marker-" + java.util.UUID.randomUUID();
+        String markedEntity = "https://stranger.example/" + marker;
+        List<Exchange> exchanges = List.of(
+                get("/federation/fetch", Map.of("sub", new String[] {markedEntity})),
+                get("/federation/fetch", Map.of("sub", new String[] {marker})),
+                get("/federation/fetch", Map.of("sub", new String[] {HOSTED}, "iss", new String[] {markedEntity})),
+                get("/federation/list", Map.of("intermediate", new String[] {marker})),
+                get("/federation/resolve", Map.of("sub", new String[] {markedEntity}, "trust_anchor", new String[] {markedEntity})),
+                get("/federation/" + marker, Map.of()),
+                new Exchange(servlet(true), "/federation/fetch", Map.of("sub", new String[] {HOSTED})));
+        for (Exchange exchange : exchanges) {
+            String body = exchange.body.toString();
+            assertTrue(!body.contains(marker), body);
+            PublicErrorsAssert.assertGeneric((String) exchange.error().get("error"), body);
+        }
     }
 
     @Test
@@ -202,6 +226,24 @@ class OpenIdFederationServletTest {
         assertEquals("resolve-response+jwt", JwtCodec.getJwtHeaders(exchange.body.toString()).get("typ"));
     }
 
+    /**
+     * H-FED-9: one caller is answered about at most the settings' number of distinct subjects a minute (30 unset); one more
+     * is 503 temporarily_unavailable with the seconds to wait. Each refused subject still counted: it cost a lookup.
+     */
+    @Test
+    @Requirement({"OIDFED §18.1(1)", "OIDFED §8.9(2.2.2.6)"})
+    void aCallerOverItsShareOfSubjectsIsToldWhenToAskAgain() throws Exception {
+        OpenIdFederationServlet servlet = servlet(false);
+        for (int i = 0; i < 30; i++) {
+            assertError(new Exchange(servlet, "/federation/resolve", Map.of("sub", new String[] {"https://s" + i + ".example"},
+                    "trust_anchor", new String[] {PF})), 404, "invalid_subject");
+        }
+        Exchange limited = new Exchange(servlet, "/federation/resolve", Map.of("sub", new String[] {HOSTED}, "trust_anchor", new String[] {PF}));
+
+        assertError(limited, 503, "temporarily_unavailable");
+        verify(limited.response).setHeader(org.mockito.ArgumentMatchers.eq("Retry-After"), org.mockito.ArgumentMatchers.matches("[1-9][0-9]*"));
+    }
+
     @Test
     @Requirement({"OIDFED §8.3.1(2.4)", "OIDFED §8.9(2.2.4.7)"})
     void resolveRefusalsAreJsonWithTheirStatus() throws Exception {
@@ -223,7 +265,7 @@ class OpenIdFederationServletTest {
         Exchange exchange = new Exchange(servlet(true), "/federation/fetch", Map.of("sub", new String[] {HOSTED}));
 
         assertError(exchange, 500, "server_error");
-        assertEquals(FederationErrors.SERVER_ERROR_DESCRIPTION, exchange.error().get("error_description"));
+        PublicErrorsAssert.assertGenericDescription("server_error", exchange.error().get("error_description"));
         assertTrue(!exchange.body.toString().contains("secret-host"), exchange.body.toString());
     }
 
@@ -241,8 +283,8 @@ class OpenIdFederationServletTest {
         Exchange exchange = new Exchange(servlet, "/federation/fetch", Map.of("sub", new String[] {"https://foreign.example"}));
 
         assertError(exchange, 503, "temporarily_unavailable");
-        assertEquals("the subordinate's entity configuration could not be fetched yet", exchange.error().get("error_description"),
-                "a 503 says what is wrong; only a fault of ours hides it");
+        // The caller has not authenticated: a 503 is the code's fixed description and a reference (H-FED-4).
+        PublicErrorsAssert.assertGenericDescription("temporarily_unavailable", exchange.error().get("error_description"));
     }
 
     @Test

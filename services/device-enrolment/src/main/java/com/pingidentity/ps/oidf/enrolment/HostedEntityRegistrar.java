@@ -5,21 +5,22 @@ package com.pingidentity.ps.oidf.enrolment;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pingidentity.ps.oidf.platform.http.AddressPolicy;
+import com.pingidentity.ps.oidf.platform.http.Deadline;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttp;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttpException;
+import com.pingidentity.ps.oidf.platform.http.OutboundRequest;
+import com.pingidentity.ps.oidf.platform.http.OutboundResponse;
+import com.pingidentity.ps.oidf.platform.http.TlsTrust;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
+import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLParameters;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -62,36 +63,73 @@ public interface HostedEntityRegistrar {
     }
 
     /**
-     * The PingFederate hosted-entity API: {@code POST <authority>/federation/agents} with the authority's
-     * admin bearer token (HostedEntityServlet, SELF_SIGNED mode).
+     * The PingFederate hosted-entity API: {@code POST <authority>/federation/agents} (HostedEntityServlet, SELF_SIGNED
+     * mode), an operator route that needs {@code oidf.admin.entities}: the headers come from {@link AuthorityCredentials}
+     * - a DPoP-bound client-credentials token, or in development the static bearer.
+     *
+     * <p>Both calls, the API's and the token endpoint's, go through platform's {@link OutboundHttp} (plan item S5d):
+     * connecting (TLS included) within platform's default 5 s, and the whole exchange within {@link #TOTAL_TIMEOUT},
+     * the 10 s the JDK client gave the headers alone before; bodies up to platform's default cap, 256 KiB. The authority
+     * is PingFederate, which this service reaches by an address of the operator's choosing - often internal to the
+     * deployment - so the URLs it is configured with ({@code PF_AUTHORITY_URL}, {@code PF_AUTHORITY_TOKEN_ENDPOINT})
+     * are exempt from the scheme and address rules, each pinned to its scheme, host, port and path, and nothing else
+     * is. A call that fails is the enrolment's {@code server_error}, with the reason in its message.
      */
     final class PingFederate implements HostedEntityRegistrar {
         private static final Log LOGGER = LogFactory.getLog(PingFederate.class);
         private static final ObjectMapper JSON = new ObjectMapper();
+        /** The environment variable that turns the trust-all on, and the name InsecureTls records it under. */
+        static final String INSECURE_TLS = "PF_AUTHORITY_INSECURE_TLS";
+        /** The whole of one call to the authority, the answer's body included. */
+        static final Duration TOTAL_TIMEOUT = Duration.ofSeconds(10);
 
         private final String authorityEntityId;
         private final URI baseUrl;
-        private final String adminToken;
-        private final HttpClient http;
+        private final AuthorityCredentials credentials;
+        private final OutboundHttp http;
+        private final Duration total;
 
         /**
          * @param authorityEntityId the authority's Entity Identifier (PingFederate's issuer)
          * @param baseUrl where to reach it from here - differs from the identifier when PF runs in a container
-         * @param insecureTls dev only: trust PF's self-signed listener. Loudly logged.
+         * @param insecureTls dev only: trust PF's self-signed listener ({@value #INSECURE_TLS}), through platform's
+         *                    {@link InsecureTls}, which warns once and records the use; the host name is still checked
          */
         public PingFederate(String authorityEntityId, String baseUrl, String adminToken, boolean insecureTls) {
+            this(authorityEntityId, baseUrl, null, TlsTrust.insecureIf(INSECURE_TLS, insecureTls), TOTAL_TIMEOUT,
+                    http -> new AuthorityCredentials.StaticBearer(adminToken));
+        }
+
+        /**
+         * @param tokenEndpoint the authority's token endpoint when it is configured apart from {@code baseUrl}, or null
+         * @param credentials the credentials, given the HTTP client this registrar builds (the token endpoint is reached
+         *                    through the same client and TLS trust as the API)
+         */
+        PingFederate(String authorityEntityId, String baseUrl, String tokenEndpoint, TlsTrust trust, Duration total,
+                     java.util.function.Function<OutboundHttp, AuthorityCredentials> credentials) {
             this.authorityEntityId = Objects.requireNonNull(authorityEntityId, "authorityEntityId");
             this.baseUrl = URI.create(Objects.requireNonNull(baseUrl, "baseUrl").replaceAll("/+$", ""));
-            this.adminToken = Objects.requireNonNull(adminToken, "adminToken");
-            HttpClient.Builder builder = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5));
-            if (insecureTls) {
-                LOGGER.warn((Object) "PF_AUTHORITY_INSECURE_TLS=true: certificate checks OFF for the hosted-entity API (dev only)");
-                builder.sslContext(trustAll());
-                SSLParameters params = new SSLParameters();
-                params.setEndpointIdentificationAlgorithm(null);
-                builder.sslParameters(params);
-            }
-            this.http = builder.build();
+            this.http = OutboundHttp.builder(AddressPolicy.builder().trusting(this.baseUrl.toString(), tokenEndpoint).build())
+                    .tls(trust)
+                    .build();
+            this.total = total;
+            this.credentials = Objects.requireNonNull(credentials.apply(this.http), "credentials");
+        }
+
+        /**
+         * The registrar {@code settings} describe in {@code profile} ({@link AuthorityCredentials#from}): Main's one
+         * way in.
+         *
+         * @throws IllegalStateException naming the settings to change
+         */
+        public static PingFederate of(String authorityEntityId, AuthorityCredentials.Settings settings, boolean insecureTls,
+                                      DeploymentProfile profile) {
+            PingFederate registrar = new PingFederate(authorityEntityId, settings.authorityUrl(), settings.tokenEndpoint(),
+                    TlsTrust.insecureIf(INSECURE_TLS, insecureTls), TOTAL_TIMEOUT,
+                    http -> AuthorityCredentials.from(settings, profile, http, Clock.systemUTC()));
+            LOGGER.info((Object) ("federation onboarding at " + authorityEntityId + " authenticates with "
+                    + registrar.credentials.describe()));
+            return registrar;
         }
 
         @Override
@@ -115,18 +153,19 @@ public interface HostedEntityRegistrar {
                 body.put("ownerRef", ownerRef);
             }
             try {
-                HttpRequest request = HttpRequest.newBuilder(URI.create(this.baseUrl + "/federation/agents"))
-                        .timeout(Duration.ofSeconds(10))
-                        .header("Authorization", "Bearer " + this.adminToken)
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
-                        .build();
-                HttpResponse<String> response = this.http.send(request, HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() != 201) {
-                    throw EnrolmentException.serverError("the federation authority refused the agent (HTTP "
-                            + response.statusCode() + "): " + response.body(), null);
+                URI collection = URI.create(this.baseUrl + "/federation/agents");
+                OutboundRequest.Builder request = OutboundRequest.builder(OutboundRequest.Method.POST, collection)
+                        .body("application/json", JSON.writeValueAsString(body));
+                this.credentials.headers("POST", collection).forEach(request::header);
+                OutboundResponse response = this.http.send(request.build(), Deadline.after(this.total));
+                if (response.status() == 401) {
+                    this.credentials.rejected();
                 }
-                JsonNode created = JSON.readTree(response.body());
+                if (response.status() != 201) {
+                    throw EnrolmentException.serverError("the federation authority refused the agent (HTTP "
+                            + response.status() + "): " + response.bodyText(), null);
+                }
+                JsonNode created = JSON.readTree(response.bodyText());
                 String entityId = created.path("entityId").asText(null);
                 if (entityId == null) {
                     throw EnrolmentException.serverError("the federation authority returned no entityId", null);
@@ -135,31 +174,11 @@ public interface HostedEntityRegistrar {
                 return entityId;
             } catch (EnrolmentException e) {
                 throw e;
+            } catch (OutboundHttpException e) {
+                throw EnrolmentException.serverError("could not reach the federation authority: " + e.reason() + ": "
+                        + e.getMessage(), e);
             } catch (Exception e) {
                 throw EnrolmentException.serverError("could not reach the federation authority: " + e.getMessage(), e);
-            }
-        }
-
-        private static SSLContext trustAll() {
-            try {
-                SSLContext ctx = SSLContext.getInstance("TLS");
-                ctx.init(null, new TrustManager[]{new X509TrustManager() {
-                    @Override
-                    public void checkClientTrusted(X509Certificate[] chain, String authType) {
-                    }
-
-                    @Override
-                    public void checkServerTrusted(X509Certificate[] chain, String authType) {
-                    }
-
-                    @Override
-                    public X509Certificate[] getAcceptedIssuers() {
-                        return new X509Certificate[0];
-                    }
-                }}, new SecureRandom());
-                return ctx;
-            } catch (Exception e) {
-                throw new IllegalStateException(e);
             }
         }
     }

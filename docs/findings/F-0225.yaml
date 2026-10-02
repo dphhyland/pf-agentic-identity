@@ -1,0 +1,27 @@
+id: F-0225
+title: DpopProofValidator lives in client-attestation, so a module that shares it takes client-attestation with it
+severity: low
+area: rs-validation, client-attestation, platform-pf
+source: pr-review
+status: closed
+plan_items: [S8a]
+prs: [59, 71]
+verification: >
+  2026-09-30, branch prod/p3-operator-authenticator (PR 71): DpopProofValidator and DpopProof are in
+  libs/oidf-jose as com.pingidentity.ps.oidf.jose.dpop, with DpopProofValidatorTest and HtuComparisonTest and
+  their methods in oidf-jose's 100% METHOD gate. libs/rs-validation's pom names oidf-jose and platform and not
+  client-attestation; client-attestation imports the moved classes. The oidf-jose, rs-validation and
+  client-attestation suites pass on JDK 17 (397 tests in client-attestation, 117 in rs-validation) and 21.
+  platform-pf's OperatorAuthenticator checks proofs through rs-validation and oidf-jose, with no path to
+  client-attestation.
+target_release: 0.6.0
+notes: >
+  Found while building XD01 (2026-09-28). libs/rs-validation checks DPoP proofs with
+  com.pingidentity.ps.oidf.clientattestation.DpopProofValidator, as demo-rs did, so it depends on
+  libs/client-attestation (and through it rar-model). Plan item S8a's OperatorAuthenticator in platform-pf verifies
+  DPoP the same way (htm, htu from the configured base URL, ath, jti replay and thumbprint), and the plan wants it
+  built without a platform-pf -> client-attestation dependency. XD01 leaves DpopProofValidator where it is (its spec
+  forbids touching client-attestation). The fix is S8a's to choose: move DpopProofValidator and DpopProof (and the
+  RFC 3986 htu normalisation with them) into oidf-jose or platform, with client-attestation and rs-validation
+  importing them from there, or have platform-pf depend on rs-validation for its DPoP checks, which would still take
+  client-attestation until the move.

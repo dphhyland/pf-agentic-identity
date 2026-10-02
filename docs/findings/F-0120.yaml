@@ -1,0 +1,42 @@
+id: F-0120
+title: Every release publishes the CIBA simulator to GitHub Packages
+severity: low
+area: ciba-sim, release
+source: pr-review
+status: closed
+plan_items: [X-D02]
+prs: [105]
+verification: >
+  Closed by SPB on 2026-10-01. plugins/ciba-sim/pom.xml sets <maven.deploy.skip>true</maven.deploy.skip>, so a
+  release's deploy step no longer publishes com.pingidentity.ps.oidf:ciba-sim to GitHub Packages; nothing in this
+  repository resolves it from a repository (the rig stages it from the reactor with stage-modules.sh, or from a
+  release with stage-from-release.sh). install and deploy still build it, so release.yml's rebuild comparisons still
+  cover its jar, which is now a release asset: tools/ci/assemble-dist.sh copies it into dist/ as
+  demo-only-ciba-sim.jar, the asset decision, so that a rig can be built from a release and nothing globbing
+  pf.plugins.* deploys it. Two installs of 0.7.0-SNAPSHOT on 2026-10-01 made byte-identical copies of the jar. The
+  name alone does not keep it out of PingFederate (U-0460): its gate does, refusing every request outside
+  OIDF_DEPLOYMENT_PROFILE=development.
+target_release: 0.7.0
+notes: >
+  Found while verifying F-0014 for PR #33 on 2026-09-27. plugins/ciba-sim sets no maven.deploy.skip, so a
+  release's `mvn -B -DskipTests deploy` (release.yml line 392) publishes com.pingidentity.ps.oidf:ciba-sim to
+  GitHub Packages with the other modules, although the release stages the production profile and, from 0.4.0,
+  leaves the jar out of its assets (PR #19). The v0.3.0 release job's log runs `deploy:3.1.4:deploy` on
+  ciba-sim for 9 s with no skip (job 108514273867). v0.1.5's release (2026-09-23T23:07Z) and v0.3.0's
+  (2026-09-27T00:14Z) also carry pf.plugins.ciba-sim.jar among their assets. From 0.4.0 the simulator refuses
+  every request outside OIDF_DEPLOYMENT_PROFILE=development, so a consumer who pulls a 0.4.0 artefact gets a
+  jar that does nothing in production; the 0.3.0 one runs on OIDF_CIBA_SIM_ENABLED alone. A conformance-only
+  test double has no reason to be published either way. The fix is `<maven.deploy.skip>true</maven.deploy.skip>`
+  in plugins/ciba-sim/pom.xml, as services/harness has, once it is checked that no consumer resolves the
+  artefact: nothing in this repository does, and the rig builds it from the reactor. Listing the packages
+  needs the read:packages scope, which the gh token here lacks (2026-09-27).
+
+  Retargeted from 0.5.0 to 0.6.0 on 2026-09-29, still open: plugins/ciba-sim/pom.xml on origin/main 4b1fd979 still
+  sets no maven.deploy.skip (only services/gm-api/servlet, services/harness, libs/testkit and the root aggregator
+  do), so the 0.5.0 release's deploy step publishes com.pingidentity.ps.oidf:ciba-sim to GitHub Packages again. The fix is a one-line pom change, which the release
+  package does not make: it changes the poms' version only, through tools/set-version.py.
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  plugins/ciba-sim/pom.xml still sets no maven.deploy.skip, so the release deploys com.pingidentity.ps.oidf:ciba-sim
+  to GitHub Packages; the fix is a pom change the release package does not make. X-D02, the finding's plan item, was
+  Phase 1 and has no later release. The programme plan gives it no later item of its own, so David schedules it.

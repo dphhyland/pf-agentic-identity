@@ -3,10 +3,17 @@ title: CAS proofs without iat can be replayed after the 300 s jti window
 severity: high
 area: attestation-issuer
 source: design
-status: open
+status: closed
 plan_items: [S4c]
-prs: []
-verification: ''
+prs: [74]
+verification: >
+  Closed 2026-09-30 by S4CP (PR #74, plan item S4c, proof side). InstanceKeyProofValidator requires iat and exp, exp after
+  iat by at most 300 s, and accepts the proof only from iat - 60 s to exp + 60 s (CAS section 4.3, read verbatim
+  2026-09-30); the attester records the jti until exp + 60 s through AttestationReplayCache.recordUntil, and the
+  token endpoint records a PoP or DPoP jti until max(iat + max age + 2 x skew, now + max age + skew). Fake-clock
+  tests on both surfaces refuse a replay one second before the retention ends and refuse the proof as stale one
+  second after it; RedisLiveTest showed the same against a local Redis 7, and both modules' tests passed on JDK
+  17, 20 and PingFederate 13.1.3's JDK 21. The same hole in device-enrolment's key proofs is F-0305.
 target_release: 0.6.0
 notes: >
   Found while designing, item 7. The replay store forgets a `jti` after 300 s and a proof with no `iat` is not

@@ -1,0 +1,37 @@
+id: U-0195
+title: Whether name resolution and request writes, which no OutboundHttp deadline bounds, stay short in practice
+area: platform
+source: design
+status: open
+plan_items: [S5a]
+prs: [55, 69]
+recorded_in: libs/platform/README.md, the http section, What the deadlines do not bound
+verify_by: >
+  On the pinned PingFederate image, time InetAddress.getAllByName against a resolver that never answers (the
+  image's resolv.conf timeout and attempts decide it), and read the default SO_SNDBUF of a connected socket to
+  compare with OutboundRequest.MAX_REQUEST_BODY_BYTES (1 MiB). If either is long enough to matter, S5AR resolves
+  on a thread of a managed executor (C-3) bounded by the deadline, or lowers the body cap.
+verification: ''
+notes: >
+  Every read OutboundHttp makes is bounded by what is left of its deadline (DeadlineSocket), and the connect is
+  bounded by Socket.connect's timeout. Two blocking steps are not: InetAddress.getAllByName takes no timeout, so
+  a slow DNS server costs the system resolver's own timeout; and a socket write has no timeout in Java, so a
+  peer that accepts and then stops reading holds a write of a body larger than the send buffer. Bounding either
+  without a thread is not possible with the JDK's blocking API. The PR's review probed the write on 2026-09-28: a
+  1 MiB POST to a peer that accepted and never read, with a 1000 ms deadline, returned after 5009 ms on macOS and
+  JDK 17, and at the deadline on the image's JDK 21 over loopback (64 KiB to 1 MiB), so the cap limits how much a
+  write waits on, not how long.
+  Package S5B measured both on 2026-09-30. The lookup: on the pinned image's java (openjdk 21.0.12.1, docker run
+  --dns 10.255.255.1 so the only resolver never answers) InetAddress.getAllByName of an unknown name gave up after
+  5017 ms (5.05 s on 2026-09-29); the image's resolv.conf sets no timeout or attempts, so glibc's defaults decide
+  it. That is short enough: OutboundHttp starts no request once its deadline has passed, so a lookup costs at most
+  about 5 s past one. The write is not. A connected loopback socket's SO_SNDBUF on Docker Desktop was 1,313,280
+  bytes, but loopback's MSS is about 32 K and Linux sizes the initial send buffer from the MSS. Between two
+  python:3.13-alpine containers on a Docker bridge with MTU 1500, SO_SNDBUF at connect was 46,080 bytes and the MSS
+  1448; writing 1 KiB at a time to a peer that accepted and never read, the first write to wait came after 611,328
+  bytes with the peer's receive buffer at its default, 27,648 with it set to 4096 and 14,336 with it set to 1 (MSS
+  576); a single 9 KiB write returned at once in every case. So a request body above about 14 KiB can wait on a
+  peer that does not read, with no bound, well below the 1 MiB cap, and this stays open for S5AR (a writer thread
+  bounded by the deadline, or a lower cap). The one body a trust chain resolution sends is the Trust Mark status
+  request, and S5B rejects a mark larger than 8192 bytes rather than send it (TrustMarkValidator.MAX_STATUS_MARK_BYTES),
+  so a resolution overruns its wall clock by at most one lookup; libs/openid-federation/README.md records the bound.

@@ -1,0 +1,27 @@
+id: F-0275
+title: The operator APIs' failed-authentication limit counts the container's remote address, so behind a proxy every caller shares one counter
+severity: low
+area: platform-pf
+source: design
+status: closed
+plan_items: [S8a, H-ATT-3]
+prs: [71, 89]
+verification: >
+  Closed 2026-10-01 by the v0.6.0 release package on origin/main 600fa6b5: HATT2 (PR #89) built
+  platform.net.TrustedProxies (plan item H-ATT-3) and moved the operator limits onto it, as the finding's fix said.
+  OperatorAuthenticator.java line 350 takes the client address from
+  `TrustedProxies.current().clientAddress(request.getRemoteAddr(), ...)`, which believes X-Forwarded-For (or
+  Forwarded, with OIDF_TRUSTED_PROXIES_HEADERS=forwarded) only from the proxies OIDF_TRUSTED_PROXIES lists, so
+  behind a listed proxy each caller has its own failed-authentication counter; unset, no header is believed, as
+  before. HATT2's release note (docs/releases/0.6.0.md, "Name your proxies in `OIDF_TRUSTED_PROXIES`") says so.
+target_release: 0.6.0
+notes: >
+  Found while building S8A (2026-09-30). OperatorAuthenticator refuses a client address that has failed
+  authentication OIDF_OPERATOR_AUTH_FAILURES_PER_MINUTE times (10) in the current minute, before its token is
+  looked at, and the address is HttpServletRequest.getRemoteAddr(), never X-Forwarded-For, as S8A's spec requires
+  until a trusted-proxy rule exists. Behind a load balancer or reverse proxy that PingFederate does not see through,
+  every caller has the proxy's address, so ten failures by anyone - a mistyped token, or someone guessing - answer
+  every operator request 429 for the rest of the minute, a legitimate operator's included. Nothing uses the
+  authenticator in this release; S8b puts the operator surfaces on it. PLAN.md (Phase 3) gives the fix to HATT2:
+  platform.net.TrustedProxies (plan item H-ATT-3), with the operator limits moved onto it in the same change. Until
+  then docs/operator/operator-authentication.md says to configure PingFederate's proxy settings or raise the limit.

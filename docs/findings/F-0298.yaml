@@ -1,0 +1,28 @@
+id: F-0298
+title: A governed init-param, plugin field or extended property is refused only once its reader reads through the catalogue
+severity: medium
+area: platform, openid-federation, rar-paz-plugin, instance-registry-datasource
+source: design
+status: closed
+plan_items: [PR-5, ST-5, PR-3]
+prs: [77, 85, 91, 92]
+verification: >
+  Closed 2026-10-01 by the v0.6.0 release package on origin/main 600fa6b5: every reader this finding named now reads
+  through its catalogue, so a governed value from an init-param, a plugin field or an extended property is refused
+  where it is read. ST5F (PR #91) converted FederationConfiguration (the init-params ignoreSslErrors and
+  resolveDiscovery); PLG (PR #92) the RAR plugin's "Skip TLS verification (dev only)", "Trust a client-asserted
+  principal" and "Fail open on engine error", refused on save and at configure; ST5S (PR #85) the instance
+  registry's "JDBC URL" field, refused at configure. The one governed init-param still read by hand is the static
+  bearer's adminToken (OperatorApi.setting, admitted by tools/direct-read-allow.txt under F-0421, open for 0.7.0);
+  OperatorAuthenticator never accepts that token in production and answers every operator route 503 while it is set,
+  however it was read.
+target_release: 0.6.0
+notes: >
+  Found by PR5 (2026-09-30). The start-up sweep reads the environment and the system properties only; an init-param,
+  a plugin's field and a client's extended property reach their readers from PingFederate. PR5 refuses them at read:
+  a Settings read whose value came from an init-param, and Settings.parse of a plugin field or extended property,
+  throw ProfileRefused under production. No reader of such a governed entry reads through Settings yet, so
+  openid-federation's init-param ignoreSslErrors, the RAR plugin's "Skip TLS verification (dev only)", "Trust a
+  client-asserted principal" and "Fail open on engine error" fields, the instance registry's "JDBC URL" field, and
+  OIDF_FEDERATION_RESOLVE_DISCOVERY given as the init-param resolveDiscovery are not refused yet. Who and when: ST5F
+  converts FederationConfiguration, PLG the RAR plugin's GUI and configure, ST5S the instance registry datasource.

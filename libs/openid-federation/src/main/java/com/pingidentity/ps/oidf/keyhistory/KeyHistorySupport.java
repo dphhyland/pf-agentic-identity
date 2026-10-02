@@ -36,6 +36,11 @@ public final class KeyHistorySupport {
         }
 
         @Override
+        public HistoricalKey revokeUnrevoked(String kid, Instant revokedAt, String reason) throws AuthorityRegistryException {
+            return store().revokeUnrevoked(kid, revokedAt, reason);
+        }
+
+        @Override
         public List<HistoricalKey> retired() throws AuthorityRegistryException {
             return store().retired();
         }
@@ -79,7 +84,7 @@ public final class KeyHistorySupport {
     }
 
     /** Tests only: forget the store. */
-    public static void resetForTests() {
+    static void resetForTests() {
         synchronized (LOCK) {
             store = null;
         }

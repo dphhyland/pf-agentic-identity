@@ -1,0 +1,24 @@
+id: F-0337
+title: The agent registry opens a JDBC store of any database in production, where the plan refuses one that is not PostgreSQL
+severity: low
+area: agent-registry
+source: design
+status: open
+plan_items: [PR-2]
+prs: [80]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found by ST5A's review (2026-09-30). The Phase 3 plan's PR-2 table gives ST5A the non-PostgreSQL refusal for the
+  agent registry ("ProfileRefusals.refuse where each store opens"). ST5A built the registry's in-memory rule
+  (AgentRegistrySupport.configureInMemoryRegistry refuses ATTESTATION_ISSUER in production without the
+  in-memory-state risk) but not this one: AgentRegistrySupport.configureJdbcRegistry(DataSource) accepts any
+  DataSource. Nothing in the shipped code calls configureJdbcRegistry today - the attester keeps its registry in
+  memory unless an embedder configures one - so no deployment reaches the gap yet. The fix is a check of the
+  connection's database product name where configureJdbcRegistry opens the store, refusing ATTESTATION_ISSUER under
+  the production profile for anything but PostgreSQL, as ST5C does for SSF's stores; it belongs with whichever
+  package first wires a data store into the attester.
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  AgentRegistrySupport.configureJdbcRegistry still accepts any DataSource; nothing shipped calls it. It belongs with
+  the package that first wires a data store into the attester, which the plan does not name; David schedules it.

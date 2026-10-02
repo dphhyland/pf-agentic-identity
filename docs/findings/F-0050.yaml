@@ -3,13 +3,28 @@ title: 'Federation correctness: authority_hints for sub=self, isTrustAnchor by E
 severity: medium
 area: openid-federation
 source: reviewer-report
-status: open
+status: closed
 plan_items: [H-FED-8]
-prs: []
-verification: ''
+prs: [88, 91]
+verification: >
+  Closed 2026-10-01 by the v0.6.0 release package on origin/main 600fa6b5: both halves are merged, ST5F (PR #91)
+  first and HFEDL (PR #88) second, and HFEDL did not close it. The four parts, read in the code: authority_hints -
+  `/federation/entity?sub=<this entity>` now serves this entity's Entity Configuration, so both carry
+  authority_hints by one rule, none for a Trust Anchor and never [] (HFEDL; FederationServiceEndpointsTest);
+  isTrustAnchor by EntityId.same - FederationConfiguration refuses an OIDF_FEDERATION_TRUST_ANCHORS entry that is
+  not an Entity Identifier and compares with EntityId.same after folding scheme and host
+  (FederationConfiguration.java line 206, ST5F); commit only the validated route - TrustChainValidator.validate ends
+  with `pendingWrites.commitOnly(onRoute(result))` (TrustChainValidator.java line 188, HFEDL), under cache keys that
+  treat a trailing slash as the same entity; metadata_policy after the signature - EntityStatementChecks parses a
+  statement's policy operators only when the chain's policy is resolved, after every signature on the route has
+  verified (EntityStatementChecks.java line 226, HFEDL).
 target_release: 0.6.0
 notes: >
   From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
   register's rule for these items. Four fixes: the /federation/entity?sub=self authority_hints; isTrustAnchor
   via EntityId.same with validated anchor ids; commit only the validated route's statements and normalise
   cache keys; parse metadata_policy after the signature check.
+  ST5F (PR #91, 2026-09-30) did the anchor item: FederationConfiguration refuses an OIDF_FEDERATION_TRUST_ANCHORS
+  entry that is not an Entity Identifier (FEDERATION FAILED_CONFIG naming it), and isTrustAnchor compares with
+  EntityId.same after folding the scheme and host to lower case (RFC 3986 §6.2.2.1). The other three items are
+  HFEDL's; whichever of the two packages merges second closes this finding.

@@ -177,6 +177,18 @@ class Baseline(unittest.TestCase):
         self.assertIn("ok: 1 documents", out)
         self.assertEqual(run(["--root", root, "--no-git", os.path.join(root, "docs/coverage-dashboard.md")])[0], 1)
 
+    def test_the_public_overlay_is_not_link_checked_but_keeps_the_other_rules(self):
+        overlay = "tools/public-export/overlay/README.md"
+        root = tree({overlay: "[image](image/README.md)\n", "a.md": "[image](image/README.md)\n"})
+        code, out, err = run(["--root", root, "--no-git", os.path.join(root, overlay)])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(run(["--root", root, "--no-git", os.path.join(root, "a.md")])[0], 1)
+        root = tree({overlay: "[image](image/README.md) and an artifact\n"})
+        code, out, err = run(["--root", root, "--no-git"])
+        self.assertEqual(code, 1)
+        self.assertIn("1 spelling hit", err)
+        self.assertNotIn("link", err)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,7 +6,7 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>attestation-issuer</artifactId>
-    <version>0.4.0-SNAPSHOT</version>
+    <version>0.7.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>attestation-issuer</name>
@@ -26,20 +26,34 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.4.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.7.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
     <dependencies>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId></dependency>
+        <!-- The containment model every ceiling here is held to (plan item S1b), and its shared vectors for the
+             attester's runner (CasVectorRunnerTest). Staged beside this module's jar by
+             build/pingfederate/stage-modules.sh. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId><type>test-jar</type><scope>test</scope></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-integration</artifactId></dependency>
+        <!-- FederationRuntimeConfigTestAccess: the configuration's test hook is package-private (plan item H-FED-10). -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-integration</artifactId><type>test-jar</type><scope>test</scope></dependency>
+        <!-- PfInternals (plan item F-1): the metadata and attester-configuration servlets resolve the issuer
+             through it. Staged by build/pingfederate/stage-modules.sh; declared here, not only reached
+             through pf-integration, because this module names it. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform-pf</artifactId></dependency>
         <!-- Trust-chain validation for federation-backed wallet-provider trust (was only transitive). -->
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId><type>test-jar</type><scope>test</scope></dependency>
@@ -60,8 +74,8 @@
 
     <build>
         <plugins>
-            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
-            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.16.0</version></plugin>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.6.0</version></plugin>
 
             <!--
                 Coverage gate on the issuance decisions: who is allowed to be issued an attestation,
@@ -80,7 +94,7 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.12</version>
+                <version>0.8.15</version>
                 <executions>
                     <execution>
                         <id>prepare-agent</id>
@@ -104,6 +118,16 @@
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.parseRequest(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.asObjectList(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.mapEntitlementError(*</include>
+                                        <!-- S1b: what the attestation carries - the grant against the binding's ceiling
+                                             (authorize, INHERIT; the full ceiling for an empty request), the asserted
+                                             context's meet, the model set a mint uses - and the ceilings a client's
+                                             configuration is held to, an instance's kept as authorized (F-0034). -->
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.grant(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.intersectCeilings(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.rarModels(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.init(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.AttestationIssuanceConfig.instanceCeiling(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.AttestationIssuanceConfig.clientCeiling(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.federationWalletValidatorFromEnv(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.PfIssuanceClientResolver.resolve(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.ClientAttestationServiceMetadataServlet.metadata(*</include>
@@ -120,6 +144,134 @@
                                         <include>com.pingidentity.ps.oidf.issuer.OpenIdFederationClientResolver.parse(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterResolvers.fromEnvironment(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterResolvers.federationValidator(*</include>
+                                        <!-- S3b: the evidence binds to its first presenter and a conflict is refused and audited;
+                                             the policy on evidence lifetime and audience; the attestation never outlives the
+                                             evidence; and the raw evidence is digested, never copied. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.bindEvidence(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.evidencePolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.fromEnvironment(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.effectiveTtlSeconds(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.isProduction(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.InstanceIdentity.ofSpiffe(*</include>
+                                        <!-- M-1: the CAS document does not advertise a CIMD source the attester refuses. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientAttestationServiceMetadataServlet.metadataSources(*</include>
+                                        <!-- S3b: the digest that keys the binding, which covers only what the evidence's
+                                             signature covers; the refusal's error by format; which stores the
+                                             attester uses when none is injected; the thumbprint the binding holds; and
+                                             the WIA's iat, which the whole-lifetime cap reads. -->
+                                        <include>com.pingidentity.ps.oidf.issuer.InstanceIdentity.evidenceDigest(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.refuse(*</include>
+                                        <!-- ST5A: the attester's settings through their catalogues, strictly: the servlets'
+                                             start functions, the per-client properties' parse and what a refusal says. -->
+                                        <include>com.pingidentity.ps.oidf.issuer.AttestationIssuanceConfig.property(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.AttestationIssuanceConfig.expected(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.AttesterSigningKey.fromEnvironment(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientAttestationServiceMetadataServlet.start(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterConfigurationServlet.init(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterConfigurationServlet.service(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientAttestationServiceMetadataServlet.service(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.claims(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.challengeRequired(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.staticWalletValidatorFromEnv(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.defaultWorkloadIntrospector(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.entraDirectoryResolverFromEnv(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.WalletInstanceAttestationValidator.issuedAt(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.challengeService(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.replayCache(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.evidenceBindings(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.thumbprintOf(*</include>
+                                        <!-- X-B01: the selectors each validator proves, built only from its verified evidence,
+                                             only from its fixed list of names, and refused above their bounds. -->
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidenceSelectors.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidenceSelectors.stringClaim(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.InstanceIdentity.selectors(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.SpiffeInstanceAttestationValidator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.SpiffeInstanceAttestationValidator.selectorNames(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.selectors(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.GkeTokenValidator.selectorNames(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EksTokenValidator.selectorNames(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.AksWorkloadIdentityValidator.selectorNames(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.GcpSaTokenValidator.selectorNames(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.AwsStsWebIdentityValidator.selectorNames(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.AzureManagedIdentityValidator.selectorNames(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.WalletInstanceAttestationValidator.selectors(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.WalletInstanceAttestationValidator.selectorNames(*</include>
+                                        <!-- S4c (proof side): an instance-key proof needs iat and exp at most 300 s apart and
+                                             is accepted only inside them; its jti is kept until exp + skew; and the TTL a
+                                             client configures is held to OIDF_ATTESTER_MAX_ISSUED_TTL and the 18-hour ceiling. -->
+                                        <include>com.pingidentity.ps.oidf.issuer.InstanceKeyProofValidator.checkWindow(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.InstanceKeyProofValidator.InstanceKeyProofValidator(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.IssuedTtlCap.apply(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.IssuedTtlCap.fromEnvironment(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.IssuedTtlCap.IssuedTtlCap(*</include>
+                                        <!-- H-ATT-1: every check the six cloud-token validators share - the pinned issuer a
+                                             client may only narrow, the signing key and its fit to the algorithm, aud,
+                                             exp, nbf, iat and the lifetime - each type's own claims, the GCP binding
+                                             grammar, the settings' strict reads, and the JWKS use=sig filter. -->
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.verify(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.issuers(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.verifiedClaims(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.verificationKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.fits(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.audiences(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.times(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.time(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.kubernetes(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.IssuerRule.accepts(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.Policy.fromEnvironment(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.Policy.issuerList(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.Policy.list(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.Policy.issuersSetting(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.CloudTokenValidator.Policy.maxTokenLifetimeSeconds(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.GkeTokenValidator.checkBindings(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.GkeTokenValidator.map(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.GcpSaTokenValidator.checkBindings(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.GcpSaTokenValidator.map(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.GcpSaTokenValidator.projectOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.GcpSaTokenValidator.checkAccountBindings(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.GcpSaTokenValidator.checkWorkloadBindings(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EksTokenValidator.map(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.AwsStsWebIdentityValidator.map(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.AksWorkloadIdentityValidator.map(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.AzureManagedIdentityValidator.map(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.RemoteJwksCache.signingKeys(*</include>
+                                        <!-- H-ATT-2, H-ATT-3 (HATT2): the issuance endpoint's request path - the per-address limit,
+                                             the capped body, every failure a CAS section 4.6 error - the client index and its miss
+                                             rule, and the configuration document's forwarded origin and CORS. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.service(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.admit(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.rateCounter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.readBody(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.fail(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.genericDescription(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.headerValues(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.resolveByEvidence(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.refreshAfterMiss(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientBindingIndex.clients(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientBindingIndex.refreshAfterMiss(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientBindingIndex.refresh(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientBindingIndex.rebuild(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientBindingIndex.rebuildIfStale(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientBindingIndex.fresh(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientBindingIndex.usable(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.makeRateCounter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.PfIssuanceClientResolver.Shared.index(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.PfIssuanceClientResolver.Shared.create(*</include>
+                                        <!-- Not gated: AttestationIssuanceServlet.defaultRateCounter, whose Redis branch needs
+                                             OIDF_REDIS_URL in the process environment, which a test cannot set; the Redis counter
+                                             it builds is gated through RedisWindowCounter against CI's Redis service. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.PfIssuanceClientResolver.attestationClients(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.PfIssuanceClientResolver.load(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.PfIssuanceClientResolver.index(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterConfigurationServlet.baseUrl(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterConfigurationServlet.hasPort(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterConfigurationServlet.corsOrigins(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterConfigurationServlet.applyCors(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterConfigurationServlet.doOptions(*</include>
+                                        <!-- S4M (F-0118): the attester's pointer to the authorization server's metadata. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterConfigurationServlet.authorizationServerMetadata(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

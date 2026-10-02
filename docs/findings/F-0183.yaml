@@ -1,0 +1,25 @@
+id: F-0183
+title: Two documents outside C2's files still describe MiniRedisClient, which is gone
+severity: low
+area: docs, client-attestation
+source: pr-review
+status: closed
+plan_items: [C-2]
+prs: [54]
+verification: >
+  Closed 2026-10-01 by the v0.6.0 release package, which re-pointed the stale lines (docs only):
+  docs/client-attestation- architecture.md's store section now names platform's RedisClient, its test-gap row is
+  struck through and closed, and its "still open" line no longer says the rediss:// path is untested
+  (RedisClientTlsTest and the TLS half of RedisLiveTest test it; the TLS half ran on the JDK 17 reactor of
+  2026-10-01 against a TLS Redis); libs/platform/README.md's tls section names RedisConnection's SSLSocket instead
+  of MiniRedisClient. `/usr/bin/grep -rn MiniRedisClient --include='*.md'` outside the release history now finds
+  only the sentences that say it was moved.
+target_release: 0.6.0
+notes: >
+  Found by C2's review (2026-09-28). C2 moved client-attestation's MiniRedisClient to platform.redis.RedisClient
+  and deleted it, but two documents it did not own still describe it as current: docs/client-attestation-architecture.md
+  (lines 377, 557 and 863 on 2026-09-28: the store section, the test-gap table, and a "still open" line saying its
+  rediss:// path is untested, which RedisClientTlsTest and the live TLS half now test), and libs/platform's README
+  tls section (PR1's anchor, line 283), which says MiniRedisClient builds its own SSLSocket - it is now
+  platform.redis.RedisConnection. The fix is to re-point each line to RedisClient and RedisConnection and drop the
+  untested claim.

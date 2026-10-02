@@ -1,0 +1,29 @@
+id: F-0160
+title: rar-model reads the deployment profile more strictly than every other module
+severity: low
+area: rar-model, platform
+source: design
+status: closed
+plan_items: [PR-2]
+prs: [80]
+verification: >
+  2026-09-30, PR #80 (package ST5A): RarModels.fromEnvironment reads the profile through
+  DeploymentProfile.of(env).isDevelopment() - development trimmed, in any case - as every other module does, so
+  OIDF_DEPLOYMENT_PROFILE=Development turns the common-fields fallback on (RarModelsTest asserts it, and that
+  "Development" and "development" give one fingerprint). RarModels.SEMANTICS is unchanged: the fallback flag is part
+  of the canonical JSON, so a deployment set to "Development" gets another fingerprint than 0.5.0 logged, in every
+  loader at once - harmless, since it is development and the filter, the attester, the criterion and the plugin read
+  the variable through the same code and so still agree. DeploymentProfile.isExactlyDevelopment has no caller in main
+  code now; platform's owner can delete it.
+target_release: 0.6.0
+notes: >
+  Found by PR1 (2026-09-28) while moving every profile reader onto libs/platform's DeploymentProfile. The rule
+  everywhere else is `development` trimmed, in any case; rar-model's common-fields fallback has taken exactly
+  `development`, trimmed, lower case, since S1a (RarModelsTest asserts "Development" leaves it off, "only the
+  exact value"). PR1 kept both, as DeploymentProfile.parse and DeploymentProfile.isExactlyDevelopment, so that
+  no behaviour changed: under OIDF_DEPLOYMENT_PROFILE=Development a deployment is development - plaintext
+  redis://, the CIMD source, the RAR plugin's development switches - but an authorization_details type no model
+  names is still refused. The stricter side is the safe one, and the RAR plugin's README already says so. PR-2
+  decides whether the two meet; if rar-model takes any case, RarModels.SEMANTICS does not change (the fallback
+  flag is already in the canonical JSON), but a deployment set to `Development` gets a different fingerprint in
+  every loader at once.

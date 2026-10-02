@@ -39,9 +39,11 @@ public final class AuthoritySupport {
     private static final Object LOCK = new Object();
 
     private static volatile HostedEntityRegistry registry;
-    private static volatile HostedEntitySigner signer;
-    private static volatile String authorityEntityId;
-    private static volatile HostedEntityConfigurationBuilder configurationBuilder;
+    /**
+     * The signer, the authority's entity id and the configuration builder over both, published in one write: a reader
+     * sees all three or none (plan item S-9). Null until {@link #configureSigning} succeeds.
+     */
+    private static volatile Signing signing;
     /** One block per entity type, the same shape as {@link HostedEntity#metadataPolicy()}. Empty (no
      *  domain-wide constraint) unless {@link #configureDomainDefaultMetadataPolicy} is called. */
     private static volatile Map<String, Object> domainDefaultMetadataPolicy = Map.of();
@@ -49,6 +51,10 @@ public final class AuthoritySupport {
     private static volatile Function<String, List<Map<String, Object>>> trustMarks;
 
     private AuthoritySupport() {
+    }
+
+    /** What {@link #configureSigning} publishes, whole. */
+    private record Signing(HostedEntitySigner signer, String authorityEntityId, HostedEntityConfigurationBuilder builder) {
     }
 
     /**
@@ -66,17 +72,21 @@ public final class AuthoritySupport {
         }
     }
 
-    /** Configures the shared signer and the authority's own fixed entity id (never derived per-request). */
+    /**
+     * Configures the shared signer and the authority's own fixed entity id (never derived per-request). The signer, the
+     * id and the configuration builder are built first and published in one write, so a reader never sees a signer
+     * without its id or builder, and a failure here publishes nothing.
+     */
     public static void configureSigning(HostedEntitySigner hostedEntitySigner, String configuredAuthorityEntityId) {
         synchronized (LOCK) {
-            if (signer != null) {
+            if (signing != null) {
                 LOGGER.warn("AuthoritySupport signer already configured; ignoring a second configuration");
                 return;
             }
-            signer = Objects.requireNonNull(hostedEntitySigner, "hostedEntitySigner");
-            authorityEntityId = com.pingidentity.ps.oidf.jose.Claims.requireNonBlank(
-                    configuredAuthorityEntityId, "authorityEntityId");
-            configurationBuilder = new HostedEntityConfigurationBuilder(signer, authorityEntityId, AuthoritySupport::trustMarksFor);
+            HostedEntitySigner signer = Objects.requireNonNull(hostedEntitySigner, "hostedEntitySigner");
+            String entityId = com.pingidentity.ps.oidf.jose.Claims.requireNonBlank(configuredAuthorityEntityId, "authorityEntityId");
+            signing = new Signing(signer, entityId, new HostedEntityConfigurationBuilder(signer, entityId, AuthoritySupport::trustMarksFor,
+                    HostedEntityConfigurationCache.shared()));
         }
     }
 
@@ -107,17 +117,18 @@ public final class AuthoritySupport {
 
     /** The authority's own entity id, only once the authority servlet has configured it. */
     public static Optional<String> authorityEntityIdIfConfigured() {
-        return Optional.ofNullable(authorityEntityId);
+        Signing local = signing;
+        return local == null ? Optional.empty() : Optional.of(local.authorityEntityId());
     }
 
     public static HostedEntityConfigurationBuilder configurationBuilder() {
-        HostedEntityConfigurationBuilder local = configurationBuilder;
+        Signing local = signing;
         if (local == null) {
             throw new IllegalStateException(
                     "AuthoritySupport.configureSigning(...) must be called before configurationBuilder() — "
                             + "unlike the registry, there is no safe default signer to fall back to");
         }
-        return local;
+        return local.builder();
     }
 
     /**
@@ -126,6 +137,8 @@ public final class AuthoritySupport {
      */
     public static void configureTrustMarks(Function<String, List<Map<String, Object>>> issuedTo) {
         trustMarks = issuedTo;
+        // A configuration signed before carries the marks the previous lookup gave.
+        HostedEntityConfigurationCache.shared().clear();
     }
 
     /** The {@code trust_marks} this authority issues {@code entityId}; empty when it issues none. */
@@ -152,20 +165,19 @@ public final class AuthoritySupport {
     }
 
     /** Tests only: forget every configuration, so a test can see the unconfigured state. */
-    public static void resetForTests() {
+    static void resetForTests() {
         synchronized (LOCK) {
             registry = null;
-            signer = null;
-            authorityEntityId = null;
-            configurationBuilder = null;
+            signing = null;
             domainDefaultMetadataPolicy = Map.of();
             trustMarks = null;
+            HostedEntityConfigurationCache.shared().clear();
         }
     }
 
     /** True once {@link #configureSigning} has run: this deployment hosts entities and is their superior. */
     public static boolean isHostingConfigured() {
-        return signer != null;
+        return signing != null;
     }
 
     /**
@@ -176,10 +188,11 @@ public final class AuthoritySupport {
      * @throws IllegalStateException if the registry itself is unavailable
      */
     public static String hostedEntityConfiguration(String entityId) {
-        HostedEntityConfigurationBuilder builder = configurationBuilder;
-        if (builder == null) {
+        Signing local = signing;
+        if (local == null) {
             return null;
         }
+        HostedEntityConfigurationBuilder builder = local.builder();
         Optional<HostedEntity> found;
         try {
             found = registry().find(entityId);
@@ -194,11 +207,11 @@ public final class AuthoritySupport {
 
     /** The authority's own fixed entity id, as configured — never derived from a request's Host header. */
     public static String authorityEntityId() {
-        String local = authorityEntityId;
+        Signing local = signing;
         if (local == null) {
             throw new IllegalStateException("AuthoritySupport.configureSigning(...) must be called before authorityEntityId()");
         }
-        return local;
+        return local.authorityEntityId();
     }
 
     /**
@@ -240,11 +253,11 @@ public final class AuthoritySupport {
     }
 
     public static HostedEntitySigner hostedEntitySigner() {
-        HostedEntitySigner local = signer;
+        Signing local = signing;
         if (local == null) {
             throw new IllegalStateException("AuthoritySupport.configureSigning(...) must be called before hostedEntitySigner()");
         }
-        return local;
+        return local.signer();
     }
 
     /**

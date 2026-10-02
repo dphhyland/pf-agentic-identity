@@ -1,0 +1,23 @@
+id: F-0435
+title: A setting takes effect only when PingFederate restarts, and a component that failed on its configuration waits for one
+severity: low
+area: platform
+source: review-2026-09-26
+status: open
+plan_items: [ST-5]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Split from F-0025 on 2026-10-01 by the v0.6.0 release package: the configurability class of the reviewer reports of
+  2026-09-26 named "settings that need a restart", and the programme plan maps the whole class to ST-1 to ST-7 and
+  PR-1 to PR-5 (its table of review classes), none of which makes a setting take effect without a restart. On
+  origin/main 600fa6b5 every component reads its settings when its part starts: a changed environment variable,
+  system property or init-param needs a restart of PingFederate (or of the webapp), and a part that is
+  FAILED_CONFIG is never retried by the supervisor, only a FAILED_DEPENDENCY one (docs/operator/components.md; S9A's
+  release note, "A failed component now answers 503 instead of stopping the war"). A few readers keep what they read
+  until a restart even when the source changes underneath them: the bridge signing key file OIDF_BRIDGE_SIGNING_KEYS
+  names, once read (HJOSE's release note, "A bridge key that cannot sign is reported at start-up"). Low: it is an
+  operational cost, not a gap in a check - a restart applies the change, and the image's containers now restart
+  cleanly in production (F-0313, closed). The plan names no item for it and no later phase, so David schedules it;
+  0.7.0 is where it is next looked at.

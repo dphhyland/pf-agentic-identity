@@ -6,18 +6,21 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
-import java.sql.Statement;
+import com.pingidentity.ps.oidf.testkit.Migrations;
+import com.pingidentity.ps.oidf.testkit.PostgresDatabase;
 import java.util.List;
-import org.h2.jdbcx.JdbcDataSource;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
-/** The one grant registry every servlet shares, however they are initialised. */
+/** The one grant registry every servlet shares, however they are initialised - the JDBC one on PostgreSQL. */
 class TrustMarkSupportTest {
+
+    @RegisterExtension
+    static final PostgresDatabase POSTGRES = new PostgresDatabase();
+
     private static final String TYPE = "https://pf.example.com/marks/certified";
     private static final String SUBJECT = "https://rp.example.com";
 
@@ -27,15 +30,11 @@ class TrustMarkSupportTest {
         TrustMarkSupport.resetForTests();
     }
 
-    private static JdbcDataSource database() throws Exception {
-        JdbcDataSource h2 = new JdbcDataSource();
-        h2.setURL("jdbc:h2:mem:trustmark-support-" + System.nanoTime() + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
-        h2.setUser("sa");
-        try (InputStream in = TrustMarkSupportTest.class.getResourceAsStream("/db/migration/V102__trust_mark.sql");
-             Connection c = h2.getConnection(); Statement s = c.createStatement()) {
-            s.execute(new String(in.readAllBytes(), StandardCharsets.UTF_8));
-        }
-        return h2;
+    /** An empty schema with the federation family's migrations applied, on this class's own database. */
+    private static DataSource database() throws Exception {
+        POSTGRES.resetPublicSchema();
+        Migrations.apply(POSTGRES.dataSource(), 100, 199);
+        return POSTGRES.dataSource();
     }
 
     @Test

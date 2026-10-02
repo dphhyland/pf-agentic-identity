@@ -9,7 +9,7 @@
     <!-- 0.1.0 with the rest of the reactor. Was 0.0.1-SNAPSHOT, a leftover of its standalone-repo
          life: nothing references its version, a SNAPSHOT cannot be part of a release, and the jar name
          is finalName-fixed (pf.plugins.pf-rar-paz-plugin.jar) so consumers see no change. -->
-    <version>0.4.0-SNAPSHOT</version>
+    <version>0.7.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>pf-rar-paz-plugin</name>
@@ -20,13 +20,16 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.4.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.7.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -55,9 +58,26 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
+        <!-- The containment model (plan S-1): every containment question this plugin asks goes to it.
+             Shaded and relocated below, like jackson, so the jar carries its own copy under its own package. -->
+        <dependency>
+            <groupId>com.pingidentity.ps.oidf</groupId>
+            <artifactId>rar-model</artifactId>
+        </dependency>
+        <!-- The platform library (plan items F-1, PR-1): the deployment profile and InsecureTls, the one
+             trust-all. rar-model depends on it too. Shaded and relocated below, so this jar's copy never meets
+             the one staged beside the servlets. commons-logging, which platform's logger uses when it can see
+             it, is provided there and stays PingFederate's. -->
+        <dependency>
+            <groupId>com.pingidentity.ps.oidf</groupId>
+            <artifactId>platform</artifactId>
+        </dependency>
 
         <!-- Test -->
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
+        <!-- The library's vector file and its reader: the refresh runner (RefreshVectorsTest) is the fourth of
+             the plan's four runners over one set of cases. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId><type>test-jar</type><scope>test</scope></dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -90,7 +110,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.13.0</version>
+                <version>3.16.0</version>
                 <configuration>
                     <release>${maven.compiler.release}</release>
                 </configuration>
@@ -98,32 +118,82 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.5</version>
+                <version>3.6.0</version>
+                <executions>
+                    <!-- ShadedJarCheck reads the jar the shade plugin wrote, so it runs after package: that the
+                         model is inside under the relocated package and nowhere under its own, that no class
+                         still names the unrelocated package, and that the relocated copy computes the same
+                         fingerprint as the library. Its name is outside surefire's default patterns, so the
+                         test phase does not run it against a jar that does not exist yet. -->
+                    <execution>
+                        <id>shaded-jar</id>
+                        <phase>verify</phase>
+                        <goals><goal>test</goal></goals>
+                        <configuration>
+                            <includes><include>**/ShadedJarCheck.java</include></includes>
+                            <reportNameSuffix>shaded-jar</reportNameSuffix>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <!--
                 Coverage gate on the two answers this plugin gives that cannot be re-asked: whether a
                 refresh request stays inside what was already granted, and whether the PDP actually said
-                permit. 100% line + branch, enforced. RarContainment.isSubset once skipped the type
-                comparison when either side was typeless, making a typeless detail a subset of anything
-                while the token endpoint refused the same detail outright - a missed branch here is that
-                class of bug, not a cosmetic gap. DecisionResponse.isPermit is the fail-closed reading of
-                the verdict: every branch that could turn a non-permit into a permit is covered.
+                permit. 100% line + branch, enforced. The refresh answer was RarContainment.isSubset, which
+                once skipped the type comparison when either side was typeless and never compared a scalar;
+                since S1c it is the containment model's strict contains (isEqualOrSubset, refreshVerdict and
+                ModelGate), and a missed branch there is a grant widened on renewal, not a cosmetic gap.
+                DecisionResponse.isPermit is the fail-closed reading of the verdict: every branch that could
+                turn a non-permit into a permit is covered.
+
+                The containment model's door (S1c): ModelGate loads the model set once, strips the two
+                bookkeeping markers, checks a requested detail, asks whether what the PDP granted is within
+                what was requested (narrow, never widen) and whether a refresh stays within the grant, and
+                compares the attestation context's rar_models_fingerprint with its own; deepCopy is what
+                keeps a PDP statement from rewriting the request it is compared with. AttestationSubject's
+                fromAttribute reads whether a context is there at all and the fingerprint in it.
 
                 AttestationAwareRarProcessor.settings turns a stored configuration into the plugin's
                 switches, and a switch whose field is missing must read as its secure default: the
                 one-argument getBooleanFieldValue read a missing "Deny unless PERMIT" as off. versionOf is
                 what PF shows as the plugin's version.
 
+                The 0.4.0 decisions (S2a, S2b): enrich itself, which fails open on PdpUnavailableException
+                alone and closed on everything else; flowOf and PrincipalResolver, which decide who the PDP
+                is asked about and label how that was established, per OAuth flow, and redact and describe,
+                which keep that principal hashed in what reaches a log; PdpResponses, AuthZenPdpClient.decisionOf,
+                DecisionResponse.decisionOf and authorisedOf, and PdpTransport.classify, which sort a PDP's
+                answer and a transport's failure into "unreachable" and "refuse"; PdpUrlPolicy, the https rule, and isInsecureTlsHonoured beside
+                it; refuseCollisions and mirrorNames, a detail field that would overwrite a server attribute;
+                and the config's profile and type-list parsing.
+
+                A nested class's methods are named with a dot, as jacoco names them in the check (JavaNames
+                turns '$' into '.'; read in org.jacoco.report 0.8.12, 2026-09-27) and as the coverage dashboard
+                reads them: PrincipalResolver$Flow.is* and PdpUrlPolicy$Validator.validate(* matched nothing
+                in jacoco until S1c spelt them this way, and every include is a method name, not a wildcard,
+                because the dashboard matches names exactly.
+
                 Gated per METHOD, not per class, so the rest stays honestly out of scope rather than
-                behind a lowered number. The request builders, the PDP clients' transport paths and the
-                processor's PF-SDK entry points (configure/validate/getUserConsentDescription) still carry
-                missed branches; they are the next work queue, and each is added here only once a test
-                closes it. JdkHttpTransport opens real sockets and is covered by the deployed probes.
+                behind a lowered number. The request builders' mapping, the PDP clients' header paths and
+                the processor's other PF-SDK entry points (configure/validate/getUserConsentDescription)
+                still carry missed branches; they are the next work queue, and each is added here only once
+                a test closes it.
+
+                The 0.6.0 PDP call (S2c): PdpTransport - the deadline, the cap, the bulkhead and which of platform's
+                failures read as unreachable - and PdpTls, the trust modes; the circuit breaker; the per-request memo,
+                the decision cache and its refusal of payments and principal types; the AuthZEN batch and the reading
+                of its answer; the new fields' checks; and the processor's batch candidates and trust choice. The
+                transport's tests open real sockets on loopback, so its post is gated too.
+
+                The 0.6.0 plugin hardening (PLG): the production profile's refusal of the development-only switches and
+                of failing open without its risk, on save and at configure (ProfileRules); the AuthZEN context
+                allow-list, its field and the drop count (ContextAllowList, and ModelGate.declaredMembers behind
+                @model); and the rar.decision events (DecisionEvents).
             -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.12</version>
+                <version>0.8.15</version>
                 <executions>
                     <execution>
                         <id>prepare-agent</id>
@@ -143,10 +213,102 @@
                                 <rule>
                                     <element>METHOD</element>
                                     <includes>
-                                        <include>com.pingidentity.ps.oidf.rar.RarContainment.isSubset(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.isEqualOrSubset(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.refreshVerdict(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.fromEnvironment(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.sourceOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.loaded(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.fingerprint(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.strip(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.deepCopy(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.copyValue(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.within(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.fingerprintProblem(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.shortForm(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.listOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.Verdict.isRefused(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AttestationSubject.fromAttribute(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.DecisionResponse.isPermit(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionResponse.decisionOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionResponse.authorisedOf(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.settings(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.versionOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.enrich(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.flowOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.describe(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.resolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.fromPingFederate(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.requiresAuthenticatedPrincipal(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.hashForLog(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.redact(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.Flow.isClientCredentials(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.Flow.isRefresh(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.Flow.isTokenExchange(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.Flow.isCiba(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.canonicalPath(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.decode(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpResponses.bodyOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpResponses.isJson(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpResponses.jsonObjectOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AuthZenPdpClient.decisionOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTransport.classify(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTransport.peerWentAway(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTransport.totalMillisOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTransport.post(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTransport.client(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTransport.InstanceBulkhead.enter(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTls.modeOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTls.current(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTls.certificatesOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.CircuitBreaker.state(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.CircuitBreaker.allow(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.CircuitBreaker.onReached(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.CircuitBreaker.onUnreachable(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.CircuitBreaker.Guarded.post(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpMetrics.untrack(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionMemo.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionMemo.answer(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionMemo.copyOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionMemo.copyValue(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionCache.refusal(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionCache.ttlSecondsOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionCache.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionCache.put(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpDecisions.decide(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpDecisions.batch(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpDecisions.keyOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpDecisions.typesOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AuthZenPdpClient.decideAll(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AuthZenPdpClient.parseAll(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpResilience.problem(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpResilience.Validator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.batchCandidates(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.tlsOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpUrlPolicy.problem(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpUrlPolicy.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpUrlPolicy.Validator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.GovernanceEngineRequestBuilder.refuseCollisions(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.GovernanceEngineRequestBuilder.mirrorNames(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.GovernanceEngineConfig.profileOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.GovernanceEngineConfig.authenticatedPrincipalTypesOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.GovernanceEngineConfig.isClientAssertedPrincipalHonoured(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.GovernanceEngineConfig.isInsecureTlsHonoured(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ProfileRules.problem(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ProfileRules.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ProfileRules.Validator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ContextAllowList.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ContextAllowList.problem(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ContextAllowList.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ContextAllowList.allowed(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ContextAllowList.filter(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ContextAllowList.memberOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ContextAllowList.printable(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ContextAllowList.Validator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.declaredMembers(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionEvents.permitted(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionEvents.denied(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionEvents.failOpen(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
@@ -161,8 +323,11 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
-                <version>3.3.0</version>
+                <version>3.5.1</version>
                 <configuration>
+                    <!-- Rebuilt every time: shade replaces this jar with the shaded one under the same name, so a
+                         second build that found it up to date would shade the shaded jar again. -->
+                    <forceCreation>true</forceCreation>
                     <archive>
                         <addMavenDescriptor>false</addMavenDescriptor>
                         <manifest>
@@ -177,11 +342,24 @@
                  Provided-scope deps (PF SDK, servlet) are excluded automatically.
                  The shaded jar replaces the plain one, so its manifest must still carry
                  Implementation-Version: the version PF shows for the plugin is read from it
-                 (AttestationAwareRarProcessor.versionOf), and without it PF shows "development". -->
+                 (AttestationAwareRarProcessor.versionOf), and without it PF shows "development".
+
+                 rar-model goes in the same way (plan S-1: "The plugin shades and relocates it"). The
+                 authenticator and the issuer load their own unrelocated copy; relocated, this jar's copy
+                 can never be the class another jar's code links to, whatever order PingFederate's
+                 classloaders search in, and the fingerprint is what says the two copies agree.
+                 ShadedJarCheck holds the jar to that after package.
+
+                 What the jar carries is exactly the three artifacts below and HttpCore, which platform carries
+                 relocated inside itself (S2C): each relocated, nothing else bundled (package PLG, H-RAR-1). Jackson's
+                 multi-release classes (META-INF/versions) are left out: they sit under their unrelocated names, and the
+                 jar's manifest is not Multi-Release, so no JVM ever loaded them. The service files are relocated with
+                 the classes they name, and the event indexes of this plugin and of platform are appended into one, so
+                 the relocated platform reads both catalogues. The bundled artifacts' Maven descriptors are left out. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
-                <version>3.5.3</version>
+                <version>3.6.2</version>
                 <executions>
                     <execution>
                         <phase>package</phase>
@@ -192,6 +370,8 @@
                             <artifactSet>
                                 <includes>
                                     <include>com.fasterxml.jackson.core:*</include>
+                                    <include>com.pingidentity.ps.oidf:rar-model</include>
+                                    <include>com.pingidentity.ps.oidf:platform</include>
                                 </includes>
                             </artifactSet>
                             <relocations>
@@ -199,12 +379,36 @@
                                     <pattern>com.fasterxml.jackson</pattern>
                                     <shadedPattern>com.pingidentity.ps.oidf.rar.shaded.jackson</shadedPattern>
                                 </relocation>
+                                <!-- The trailing dot keeps the pattern to the library's own package: shade matches
+                                     by prefix, and com.pingidentity.ps.oidf.rar.model alone would also take a
+                                     com.pingidentity.ps.oidf.rar.modelling or any later sibling. -->
+                                <relocation>
+                                    <pattern>com.pingidentity.ps.oidf.rar.model.</pattern>
+                                    <shadedPattern>com.pingidentity.ps.oidf.rar.shaded.rarmodel.</shadedPattern>
+                                </relocation>
+                                <!-- platform. platform-pf's classes live under com.pingidentity.ps.oidf.platform.pf,
+                                     inside the pattern, so they are excluded by name: this plugin does not bundle
+                                     them, and a reference to one must keep PingFederate-side's name. -->
+                                <relocation>
+                                    <pattern>com.pingidentity.ps.oidf.platform.</pattern>
+                                    <shadedPattern>com.pingidentity.ps.oidf.rar.shaded.platform.</shadedPattern>
+                                    <excludes><exclude>com.pingidentity.ps.oidf.platform.pf.**</exclude></excludes>
+                                </relocation>
                             </relocations>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <manifestEntries>
                                         <Implementation-Version>${project.version}</Implementation-Version>
                                     </manifestEntries>
+                                </transformer>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                                <!-- Jackson's and HttpCore's NOTICE files merged, so every attribution the Apache licence
+                                     asks for is kept; their LICENSE files are one licence, Apache 2.0, and one copy stays. -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer">
+                                    <addHeader>false</addHeader>
+                                </transformer>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                                    <resource>META-INF/oidf-events/index.txt</resource>
                                 </transformer>
                             </transformers>
                             <filters>
@@ -215,6 +419,8 @@
                                         <exclude>META-INF/*.DSA</exclude>
                                         <exclude>META-INF/*.RSA</exclude>
                                         <exclude>module-info.class</exclude>
+                                        <exclude>META-INF/versions/**</exclude>
+                                        <exclude>META-INF/maven/**</exclude>
                                     </excludes>
                                 </filter>
                             </filters>

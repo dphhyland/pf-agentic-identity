@@ -140,6 +140,92 @@ class LocalJwkSignerTest {
         assertThrows(IllegalArgumentException.class, () -> new LocalJwkSigner(jwk));
     }
 
+    @Test
+    @Requirement("RFC7518 §3.5")
+    void rsaSignsPs256Ps384AndPs512ThatAVerifierAccepts() throws Exception {
+        org.jose4j.jwk.RsaJsonWebKey rsa = org.jose4j.jwk.RsaJwkGenerator.generateJwk(2048);
+        rsa.setKeyId("rsa-pss");
+        for (String alg : new String[] {"PS256", "PS384", "PS512"}) {
+            Map<String, Object> params = new LinkedHashMap<>(rsa.toParams(JsonWebKey.OutputControlLevel.INCLUDE_PRIVATE));
+            params.put("alg", alg);
+            LocalJwkSigner signer = new LocalJwkSigner(params);
+
+            assertEquals(alg, signer.algorithm());
+            assertEquals(alg, signer.publicJwk().get("alg"));
+            // jose4j's own RSASSA-PSS verifier, with the algorithm pinned: the round trip F-0112 found missing.
+            assertVerifies(signer);
+        }
+    }
+
+    @Test
+    @Requirement({"RFC7518 §3.3", "RFC7518 §3.5"})
+    void anRsaKeyUnder2048BitsIsRefused() throws Exception {
+        org.jose4j.jwk.RsaJsonWebKey small = org.jose4j.jwk.RsaJwkGenerator.generateJwk(1024);
+        Map<String, Object> params = new LinkedHashMap<>(small.toParams(JsonWebKey.OutputControlLevel.INCLUDE_PRIVATE));
+        params.put("alg", "PS256");
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> new LocalJwkSigner(params));
+        assertTrue(e.getMessage().contains("2048"), e.getMessage());
+        assertTrue(e.getMessage().contains("1024"), e.getMessage());
+        assertThrows(IllegalArgumentException.class, () -> LocalJwkSigner.rsaAlgorithm(2047, null));
+        assertEquals("RS256", LocalJwkSigner.rsaAlgorithm(2048, null));
+        assertEquals("PS512", LocalJwkSigner.rsaAlgorithm(4096, "PS512"));
+    }
+
+    @Test
+    @Requirement("RFC7518 §3.3")
+    void anRsaKeyDeclaredWithAnAlgorithmItCannotSignIsRefused() throws Exception {
+        for (String alg : new String[] {"ES256", "HS256", "none", "RSA-OAEP"}) {
+            assertThrows(IllegalArgumentException.class, () -> LocalJwkSigner.rsaAlgorithm(2048, alg), alg);
+        }
+    }
+
+    @Test
+    @Requirement({"RFC7518 §3.4", "RFC8725 §3.1"})
+    void anEcKeyDeclaredWithAnotherCurvesAlgorithmIsRefused() throws Exception {
+        PublicJsonWebKey key = EcJwkGenerator.generateJwk(EllipticCurves.P256);
+        Map<String, Object> params = new LinkedHashMap<>(key.toParams(JsonWebKey.OutputControlLevel.INCLUDE_PRIVATE));
+        params.put("alg", "ES384");
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> new LocalJwkSigner(params));
+        assertTrue(e.getMessage().contains("ES256"), e.getMessage());
+
+        params.put("alg", "ES256");
+        assertEquals("ES256", new LocalJwkSigner(params).algorithm(), "the curve's own alg, declared, is accepted");
+        assertEquals("ES384", LocalJwkSigner.ecAlgorithm("P-384", "ES384"));
+        assertEquals("ES512", LocalJwkSigner.ecAlgorithm("P-521", null));
+        assertThrows(IllegalArgumentException.class, () -> LocalJwkSigner.ecAlgorithm("P-521", "ES256"));
+    }
+
+    @Test
+    @Requirement("RFC7518 §3.4")
+    void anEcKeyOffTheThreeCurvesIsRefused() {
+        for (String crv : new String[] {"secp256k1", "P-192", "Ed25519"}) {
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> LocalJwkSigner.ecAlgorithm(crv, null));
+            assertTrue(e.getMessage().contains("P-256, P-384 and P-521"), e.getMessage());
+        }
+        assertThrows(IllegalArgumentException.class, () -> LocalJwkSigner.ecAlgorithm(null, null));
+    }
+
+    @Test
+    void eachAlgorithmHasItsJcaNameItsPssParametersAndItsSignatureLength() {
+        assertEquals("SHA256withECDSA", LocalJwkSigner.jcaAlgorithm("ES256"));
+        assertEquals("SHA384withECDSA", LocalJwkSigner.jcaAlgorithm("ES384"));
+        assertEquals("SHA512withECDSA", LocalJwkSigner.jcaAlgorithm("ES512"));
+        assertEquals("SHA256withRSA", LocalJwkSigner.jcaAlgorithm("RS256"));
+        assertEquals("SHA384withRSA", LocalJwkSigner.jcaAlgorithm("RS384"));
+        assertEquals("SHA512withRSA", LocalJwkSigner.jcaAlgorithm("RS512"));
+        assertEquals("RSASSA-PSS", LocalJwkSigner.jcaAlgorithm("PS384"));
+        assertEquals(32, LocalJwkSigner.pssParameters("PS256").getSaltLength());
+        assertEquals("SHA-384", LocalJwkSigner.pssParameters("PS384").getDigestAlgorithm());
+        assertEquals(java.security.spec.MGF1ParameterSpec.SHA512, LocalJwkSigner.pssParameters("PS512").getMGFParameters());
+        assertEquals(null, LocalJwkSigner.pssParameters("RS256"));
+        assertEquals(64, LocalJwkSigner.ecConcatLength("ES256"));
+        assertEquals(96, LocalJwkSigner.ecConcatLength("ES384"));
+        assertEquals(132, LocalJwkSigner.ecConcatLength("ES512"));
+        assertEquals(0, LocalJwkSigner.ecConcatLength("PS256"));
+    }
+
     // ---- helpers --------------------------------------------------------------------------------
 
     private static void assertSignsAndVerifies(java.security.spec.ECParameterSpec curve, String expectedAlg,
@@ -163,6 +249,8 @@ class LocalJwkSignerTest {
 
         JsonWebSignature jws = new JsonWebSignature();
         jws.setCompactSerialization(compact);
+        jws.setAlgorithmConstraints(new org.jose4j.jwa.AlgorithmConstraints(
+                org.jose4j.jwa.AlgorithmConstraints.ConstraintType.PERMIT, signer.algorithm()));
         jws.setKey(((PublicJsonWebKey) JsonWebKey.Factory.newJwk(signer.publicJwk())).getPublicKey());
         assertTrue(jws.verifySignature());
     }

@@ -3,10 +3,19 @@ title: SsfConfigurationServlet lets a boot-time database error escape
 severity: high
 area: ssf
 source: design
-status: open
-plan_items: [S-9, S9a]
-prs: []
-verification: ''
+status: closed
+plan_items: [S-9, S9a, ST-5]
+prs: [82]
+verification: >
+  2026-09-30, package ST5C (branch prod/p3-ssf-settings). SsfConfigurationServlet.init hands the transmitter's
+  start to Part.start, which never throws; SsfSupport builds the whole state (configuration, store, minter, services,
+  receiver, receiver authenticator) before one volatile write of an immutable holder, so a failed start publishes
+  nothing (SsfSupportBootTest.aConcurrentReaderSeesAllOfTheStateOrNone, aStoreThatCannotBeOpenedLeavesNothingConfigured).
+  On the rig (slot 3, PingFederate 13.1.3.0 on java 21.0.12.1, the branch at d63629ea) with OIDF_SSF_JDBC_URL naming a
+  PostgreSQL that was not running: SSF FAILED_DEPENDENCY at 07:09:37 UTC with one ERROR naming the cause (the URL shown
+  as <jdbcUrl>), /.well-known/ssf-configuration and /ssf/poll 503 while PingFederate's own endpoints served, the
+  database started at 07:09:39, and the supervisor's retry made SSF READY at 07:10:17 (store opened, audit source
+  attached, push loop started); the metadata answered 200 and /ssf/poll 401 from then on.
 target_release: 0.6.0
 notes: >
   Found while designing, item 11. The servlet loads at start-up and a database error in its init escapes: the

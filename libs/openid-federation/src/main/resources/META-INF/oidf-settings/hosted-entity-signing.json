@@ -1,0 +1,50 @@
+{
+  "format": 1,
+  "component": "hosted-entity-signing",
+  "module": "libs/openid-federation",
+  "package": "com.pingidentity.ps.oidf.authority",
+  "families": ["OIDF_OPENBAO_"],
+  "settings": [
+    {
+      "name": "OIDF_OPENBAO_URL",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "OpenBao's address, for hosted agents' signing keys (one transit key each) and the attester's, read as one setting by both; unset, the first of OPENBAO_ADDR, BAO_ADDR and VAULT_ADDR that is set, with a warning",
+      "when_wrong": {"effect": "doesnt-start", "detail": "A superseded name set to another value than this: hosting and the attester do not start. Missing or wrong: a hosted agent's configuration answers 500"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.openbao.url"},
+        {"from": "env", "name": "OIDF_OPENBAO_URL"}
+      ],
+      "aliases": [
+        {"name": "OPENBAO_ADDR", "sources": [{"from": "env", "name": "OPENBAO_ADDR"}]},
+        {"name": "BAO_ADDR", "sources": [{"from": "env", "name": "BAO_ADDR"}]},
+        {"name": "VAULT_ADDR", "sources": [{"from": "env", "name": "VAULT_ADDR"}]}
+      ],
+      "file": false
+    },
+    {
+      "name": "OIDF_OPENBAO_TOKEN",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The OpenBao token for the same, read as one setting by both, or from the file OIDF_OPENBAO_TOKEN_FILE names; unset, the first of OPENBAO_TOKEN, BAO_TOKEN and VAULT_TOKEN that is set, with a warning",
+      "when_wrong": {"effect": "doesnt-start", "detail": "A superseded name set to another value than this: hosting and the attester do not start. Missing or refused: a hosted agent's configuration answers 500"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.openbao.token"},
+        {"from": "env", "name": "OIDF_OPENBAO_TOKEN"}
+      ],
+      "aliases": [
+        {"name": "OPENBAO_TOKEN", "sources": [{"from": "env", "name": "OPENBAO_TOKEN"}]},
+        {"name": "BAO_TOKEN", "sources": [{"from": "env", "name": "BAO_TOKEN"}]},
+        {"name": "VAULT_TOKEN", "sources": [{"from": "env", "name": "VAULT_TOKEN"}]}
+      ],
+      "file": true
+    }
+  ],
+  "removed": []
+}

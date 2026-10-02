@@ -1,0 +1,87 @@
+{
+  "component": "ssf",
+  "module": "servlets/ssf",
+  "description": "The Shared Signals transmitter's own events (plan item O-2): a SET minted for a stream, a PingFederate event that raised none, a logout that raised no signal, and the audit source attaching to or detaching from PingFederate's audit loggers. The SET, its jti, its txn, its subject and the logout's ID token are never event fields.",
+  "logger": "com.pingidentity.ps.oidf.ssf.event",
+  "auditProtocol": "Shared Signals",
+  "fields": {
+    "event_type": {
+      "pii": "OPERATIONAL",
+      "description": "The CAEP or RISC event type's last path segment (session-revoked, credential-change, account-purged and so on)."
+    },
+    "source": {
+      "pii": "OPERATIONAL",
+      "description": "What observed the PingFederate event: audit (the audit source), logout (the logout filter) or bridge (an OGNL expression or another hook calling SsfEventBridge)."
+    },
+    "loggers": {
+      "pii": "OPERATIONAL",
+      "description": "How many of PingFederate's audit loggers the audit source is attached to."
+    },
+    "trigger": {
+      "pii": "OPERATIONAL",
+      "description": "Why the audit source attached or detached: start (SSF started), reconfigure (log4j replaced its configuration, as PingFederate's monitorInterval does when log4j2.xml changes), undeploy (the webapp is shutting down) or restart (SSF attached again)."
+    }
+  },
+  "events": {
+    "ssf.set.emitted": {
+      "description": "A SET was signed and queued for one stream (one event per stream, so a PingFederate event two streams hear is counted twice).",
+      "audit": false,
+      "outcomes": [
+        "success"
+      ],
+      "level": "debug",
+      "fields": [
+        "event_type"
+      ],
+      "declaredOnly": false
+    },
+    "ssf.set.dropped": {
+      "description": "A PingFederate event raised no SET, the reason: duplicate (the same event type and subject within five seconds, seen by a second observer), not_started (the transmitter is not running), failed (minting or queueing threw; server.log has the WARN), credential_type (the credential is not one of CAEP 1.0's registered credential types, so it is not sent as a guess), or kafka (the SET was queued for its streams and publishing it to Kafka failed).",
+      "audit": false,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "event_type",
+        "source"
+      ],
+      "declaredOnly": false
+    },
+    "ssf.logout.signal.refused": {
+      "description": "A logout at /idp/init_logout.openid raised no session-revoked, the reason: hint_invalid (the id_token_hint is malformed, or its signature or issuer does not verify against this PingFederate), hint_not_id_token (an access token, a logout token or another JWT presented as the hint), hint_too_old (its iat is older than OIDF_SSF_LOGOUT_HINT_MAX_AGE_SECONDS, or in the future), logout_failed (PingFederate's answer was an error, or the request threw) or replayed (the same session or subject and iat raised a signal already within the bound).",
+      "audit": false,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [],
+      "declaredOnly": false
+    },
+    "ssf.audit.source.attached": {
+      "description": "The audit source attached to PingFederate's audit loggers.",
+      "audit": false,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "loggers",
+        "trigger"
+      ],
+      "declaredOnly": false
+    },
+    "ssf.audit.source.detached": {
+      "description": "The audit source detached from PingFederate's audit loggers.",
+      "audit": false,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "trigger"
+      ],
+      "declaredOnly": false
+    }
+  }
+}

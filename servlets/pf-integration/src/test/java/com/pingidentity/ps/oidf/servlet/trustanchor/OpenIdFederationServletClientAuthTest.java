@@ -22,14 +22,10 @@ import com.pingidentity.ps.oidf.pf.testkit.AuditCapture;
 import com.pingidentity.ps.oidf.trustmark.InMemoryTrustMarkRegistry;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkType;
-import jakarta.servlet.ServletConfig;
-import jakarta.servlet.ServletContext;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.util.Collections;
-import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -62,27 +58,9 @@ class OpenIdFederationServletClientAuthTest {
 
     private OpenIdFederationServlet servlet(String endpointAuth) {
         Map<String, String> params = Map.of("trustAnchorIssuers", PF, "resolveDiscovery", "any");
-        FederationConfiguration configuration = FederationConfiguration.fromServletConfig(new ServletConfig() {
-            @Override
-            public String getServletName() {
-                return "federation";
-            }
-
-            @Override
-            public ServletContext getServletContext() {
-                return null;
-            }
-
-            @Override
-            public String getInitParameter(String name) {
-                return params.get(name);
-            }
-
-            @Override
-            public Enumeration<String> getInitParameterNames() {
-                return Collections.enumeration(params.keySet());
-            }
-        });
+        // resolveDiscovery=any is the resolve-any accepted risk: set by init-param it is read under development here.
+        FederationConfiguration configuration = FederationConfiguration.from(com.pingidentity.ps.oidf.platform.settings.Sources.of(
+                Map.of("OIDF_DEPLOYMENT_PROFILE", "development")::get, name -> null, params::get));
         FederationService service = FederationService.builder(configuration, Keys.signingKeys(PF_KEY))
                 .hostedSubordinateLookup(sub -> HOSTED.equals(sub) ? Map.of("jwks", Keys.publicJwks(HOSTED_KEY)) : null)
                 .hosting(() -> true)
@@ -172,7 +150,7 @@ class OpenIdFederationServletClientAuthTest {
 
         verify(exchange.response).setStatus(200);
         verify(exchange.response).setContentType("application/entity-statement+jwt");
-        assertEquals(HOSTED, JwtCodec.parseUnverifiedClaims(exchange.body.toString()).getSubject());
+        assertEquals(HOSTED, JwtCodec.parseUnverifiedClaims(exchange.body.toString()).unverifiedSubject());
     }
 
     @Test
@@ -194,12 +172,12 @@ class OpenIdFederationServletClientAuthTest {
         String optional = "{\"federation_resolve_endpoint\": \"optional\"}";
         Exchange anonymous = this.get(optional, "/federation/resolve", Map.of("sub", CLIENT, "trust_anchor", TA));
         verify(anonymous.response).setStatus(200);
-        assertNull(JwtCodec.parseUnverifiedClaims(anonymous.body.toString()).getClaimValue("aud"), "no aud for an unauthenticated request");
+        assertNull(JwtCodec.parseUnverifiedClaims(anonymous.body.toString()).unverifiedClaim("aud"), "no aud for an unauthenticated request");
 
         Exchange known = this.post(optional, "/federation/resolve", this.authenticated("sub", CLIENT, "trust_anchor", TA));
         verify(known.response).setStatus(200);
         verify(known.response).setContentType("application/resolve-response+jwt");
-        assertEquals(CLIENT, JwtCodec.parseUnverifiedClaims(known.body.toString()).getClaimValue("aud"),
+        assertEquals(CLIENT, JwtCodec.parseUnverifiedClaims(known.body.toString()).unverifiedClaim("aud"),
                 "the requesting party's Entity Identifier, and nothing else");
 
         assertEquals("invalid_request", this.post(optional, "/federation/resolve", Map.of("sub", CLIENT, "trust_anchor", TA))
@@ -229,7 +207,7 @@ class OpenIdFederationServletClientAuthTest {
         Exchange own = this.post(required, "/federation/trust_mark", this.authenticated("trust_mark_type", OPEN, "sub", CLIENT));
         verify(own.response).setStatus(200);
         verify(own.response).setContentType("application/trust-mark+jwt");
-        assertEquals(CLIENT, JwtCodec.parseUnverifiedClaims(own.body.toString()).getSubject());
+        assertEquals(CLIENT, JwtCodec.parseUnverifiedClaims(own.body.toString()).unverifiedSubject());
 
         assertEquals("invalid_request", this.post(required, "/federation/trust_mark",
                 this.authenticated("trust_mark_type", OPEN, "sub", HOSTED)).error(400).get("error"));
@@ -249,7 +227,7 @@ class OpenIdFederationServletClientAuthTest {
         assertEquals("invalid_client", this.post(required, "/federation/trust_mark_status", Map.of("trust_mark", mark)).error(401).get("error"));
         Exchange known = this.post(required, "/federation/trust_mark_status", this.authenticated("trust_mark", mark));
         verify(known.response).setStatus(200);
-        assertEquals("active", JwtCodec.parseUnverifiedClaims(known.body.toString()).getClaimValue("status"));
+        assertEquals("active", JwtCodec.parseUnverifiedClaims(known.body.toString()).unverifiedClaim("status"));
         Exchange get = this.get(required, "/federation/trust_mark_status", Map.of("trust_mark", mark));
         assertEquals("invalid_request", get.error(405).get("error"), "still POST only");
     }

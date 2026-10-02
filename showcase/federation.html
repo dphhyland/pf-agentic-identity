@@ -170,7 +170,7 @@ footer{max-width:1080px;margin:0 auto;padding:0 24px 40px;color:var(--faint);fon
   </ol>
   <p>A trust chain expires when its earliest statement expires. Chain discovery permits at most 24 fetches. By default, outbound requests require HTTPS and public IP addresses.</p>
   <a class="src" href="../docs/federation/how-it-works.md">docs/federation/how-it-works.md</a>
-  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/TrustChainValidator.java" data-lines="233-270">TrustChainValidator.java:233-270</a>
+  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/TrustChainValidator.java" data-lines="279-316">TrustChainValidator.java:279-316</a>
   <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/EntityStatementChecks.java" data-lines="15-57">EntityStatementChecks.java:15-57</a>
 </section>
 
@@ -215,17 +215,17 @@ OIDF_FEDERATION_SELF_ANCHOR=https://pf.example.com</code></pre>
 <section id="marks">
   <h2>Trust Marks</h2>
   <p>PingFederate accepts a Trust Mark when the trust anchor authorises its issuer, the issuer’s chain reaches that anchor and the signature is valid. Optional status checks confirm that the mark remains active. Invalid marks are ignored. Registration can require specified marks, and operators can grant marks for PingFederate to issue.</p>
-  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/TrustMarkValidator.java" data-lines="119-155">TrustMarkValidator.java:119-155</a>
-  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/trustmark/TrustMarkIssuer.java" data-lines="73-159">TrustMarkIssuer.java:73-159</a>
+  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/TrustMarkValidator.java" data-lines="125-170">TrustMarkValidator.java:125-170</a>
+  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/trustmark/TrustMarkIssuer.java" data-lines="72-163">TrustMarkIssuer.java:72-163</a>
 </section>
 
 <section id="arriving">
   <h2>Automatic registration</h2>
   <div class="grid">
     <div class="card"><h3>Agent token requests</h3><p>An agent submits a signed client assertion with its token request. PingFederate validates the supplied or discovered trust chain and registers the agent. The request then proceeds to client authentication.</p>
-      <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/TokenEndpointAutoRegistrationFilter.java" data-lines="142-186">TokenEndpointAutoRegistrationFilter.java:142-186</a></div>
+      <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/TokenEndpointAutoRegistrationFilter.java" data-lines="164-211">TokenEndpointAutoRegistrationFilter.java:164-211</a></div>
     <div class="card"><h3>Relying-party authorisation requests</h3><p>A relying party submits a signed request to the authorisation or Pushed Authorization Request (PAR) endpoint. PAR lets a client submit its authorisation request directly to the server. PingFederate checks the claims before fetching the trust chain, then validates the chain and request signature before registration.</p>
-      <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/FrontChannelAutoRegistrationFilter.java" data-lines="120-162">FrontChannelAutoRegistrationFilter.java:120-162</a></div>
+      <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/FrontChannelAutoRegistrationFilter.java" data-lines="143-191">FrontChannelAutoRegistrationFilter.java:143-191</a></div>
     <div class="card"><h3>Validation after registration</h3><p>Each later relying-party request must use a registered signing key and a fresh request identifier. Rejected requests receive an error page without a redirect.</p>
       <a class="src" href="../docs/federation/how-it-works.md">docs/federation/how-it-works.md</a></div>
   </div>
@@ -234,7 +234,7 @@ OIDF_FEDERATION_SELF_ANCHOR=https://pf.example.com</code></pre>
 <section id="registering">
   <h2>Explicit registration</h2>
   <p>A relying party can register in advance by posting its Entity Statement or trust chain to <code>/federation/register</code>. PingFederate validates it and returns a signed response containing the registered metadata, keys and expiry.</p>
-  <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/RegistrationService.java" data-lines="205-257">RegistrationService.java:205-257</a>
+  <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/RegistrationService.java" data-lines="223-306">RegistrationService.java:252-335</a>
 </section>
 
 <section id="ending">
@@ -248,8 +248,8 @@ OIDF_FEDERATION_SELF_ANCHOR=https://pf.example.com</code></pre>
       <tr><td>Disable the client in PingFederate</td><td>New token issuance</td><td>Renewal does not re-enable a client disabled by an operator</td></tr>
     </tbody>
   </table></div>
-  <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/RegistrationExpirySweeper.java" data-lines="44-65">RegistrationExpirySweeper.java:44-65</a>
-  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/authority/AuthoritySupport.java" data-lines="163-178">AuthoritySupport.java:163-178</a>
+  <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/RegistrationExpirySweeper.java" data-lines="54-75">RegistrationExpirySweeper.java:54-75</a>
+  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/authority/AuthoritySupport.java" data-lines="178-190">AuthoritySupport.java:178-190</a>
 </section>
 
 <section id="pdp">
@@ -268,7 +268,7 @@ OIDF_FEDERATION_SELF_ANCHOR=https://pf.example.com</code></pre>
   "context":  {"scope": "read write", ...}
 }</code></pre>
   </div>
-  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/policy/AuthZenFederationPolicyDecisionPoint.java" data-lines="123-170">AuthZenFederationPolicyDecisionPoint.java:123-170</a>
+  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/policy/AuthZenFederationPolicyDecisionPoint.java" data-lines="146-193">AuthZenFederationPolicyDecisionPoint.java:146-193</a>
   <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/RegistrationPolicy.java" data-lines="64-94">RegistrationPolicy.java:64-94</a>
 </section>
 

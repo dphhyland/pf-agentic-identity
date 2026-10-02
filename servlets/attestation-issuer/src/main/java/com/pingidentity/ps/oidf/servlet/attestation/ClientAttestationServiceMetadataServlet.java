@@ -4,6 +4,14 @@
 package com.pingidentity.ps.oidf.servlet.attestation;
 
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
+import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
+import com.pingidentity.ps.oidf.platform.pf.settings.InitParams;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidator;
 import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators;
 import java.io.IOException;
@@ -12,6 +20,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
@@ -19,7 +29,6 @@ import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.jose4j.json.JsonUtil;
-import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 
 /**
  * Serves the {@code openid-client-attestation-service-1_0} discovery document at
@@ -40,18 +49,24 @@ import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
  * ({@code customClaimsRequired} init-param / {@code OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED}), so the
  * advertisement and the enforcement cannot drift apart.
  */
-@WebServlet(urlPatterns = {"/.well-known/client-attestation-service"})
+// loadOnStartup: its part of ATTESTATION_ISSUER registers at deploy, not on the first request (finding F-0193), so a
+// setting its catalogue entry refuses is FAILED_CONFIG before anything is served; its init never throws.
+@WebServlet(urlPatterns = {"/.well-known/client-attestation-service"}, loadOnStartup = 1)
 public class ClientAttestationServiceMetadataServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
 
     static final String ATTESTATION_PATH = "/federation/attestation";
-    static final String CHALLENGE_PATH = "/federation/attestation-challenge";
+    /** The client attestation service's own challenge endpoint - never the authorization server's (CAS §4.1). */
+    static final String CHALLENGE_PATH = AttestationIssuanceChallengeServlet.PATH;
 
     /** Request members every issuance request must carry ({@code svid} is the SPIFFE-era alias). */
     static final List<String> REQUEST_PARAMETERS_REQUIRED =
             List.of("client_id", "instance_key", "instance_attestation", "proof");
-    /** Proof claims the endpoint always enforces; {@code challenge} joins when the challenge is required. */
-    static final List<String> PROOF_CLAIMS_REQUIRED = List.of("aud", "jti");
+    /**
+     * Proof claims the endpoint always enforces; {@code challenge} joins when the challenge is required. {@code iat}
+     * and {@code exp} are required since S4c (CAS §4.3, which lists both as REQUIRED; InstanceKeyProofValidator).
+     */
+    static final List<String> PROOF_CLAIMS_REQUIRED = List.of("aud", "jti", "iat", "exp");
     /** Claims minted into every issued attestation. */
     static final List<String> ATTESTATION_CLAIMS_ISSUED =
             List.of("iss", "sub", "iat", "exp", "cnf", "workload");
@@ -67,25 +82,51 @@ public class ClientAttestationServiceMetadataServlet extends HttpServlet {
     private List<String> customClaimsSupported = List.of();
     private volatile InstanceAttestationValidators instanceValidators;
 
+    /** This servlet's part of ATTESTATION_ISSUER, from init; null when a test's constructor made it and init never ran. */
+    private transient volatile ComponentParts.Part part;
+
+    /**
+     * Registers the servlet's part of {@code ATTESTATION_ISSUER} and reads its settings, strictly, through the
+     * attestation-issuer catalogue (plan item ST-5): a value an entry refuses leaves the part {@code FAILED_CONFIG},
+     * naming the setting, and the document answers 503.
+     */
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        this.challengeRequired = Boolean.parseBoolean(config.getInitParameter("challengeRequired"));
-        this.challengeEndpointEnabled = parseBoolean(config.getInitParameter("challengeEndpointEnabled"), true);
-        this.attestationSigningAlgs =
-                parseList(config.getInitParameter("attestationSigningAlgValuesSupported"), DEFAULT_ATTESTATION_ALGS);
-        this.customClaimsRequired = AttestationIssuanceServlet.customClaimsFrom(
-                config.getInitParameter("customClaimsRequired"),
-                "oidf.attestation.custom.claims.required", "OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED");
-        this.customClaimsSupported = AttestationIssuanceServlet.customClaimsFrom(
-                config.getInitParameter("customClaimsSupported"),
-                "oidf.attestation.custom.claims.supported", "OIDF_ATTESTATION_CUSTOM_CLAIMS_SUPPORTED");
+        ComponentParts.Part begun = Startup.begin(Startup.ATTESTATION_ISSUER, "ClientAttestationServiceMetadataServlet");
+        this.part = begun;
+        begun.start(() -> this.start(Settings.of(AttestationIssuanceServlet.SETTINGS).with(InitParams.sources(config))));
+    }
+
+    /** The start function: every setting read before any is kept. */
+    void start(Settings settings) {
+        boolean challengeRequired = settings.bool("challengeRequired");
+        boolean challengeEndpointEnabled = settings.bool("challengeEndpointEnabled");
+        Set<String> algs = settings.words("attestationSigningAlgValuesSupported");
+        List<String> customClaimsRequired = AttestationIssuanceServlet.claims(settings, "OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED");
+        List<String> customClaimsSupported = AttestationIssuanceServlet.claims(settings, "OIDF_ATTESTATION_CUSTOM_CLAIMS_SUPPORTED");
+        settings.string("OIDF_CIMD_TRUST_BUNDLES");
+        // The wallet validator the document's formats come from is built at the first request, from this setting.
+        settings.jsonObject("OIDF_WALLET_PROVIDER_JWKS");
+        this.challengeRequired = challengeRequired;
+        this.challengeEndpointEnabled = challengeEndpointEnabled;
+        this.attestationSigningAlgs = List.copyOf(algs);
+        this.customClaimsRequired = customClaimsRequired;
+        this.customClaimsSupported = customClaimsSupported;
+    }
+
+    @Override
+    protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        if (ComponentGate.oauthEndpoint(this.part, resp)) {
+            return;
+        }
+        super.service(req, resp);
     }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         applyCors(resp);
-        String issuer = OAuthIssuerUtils.getInstance().getIssuerValue(req);
+        String issuer = PfInternals.issuer(req);
         resp.setStatus(200);
         resp.setContentType("application/json");
         resp.setHeader("Cache-Control", "public, max-age=3600");
@@ -134,8 +175,20 @@ public class ClientAttestationServiceMetadataServlet extends HttpServlet {
 
     /** Client metadata sources in assurance order, mirroring the issuance servlet's composite resolver. */
     private static List<String> metadataSources() {
+        return metadataSources(System::getProperty, System::getenv);
+    }
+
+    /**
+     * As above, over the given property and environment reads. {@code cimd} is advertised only when
+     * {@code OIDF_CIMD_TRUST_BUNDLES} is set and {@code OIDF_DEPLOYMENT_PROFILE=development}: under any other profile
+     * the attester refuses the CIMD source (plan item M-1), and a document that still listed it would promise
+     * clients a source they cannot be issued from.
+     */
+    static List<String> metadataSources(Function<String, String> props, Function<String, String> env) {
         List<String> sources = new ArrayList<>();
-        if (AttestationIssuanceServlet.env("oidf.cimd.trust.bundles", "OIDF_CIMD_TRUST_BUNDLES") != null) {
+        String bundles = Settings.of(AttestationIssuanceServlet.Catalogues.ISSUER, Sources.of(env, props, null))
+                .string("OIDF_CIMD_TRUST_BUNDLES");
+        if (bundles != null && DeploymentProfile.of(env).isDevelopment()) {
             sources.add("cimd");
         }
         sources.add("registration");
@@ -169,27 +222,6 @@ public class ClientAttestationServiceMetadataServlet extends HttpServlet {
             registry = registry.with(wallet);
         }
         return registry;
-    }
-
-    private static List<String> parseList(String value, List<String> fallback) {
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        List<String> out = new ArrayList<>();
-        for (String token : value.split(",")) {
-            String trimmed = token.trim();
-            if (!trimmed.isEmpty()) {
-                out.add(trimmed);
-            }
-        }
-        return out.isEmpty() ? fallback : List.copyOf(out);
-    }
-
-    private static boolean parseBoolean(String value, boolean fallback) {
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        return Boolean.parseBoolean(value.trim());
     }
 
     private static void applyCors(HttpServletResponse resp) {

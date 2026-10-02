@@ -9,6 +9,7 @@ import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.issuer.ClientResolverPlugins;
 import com.pingidentity.ps.oidf.issuer.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import java.util.List;
 import java.util.Map;
 import org.jose4j.jwk.EcJwkGenerator;
@@ -39,7 +40,7 @@ class AttesterResolversTest {
         System.clearProperty(AttesterResolvers.CIMD_URL_PROPERTY);
         System.clearProperty("oidf.federation.trust.controller.host");
         System.clearProperty("oidf.federation.trust.anchor.jwks");
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
     }
 
     @Test
@@ -57,7 +58,8 @@ class AttesterResolversTest {
         System.setProperty(AttesterResolvers.FEDERATION_ENTITY_PROPERTY, "https://entity.example.com");
         System.setProperty(AttesterResolvers.CIMD_URL_PROPERTY, "https://cimd.example.com/clients.json");
 
-        IssuanceClientResolver resolver = AttesterResolvers.fromEnvironment();
+        // The CIMD source is honoured only in development (M-1); the profile is read from the environment.
+        IssuanceClientResolver resolver = AttesterResolvers.fromEnvironment(System::getProperty, development());
 
         assertEquals(List.of(ClientResolverPlugins.OPENID_FEDERATION, ClientResolverPlugins.CIMD, ClientResolverPlugins.PF_CLIENT_METADATA),
                 AttesterResolvers.activePluginIds(resolver));
@@ -82,5 +84,45 @@ class AttesterResolversTest {
 
         assertNotNull(AttesterResolvers.federationValidator(runtime, "https://entity.example.com"));
         assertNotNull(AttesterResolvers.federationValidator(runtime, null));
+    }
+
+    /** An environment that says development, and nothing else. */
+    private static java.util.function.Function<String, String> development() {
+        return k -> "OIDF_DEPLOYMENT_PROFILE".equals(k) ? "development" : null;
+    }
+
+    // ---- M-1: OIDF_ATTESTER_CIMD_URL is honoured only in development ----------------------------------
+
+    @Test
+    void theCimdSourceIsRefusedOutsideDevelopmentAndTheOtherSourcesKeepServing() {
+        System.setProperty(AttesterResolvers.CIMD_URL_PROPERTY, "https://cimd.example.com/clients.json");
+
+        IssuanceClientResolver unset = AttesterResolvers.fromEnvironment(System::getProperty, k -> null);
+        assertEquals(List.of(ClientResolverPlugins.PF_CLIENT_METADATA), AttesterResolvers.activePluginIds(unset),
+                "an unset profile is production: the CIMD plugin is left out");
+        IssuanceClientResolver production = AttesterResolvers.fromEnvironment(System::getProperty,
+                k -> "OIDF_DEPLOYMENT_PROFILE".equals(k) ? "production" : null);
+        assertEquals(List.of(ClientResolverPlugins.PF_CLIENT_METADATA), AttesterResolvers.activePluginIds(production));
+        IssuanceClientResolver typo = AttesterResolvers.fromEnvironment(System::getProperty,
+                k -> "OIDF_DEPLOYMENT_PROFILE".equals(k) ? "developmnet" : null);
+        assertEquals(List.of(ClientResolverPlugins.PF_CLIENT_METADATA), AttesterResolvers.activePluginIds(typo),
+                "a typo lands on the safe side");
+    }
+
+    @Test
+    void theCimdSourceIsHonouredInDevelopment() {
+        System.setProperty(AttesterResolvers.CIMD_URL_PROPERTY, "https://cimd.example.com/clients.json");
+        IssuanceClientResolver resolver = AttesterResolvers.fromEnvironment(System::getProperty, development());
+        assertEquals(List.of(ClientResolverPlugins.CIMD, ClientResolverPlugins.PF_CLIENT_METADATA), AttesterResolvers.activePluginIds(resolver));
+    }
+
+    @Test
+    void theVariableIsReadFromTheEnvironmentWhenThePropertyIsUnset() {
+        IssuanceClientResolver resolver = AttesterResolvers.fromEnvironment(System::getProperty,
+                java.util.Map.of(AttesterResolvers.CIMD_URL_ENV, "https://cimd.example.com/clients.json",
+                        "OIDF_DEPLOYMENT_PROFILE", "development")::get);
+        assertEquals(List.of(ClientResolverPlugins.CIMD, ClientResolverPlugins.PF_CLIENT_METADATA), AttesterResolvers.activePluginIds(resolver));
+        IssuanceClientResolver blank = AttesterResolvers.fromEnvironment(k -> " ", k -> " ");
+        assertEquals(List.of(ClientResolverPlugins.PF_CLIENT_METADATA), AttesterResolvers.activePluginIds(blank));
     }
 }

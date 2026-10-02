@@ -1,8 +1,8 @@
 # Contributing
 
 How work on this repository is done: the build, the tests that need a database, worktrees, the version tools,
-the files that are generated, and what a pull request carries. The house style for anything written -
-prose, comments, commits, pull requests, release notes - is in [docs/development/style-guide.md](docs/development/style-guide.md).
+the files that are generated, what a pull request carries, and how a release is cut. The house style for
+anything written - prose, comments, commits, pull requests, release notes - is in [docs/development/style-guide.md](docs/development/style-guide.md).
 The production programme's plan and its findings are the backlog: [docs/findings](docs/findings/README.md)
 holds every finding and unverified assumption, and a pull request names the ones it closes.
 
@@ -17,38 +17,79 @@ mvn -o -B clean verify        # every module, tests on, coverage gates enforced
 and after that the reactor resolves everything from `~/.m2`. Never `mvn install`: parallel worktrees share
 `~/.m2`, and an installed module from one branch is what another branch then builds against.
 
-The two `provided` PingFederate jars (`pf-protocolengine`, `pingfederate-sdk`) and the jars gm-api and the
-plugins name under `local.pingfederate` come from the public `pingidentity/pingfederate` image, pinned by tag
-and digest in `build/pf-version.env`. Running PingFederate needs a licence; extracting its jars does not, so
-the reactor builds with no private dependency. CI installs them with
-[.github/actions/pf-provided-jars/action.yml](.github/actions/pf-provided-jars/action.yml). Locally, do what it
-does once: `docker create` the image at the digest the file names, `docker cp` its `server/default/lib` and
-`lib` directories out, and run its `mvn install:install-file` lines against them. The jars are then in `~/.m2`
-for every worktree on the machine.
+The two `provided` PingFederate jars (`pf-protocolengine`, `pingfederate-sdk`) come from the public
+`pingidentity/pingfederate` image, pinned by tag and digest in `build/pf-version.env`. Running PingFederate
+needs a licence; extracting its jars does not, so the reactor builds with no private dependency. CI installs
+them with [.github/actions/pf-provided-jars/action.yml](.github/actions/pf-provided-jars/action.yml). Locally,
+do what it does once: `docker create` the image at the digest the file names, `docker cp` its
+`server/default/lib` and `lib` directories out, and run its two `mvn install:install-file` lines against them.
+The jars are then in `~/.m2` for every worktree on the machine. Nothing else is installed by hand: every
+module, gm-api and the plugins included, imports the BOM, and the other libraries PingFederate provides
+come from Maven Central. jose4j, jackson, commons-lang3 and commons-logging are at the `version.pf.*`
+versions `tools/pf-provided-versions.py` holds to the image. The jakarta servlet API is
+`jakarta.servlet-api` 5.0.0, the 5.0 API line PingFederate 13.1's Jetty ships as
+`jetty-jakarta-servlet-api-5.0.2.jar`; no version tool holds it to the image, and `tools/pf-linkcheck.py`
+checks every servlet member the artefacts reference against `pf-jetty-lib`. An older `~/.m2` may still hold
+`local.pingfederate` installs from before 0.5.0; nothing reads them now.
 
 `tools/pf-linkcheck.py --lib pf-lib --lib pf-jetty-lib --reactor .` checks, against those extracted
 directories, that every PingFederate and servlet member the artefacts link resolves on the pinned image. Run it
 when you touch anything that calls the SDK or `pf-protocolengine`.
 
+The lint job's source scans hold main code to platform, and each says in its docstring what it looks for and what it
+does not see: `tools/trust-scan.py` (no trust-all TLS outside `InsecureTls`), `tools/settings-scan.py` (every setting
+read is catalogued), `tools/direct-read-scan.py --check-allow-list` (no `System.getenv`, `System.getProperty` or
+`getInitParameter` outside `platform.settings`) and `tools/outbound-scan.py --check-allow-list` (no HTTP client
+outside `platform.http`). The last two print each hit with the allow-list line that would admit it; admit one only
+with a finding id or a reason a reviewer will accept, and delete a line when its read is converted, since
+`--check-allow-list` fails a line that admits nothing.
+
 ## Tests that need Postgres
 
-Most tests need nothing. `libs/device-instance`'s registry suite (`IomInstanceRegistryTest`) needs a
-PostgreSQL it can create tables in: it takes `IDM_TEST_JDBC_URL`, `IDM_TEST_JDBC_USER` and
-`IDM_TEST_JDBC_PASSWORD`, and otherwise tries Testcontainers (the version the reactor pins is reported not to
-see Docker Desktop 29; plan item DB-1 moves it to 1.21.4), and otherwise skips - and a skipped suite
-under-counts the coverage dashboard. So give it a database:
+The store suites run on PostgreSQL, and only on it: H2 and HSQLDB were dropped in 0.5.0. They are the JDBC
+stores' tests in `libs/openid-federation` (hosted entities, Trust Marks, key history), `libs/agent-registry`,
+`libs/device-instance` (`IomInstanceRegistryTest`) and `servlets/ssf` (both durable SSF stores), and
+`libs/testkit`'s own. Each class gets a database of its own from `libs/testkit`'s `PostgresDatabase`
+extension, named `oidf_test_<class>_<random>`, created before the class and dropped after it, so classes,
+modules and worktrees can share one server. Where the server comes from, in order:
+
+1. `OIDF_TEST_JDBC_URL` (with `OIDF_TEST_JDBC_USER` and `OIDF_TEST_JDBC_PASSWORD`): a `jdbc:postgresql:` URL
+   whose user may `CREATE DATABASE`. The extension connects to the database the URL names only to create and
+   drop the others. `IDM_TEST_JDBC_URL`, `_USER` and `_PASSWORD` are read in 0.5.x as aliases, with a warning.
+2. Otherwise Testcontainers (1.21.4), when Docker answers: one `postgres:16-alpine` container for the test JVM.
+   Verified on this repository's development Mac with Docker Desktop 29.4.1 on 2026-09-28 (U-0050); 1.19.8,
+   which the reactor pinned before, did not find Docker Desktop 29 there.
+3. Otherwise the class is skipped, and says why. With `CI=true` it fails instead: a CI job that lost its
+   database must not go green by skipping the store suites. A skipped suite also under-counts the coverage
+   dashboard.
+
+So either leave Docker running, or name a server:
 
 ```sh
 docker run -d --rm --name pg-mine -e POSTGRES_USER=dashboard -e POSTGRES_PASSWORD=dashboard -e POSTGRES_DB=idm \
   -p 127.0.0.1:55432:5432 postgres:16-alpine
-IDM_TEST_JDBC_URL=jdbc:postgresql://127.0.0.1:55432/idm IDM_TEST_JDBC_USER=dashboard IDM_TEST_JDBC_PASSWORD=dashboard \
+OIDF_TEST_JDBC_URL=jdbc:postgresql://127.0.0.1:55432/idm OIDF_TEST_JDBC_USER=dashboard OIDF_TEST_JDBC_PASSWORD=dashboard \
   mvn -o -B clean verify
 docker stop pg-mine
 ```
 
-Pick a port nobody else on the machine is using; several worktrees build at once here. From Phase 2 (plan item
-DB-1) every store has a real-Postgres test and a unique database per test class, and CI runs a Postgres service
-container (R-CI5).
+`POSTGRES_USER` is the image's superuser, so it may create databases. Pick a port nobody else on the machine is
+using; several worktrees build at once here. A build that is killed leaves its `oidf_test_*` databases behind:
+drop them by hand, or stop the container. CI's `java` job runs a Postgres service and passes it to `mvn verify`
+as `OIDF_TEST_JDBC_URL`.
+
+A new store test registers the extension and applies its module's shipped migrations, which `Migrations` runs in
+version order within a family (plan decision 11: federation V100-V199, agent V200-V299, and so on):
+
+```java
+@RegisterExtension
+static final PostgresDatabase POSTGRES = new PostgresDatabase();
+
+@BeforeAll
+static void schema() throws Exception {
+    Migrations.apply(POSTGRES.dataSource(), 100, 199);
+}
+```
 
 ## Worktrees
 
@@ -66,8 +107,11 @@ The stash is shared by every worktree: prefer a temporary WIP commit to `git sta
   the SDK version the reactor compiles against, and the product version the Terraform provider is told.
   `tools/pf-version-check.py` checks every other place that names the version agrees with it;
   `tools/pf-version-sync.py` rewrites them when it changes.
-- `tools/set-version.py` keeps every pom on one project version: `--check` in CI, `0.5.0-SNAPSHOT` to bump.
-  gm-api is in the lockstep.
+- `tools/set-version.py` keeps every pom on one project version: `--check` in CI, a version such as `0.6.0-SNAPSHOT` to bump.
+  gm-api is in the lockstep. It sets each pom's `project.build.outputTimestamp` with the version, the date written
+  on every jar and war entry so that a rebuild is byte-identical: HEAD's commit time, in UTC, for a release, and
+  `2000-01-01T00:00:00Z` for a snapshot. `--check` fails when a pom has none, when they disagree or do not parse,
+  and when a release carries the snapshot's date. Never edit the version or the date by hand.
 - `tools/pf-provided-versions.py` compares the BOM's `version.pf.*` properties with the jars the image ships.
 
 Each has unit tests under `tools/tests/`, run by CI before the tool itself is trusted:
@@ -75,22 +119,101 @@ Each has unit tests under `tools/tests/`, run by CI before the tool itself is tr
 
 ## Generated files
 
-Some files are derived from the code and checked rather than written:
+Reactor-wide files derived from the code are built by CI and published, not committed (plan decision 18): a
+file that every test or documentation change regenerated conflicted whenever two pull requests met. PR #15
+(merged 2026-09-27) took the dashboard and the showcase render out of git. Each Build run whose reactor build
+completes publishes them as artefacts, and locally they land at the same paths, git-ignored:
 
-- **`docs/coverage-dashboard.md` and `.html`** - `python3 tools/coverage-report.py` writes them from the jacoco
-  and surefire reports of a full build and the `@Requirement` annotations; `--check` compares.
-- **The showcase's documents** - `node tools/build-showcase-docs.mjs` renders every tracked Markdown file into
-  `showcase/index.html`'s `DOCS_HTML` line (`npm ci --prefix tools` once first, the renderer is pinned);
-  `--check` compares. `python3 tools/check-showcase-links.py` checks the page's file:line citations exist.
-- **`docs/development/doc-lint-baseline.txt`** - `python3 tools/doc-lint.py --update-baseline` lowers it after
-  hits are fixed; never run it to admit new ones.
+- **The coverage dashboard, `docs/coverage-dashboard.md`, `.html` and `.json`** - `python3
+  tools/coverage-report.py` writes all three from the jacoco and surefire reports of a full build (`mvn -o
+  verify` first, with Postgres, see above) and the `@Requirement` annotations. The JSON is the machine-readable
+  copy: per module, each jacoco check's methods with their line and branch counters, the test counts, and the
+  requirement ids and matrix rows its tests pin. CI publishes the three as the `coverage-dashboard` artefact.
+- **The showcase's documents, `showcase/docs.js`** - `node tools/build-showcase-docs.mjs` renders every tracked
+  Markdown file, and the dashboard when the last build left one (`npm ci --prefix tools` once first, the
+  renderer is pinned). `python3 tools/check-showcase-links.py` then checks the pages' file:line citations. CI
+  publishes `showcase/` as the `showcase` artefact.
 
-The dashboard and the showcase render are being moved out of git by a concurrent pull request
-(`prod/p1-generated-files`, plan item R-CI5 brought forward): until it merges, both are tracked and CI fails
-on a stale copy, so regenerate the dashboard after any change to a Java test (with Postgres, see above) and
-the showcase after any change to a tracked `.md`, and commit the result. After it merges, CI generates and
-publishes both and there is nothing to regenerate; this section is rewritten then. Per-component generated
-pages, such as `docs/configuration/` once ST-4 lands, stay committed and byte-checked either way.
+Per-component generated pages, such as `docs/configuration/` once ST-4 lands, stay committed and byte-checked.
+So does `docs/development/doc-lint-baseline.txt`: `python3 tools/doc-lint.py --update-baseline` lowers it after
+hits are fixed; never run it to admit new ones.
+
+### The coverage gate and the ratchet
+
+CI's java job runs `tools/coverage-report.py --strict --gate --baseline <json>` after `mvn verify`. It fails
+the job for three kinds of reason, each printed as one line on stderr and in the job's step summary:
+
+- `incomplete build:` (`--strict`, the default) - a module with tests left no surefire report, a module that
+  configures jacoco left no `jacoco.xml`, or a jacoco check includes no method. Something skipped the tests.
+- `gate:` (`--gate`) - a jacoco check includes no method; an `<include>` pattern names no method in the jacoco
+  report, which jacoco itself passes (a renamed method or a typo leaves the method ungated and the build green),
+  so fix the pattern; or an `@Requirement` id's prefix is not declared in
+  `libs/conformance/.../Requirement.java`, so declare it there, once the document behind it has been read, or
+  fix the id. An id naming a section that no conformance-matrix row declares is printed as a `gate warning:`
+  and counted, not refused: on 2026-09-28, 65 of 500 ids were, under 21 prefixes, 7 of which no matrix has a
+  row for. The dashboard lists them, with the matrix each belongs in.
+- `ratchet:` (`--baseline`) - against the `coverage-dashboard.json` of an earlier build: a jacoco check the
+  baseline had is gone or includes fewer methods (the line names the methods it no longer includes), a gated
+  method is below 100% line or branch coverage, or fewer matrix rows are pinned (the line names them). Anything
+  new passes: a new module, check or method needs no edit to the tool. A method renamed in the source and in
+  its pattern passes too, since the count is the same.
+
+A reduction that is the point of the change - dead code deleted along with its `<include>`, a check's execution
+id renamed, a module moved, a matrix row retired - is allowed by a line in `tools/coverage-ratchet-allow.txt`,
+committed in the same pull request: `method <module> <method>`, `check <module> <execution id>` or `row <matrix
+row>`, with the names copied from the `ratchet:` line. The review sees it, and the push to main that follows
+reads the same file, so main does not go red after the merge. An allowance only takes its item out of the
+baseline; nothing lets a gated method fall below 100%. Once the baseline no longer has the item, the line allows
+nothing and the step summary lists it under "Allowances that allow nothing", so the next change can delete it.
+A malformed line, or a baseline that is missing or not JSON, exits 2 rather than 1.
+
+CI's baseline is fetched by `tools/ci/coverage-baseline.sh`: the dashboard JSON of the newest successful push
+Build on main that the commit under test descends from (a pull request's merge commit, a push, or a dispatched
+branch), found by asking the compare API about the 30 newest such runs. A newer main is never the baseline, so
+a branch behind main is not failed for gated methods it never had. When there is none - the first run on main,
+an artefact past its 90 days, a run from before the JSON existed - the ratchet passes, and the step summary
+says so. A baseline in another JSON format passes the same way, so a change to the format does not fail every
+build until a baseline in the new one exists.
+
+To run the same locally, build, download a main run's artefact and pass its JSON:
+
+```sh
+mvn -o -B clean verify
+gh run download <run-id> -n coverage-dashboard -D /tmp/baseline    # a successful Build run on main
+python3 tools/coverage-report.py --gate --baseline /tmp/baseline/coverage-dashboard.json
+```
+
+`gh run list --workflow build.yml --branch main --event push --status success --limit 1` gives the newest run
+id; if your branch is behind main, pick the run for a commit it contains, or merge main first, since a newer
+main can have gated methods your branch never had.
+
+## The image job
+
+Build's `image` job builds the Dockerfile's `capability` target - the PingFederate image with no configuration
+archive - for the production and the conformance profile, and a release needs it green. It runs the war
+assembler against PingFederate's own war (`StockWarGoldenTest`), `test-entrypoint.sh --image` in each image,
+the default `deployment` target from a placeholder archive and without one, and then a syft SBOM and a grype scan
+of each image beside the base image. What it checks, what fails and what is only reported is in
+[build/pingfederate/README.md](build/pingfederate/README.md#scanning-the-image); the commands to do the same
+locally are there too.
+
+When it fails:
+
+- **at the scan**: the job summary lists each HIGH or CRITICAL finding of ours, with the package, where it is and
+  the version that fixes it. Move the dependency, or rebuild what installed it. If it cannot be fixed yet, accept
+  it in `.github/grype.yaml` - one entry per vulnerability, package and version, with a reason a reviewer can
+  check and the finding that tracks it - in the same pull request. A PingFederate finding never fails the job;
+  it is listed under "PingFederate's findings" for the next version bump.
+- **on a day nothing changed**: grype reads the day's vulnerability database, and the image's `apk add` installs
+  the day's Alpine packages (F-0220), so a new advisory or package can fail a pull request that touched neither.
+  It is still ours to answer: fix or accept it as above, in its own pull request if that is clearer.
+- **at `StockWarGoldenTest`**: after a PingFederate bump the stock `web.xml` digest fails by design; take the
+  golden result again as the test's comment says.
+- **at a `docker build`**: the step's log names the stage (`builder`, `capability` or `deployment`) and the
+  instruction.
+
+The scanner and SBOM versions, like the linters', are in `tools/ci/install-lint-tools.sh` with their
+checksums; Dependabot does not move them.
 
 ## Pull requests
 
@@ -104,10 +227,13 @@ review, Merge order, Upgrade notes, Findings, Unverified. Before opening one:
 2. The adversarial review: a second reader told to assume the change is wrong, who tests the security,
    correctness and documentation claims and reports pass or fail. Its verdict and each issue's resolution go
    in the body.
-3. A release-note fragment: one bullet under `Unreleased` in [CHANGELOG.md](CHANGELOG.md), naming the plan
-   item.
-4. An upgrade note in `docs/releases/<version>.md` under "Before you deploy" for anything a consumer must
-   change (create the page from the previous one's shape if it is missing).
+3. A release-note fragment, `docs/releases/unreleased/<ID>.md`, named for the package: its changelog bullet
+   naming the plan item, and its notes. The shape is in
+   [docs/releases/unreleased/README.md](docs/releases/unreleased/README.md), and `python3
+   tools/release-notes.py check` (the Docs workflow runs it) refuses a malformed one. Do not edit
+   CHANGELOG.md's `Unreleased` section or a release page directly: the release folds the fragments into both.
+4. An upgrade note for anything a consumer must change: an item under the fragment's "Before you deploy",
+   opening with a bold title, and named by that title, never by its number, since the fold renumbers it.
 5. The findings: `Closes F-NNNN` in the body, and the finding's file updated - status, `prs`, verification
    with a date. A new defect or assumption gets a new file.
 6. Tests for every behaviour change; a new decision method joins its module's 100% jacoco METHOD gate (the
@@ -115,6 +241,46 @@ review, Merge order, Upgrade notes, Findings, Unverified. Before opening one:
 
 Merge commits only, never squash or rebase: commit ids are cited in documents, pull request bodies and
 release notes. The maintainer merges.
+
+## Releasing
+
+The maintainer cuts a release. A pull request folds the fragments (`python3 tools/release-notes.py assemble
+<version>`, which appends them to `docs/releases/<version>.md` and CHANGELOG.md's `Unreleased` section and
+deletes them), sets every pom to the version and its outputTimestamp (`python3 tools/set-version.py <version>`), gives the changelog's
+`Unreleased` heading the version and date, and finishes `docs/releases/<version>.md`; its merge commit is tagged `v<version>` and the tag pushed. The tag starts
+[release.yml](.github/workflows/release.yml), which publishes the build it verified and nothing before it; the
+order is in the workflow's header. Once `dist/` is assembled, and before anything is published, it makes the
+rebuild the deploy will make with `mvn install` and compares every rebuilt jar and war with `dist/` byte for byte,
+so a build that is not reproducible stops the release before a draft or a package exists; after the deploy it
+compares again. A `workflow_dispatch` with `dry_run` runs the same steps up to and including that first
+comparison, and publishes nothing. Afterwards a pull request moves the poms to the next `-SNAPSHOT`.
+
+The release's second gate, after the tag-version check, is a green Build on the tagged commit. The newest Build
+run that a push to `main` or a dispatch started there must have concluded success, and so must the latest attempt
+of every job [.github/required-checks.txt](.github/required-checks.txt) names. A pull request's Build never
+counts, even when its head is the tagged commit: it tested the pull request's merge with its base, not the
+commit. From 0.4.0 the gate waits for a Build that is still running, because a tag pushed straight after its
+merge arrives while it is: v0.3.0's did, the gate read `java` in progress and failed, and the release was re-run
+by hand (run 36278709651, F-0069). It reads the Build runs every 30 seconds for up to 20 minutes, waits while
+the run is queued or pending - a run can wait over a minute behind the previous `main` Build before its jobs
+exist - and logs what it is waiting for and for how long. It fails, with nothing published, when:
+
+- the run concludes anything but success, or a required job's latest attempt does. That includes a run
+  cancelled because another push to `main` came before it finished. Start a fresh Build on the tag
+  (`gh workflow run build.yml --ref v<version>`) and, once it is green, re-run the release
+  (`gh run rerun <run-id>`, the release's run).
+- there is no such run after two minutes: Build was never started on the commit. It runs on a push to `main`,
+  a pull request or by hand, never on a tag alone, so a commit that reached GitHub only through its tag, or
+  only through a pull request, has none. Start one as above, then re-run the release.
+- the run passed without a job `required-checks.txt` names: the tagged commit's `required-checks.txt` names a
+  job its `build.yml` does not have, and no re-run can pass. Correct the file in a new commit and release from
+  that.
+- `required-checks.txt` names no job, or is missing. Before 0.4.0 a file that named no job passed the gate.
+- the runs cannot be read three times in a row, or 20 minutes pass. Re-run the release once the API answers or
+  the Build has finished.
+
+A dry run is gated the same way, so a dry run on a branch needs a Build started there by hand first
+(`gh workflow run build.yml --ref <branch>`); from 0.4.0 that holds for a branch with a pull request too.
 
 ## Style
 

@@ -15,16 +15,13 @@ import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.federation.testkit.EventCapture;
 import com.pingidentity.ps.oidf.federation.testkit.Keys;
 import com.pingidentity.ps.oidf.federation.testkit.MutableClock;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
-import java.sql.Statement;
+import java.lang.reflect.Proxy;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import org.h2.jdbcx.JdbcDataSource;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -89,6 +86,15 @@ class KeyHistoryTest {
         assertEquals("compromised", revoked.get("reason"));
         assertEquals("admin:1234abcd", this.events.only(FederationEvents.KEY_REVOKED).fields().get("actor"));
         assertEquals(List.of("k1"), history.retired().stream().map(HistoricalKey::kid).toList());
+
+        this.events.clear();
+        this.clock.advance(Duration.ofHours(1));
+        HistoricalKey again = history.revoke("k1", "superseded", "admin:5678abcd");
+        assertEquals("compromised", again.reason(), "revoking a revoked key changes nothing");
+        assertTrue(this.events.withCode(FederationEvents.KEY_REVOKED).isEmpty(), "and announces nothing");
+
+        history.observe(com.pingidentity.ps.oidf.federation.testkit.Keys.publicJwk(com.pingidentity.ps.oidf.federation.testkit.Keys.rsa("k3")));
+        assertEquals("superseded", history.revoke("k2", "superseded", "admin:5678abcd").reason(), "another retired key is revoked on its own");
     }
 
     @Test
@@ -112,6 +118,11 @@ class KeyHistoryTest {
 
             @Override
             public HistoricalKey revoke(String kid, Instant revokedAt, String reason) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public HistoricalKey revokeUnrevoked(String kid, Instant revokedAt, String reason) {
                 throw new UnsupportedOperationException();
             }
 
@@ -141,30 +152,18 @@ class KeyHistoryTest {
         assertFalse(KeyHistorySupport.isConfigured());
 
         KeyHistoryStore first = KeyHistorySupport.store();
-        KeyHistorySupport.configureJdbcStore(new JdbcDataSource());
+        KeyHistorySupport.configureJdbcStore(neverConnected());
 
         assertInstanceOf(InMemoryKeyHistoryStore.class, first);
         assertTrue(KeyHistorySupport.isConfigured());
         assertSame(first, KeyHistorySupport.store());
     }
 
-    @Test
-    void theSharedViewUsesWhicheverStoreIsConfigured() throws Exception {
-        JdbcDataSource h2 = new JdbcDataSource();
-        h2.setURL("jdbc:h2:mem:keyhistory-support-" + System.nanoTime() + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
-        h2.setUser("sa");
-        try (InputStream in = KeyHistoryTest.class.getResourceAsStream("/db/migration/V103__federation_key_history.sql");
-             Connection c = h2.getConnection(); Statement s = c.createStatement()) {
-            s.execute(new String(in.readAllBytes(), StandardCharsets.UTF_8));
-        }
-        KeyHistoryStore shared = KeyHistorySupport.shared();
-        KeyHistorySupport.configureJdbcStore(h2);
-
-        shared.rotateTo(K1, this.clock.instant(), this.clock.instant());
-        shared.rotateTo(K2, this.clock.instant(), this.clock.instant());
-
-        assertInstanceOf(JdbcKeyHistoryStore.class, KeyHistorySupport.store());
-        assertEquals("k1", shared.retired().get(0).kid());
-        assertEquals("superseded", shared.revoke("k1", this.clock.instant(), "superseded").reason());
+    /** A data source the test must not use: the second configuration is ignored before it could connect. */
+    private static DataSource neverConnected() {
+        return (DataSource) Proxy.newProxyInstance(DataSource.class.getClassLoader(), new Class<?>[] {DataSource.class},
+                (proxy, method, args) -> {
+                    throw new AssertionError("an ignored configuration must not be connected to: " + method.getName());
+                });
     }
 }

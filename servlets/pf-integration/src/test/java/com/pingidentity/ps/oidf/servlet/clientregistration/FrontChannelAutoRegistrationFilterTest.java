@@ -22,6 +22,7 @@ import static org.mockito.Mockito.when;
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.AutoRegistrationSettings;
 import com.pingidentity.ps.oidf.pf.PfRequestScope;
 import com.pingidentity.ps.oidf.pf.testkit.AuditCapture;
@@ -78,7 +79,7 @@ class FrontChannelAutoRegistrationFilterTest {
     @BeforeEach
     @AfterEach
     void resetConfig() {
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
         System.clearProperty("oidf.federation.trust.controller.host");
         System.clearProperty("oidf.federation.trust.anchor.jwks");
         System.clearProperty("oidf.auto.registration.front.channel");
@@ -249,6 +250,35 @@ class FrontChannelAutoRegistrationFilterTest {
         verify(this.chain, never()).doFilter(any(), any());
     }
 
+    /** H-FED-4 (F-0046): the client the request named and the chain's messages reach neither the JSON nor the page. */
+    @Test
+    void aHostileMarkerNeverReachesTheResponse() throws Exception {
+        String marker = "hfede-marker-" + java.util.UUID.randomUUID();
+        String markedClient = "https://rp.example.com/" + marker;
+        for (boolean atPar : new boolean[] {true, false}) {
+            this.body.getBuffer().setLength(0);
+            when(this.response.getWriter()).thenReturn(new PrintWriter(this.body));
+            if (atPar) {
+                this.par();
+            } else {
+                when(this.request.getRequestURI()).thenReturn("/as/authorization.oauth2");
+                when(this.request.getMethod()).thenReturn("GET");
+            }
+            when(this.request.getParameter("client_id")).thenReturn(markedClient);
+            when(this.request.getParameter("redirect_uri")).thenReturn(markedClient + "/cb");
+            org.mockito.Mockito.doThrow(new RegistrationRejectedException(400, "invalid_trust_chain",
+                    "no route from " + markedClient + " <b>" + marker + "</b>", RegistrationRejectedException.Kind.TRUST, null))
+                    .when(this.service).admit(anyString(), anyList(), anyString(), any());
+
+            try (com.pingidentity.ps.oidf.servlet.oauth.RefusalLog log = com.pingidentity.ps.oidf.servlet.oauth.RefusalLog.open()) {
+                this.filter().doFilter(this.request, this.response, this.chain);
+                assertFalse(this.body.toString().contains(marker), this.body.toString());
+                assertTrue(this.body.toString().contains(com.pingidentity.ps.oidf.servlet.oauth.PublicErrors.generic("invalid_trust_chain")));
+                log.assertDetail(marker);
+            }
+        }
+    }
+
     @Test
     @Requirement({"OIDFED §12.1.3(2)", "OIDFED §12.1.3(3)"})
     void atTheAuthorizationEndpointARefusalIsAPageNeverARedirect() throws Exception {
@@ -264,7 +294,8 @@ class FrontChannelAutoRegistrationFilterTest {
         verify(this.response, never()).sendRedirect(anyString());
         verify(this.response, never()).setHeader(eq("Location"), anyString());
         assertTrue(this.body.toString().contains("invalid_metadata"));
-        assertTrue(this.body.toString().contains("&lt;script&gt;"), "the description is escaped");
+        assertFalse(this.body.toString().contains("script"), "the detail stays in the log (H-FED-4)");
+        assertTrue(this.body.toString().contains(com.pingidentity.ps.oidf.servlet.oauth.PublicErrors.generic("invalid_metadata")));
         assertFalse(this.body.toString().contains(RP + "/cb"), "the RP's redirect_uri appears nowhere");
         verify(this.chain, never()).doFilter(any(), any());
     }
@@ -389,8 +420,11 @@ class FrontChannelAutoRegistrationFilterTest {
         pinAnchor();
         System.setProperty("oidf.federation.error.page", "/nonexistent/oidf-error.html");
 
-        ServletException e = assertThrows(ServletException.class, () -> new FrontChannelAutoRegistrationFilter().init(mock(FilterConfig.class)));
-        assertTrue(e.getMessage().contains(FederationRuntimeConfig.FEDERATION_ERROR_PAGE_ENV), e.getMessage());
+        // A file that cannot be read is an I/O failure - a volume not mounted yet, say - so the supervisor retries it.
+        assertDoesNotThrow(() -> new FrontChannelAutoRegistrationFilter().init(mock(FilterConfig.class)));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_DEPENDENCY, com.pingidentity.ps.oidf.servlet.GateTesting.part("FrontChannelAutoRegistrationFilter").state());
+        String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("FrontChannelAutoRegistrationFilter").reason();
+        assertTrue(eReason.contains(FederationRuntimeConfig.FEDERATION_ERROR_PAGE_ENV), eReason);
     }
 
     @Test
@@ -399,8 +433,10 @@ class FrontChannelAutoRegistrationFilterTest {
         FilterConfig config = mock(FilterConfig.class);
         when(config.getInitParameter("subordinateStatementCacheMaxEntries")).thenReturn("lots");
 
-        ServletException e = assertThrows(ServletException.class, () -> new FrontChannelAutoRegistrationFilter().init(config));
-        assertTrue(e.getMessage().contains("subordinateStatementCacheMaxEntries"), e.getMessage());
+        assertDoesNotThrow(() -> new FrontChannelAutoRegistrationFilter().init(config));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("FrontChannelAutoRegistrationFilter").state());
+        String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("FrontChannelAutoRegistrationFilter").reason();
+        assertTrue(eReason.contains("subordinateStatementCacheMaxEntries"), eReason);
     }
 
     @Test
@@ -418,7 +454,7 @@ class FrontChannelAutoRegistrationFilterTest {
         anchor.setKeyId("anchor-1");
         System.setProperty("oidf.federation.trust.controller.host", "https://anchor.example");
         System.setProperty("oidf.federation.trust.anchor.jwks", "{\"keys\":[" + anchor.toJson(JsonWebKey.OutputControlLevel.PUBLIC_ONLY) + "]}");
-        FederationRuntimeConfig.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
     }
 
     @Test
@@ -434,8 +470,10 @@ class FrontChannelAutoRegistrationFilterTest {
 
     @Test
     void withNoTrustControllerAtAllTheFilterDoesNotStart() {
-        ServletException e = assertThrows(ServletException.class, () -> new FrontChannelAutoRegistrationFilter().init(mock(FilterConfig.class)));
-        assertTrue(e.getMessage().contains("automatic registration"), e.getMessage());
+        assertDoesNotThrow(() -> new FrontChannelAutoRegistrationFilter().init(mock(FilterConfig.class)));
+        assertEquals(com.pingidentity.ps.oidf.platform.component.ComponentState.FAILED_CONFIG, com.pingidentity.ps.oidf.servlet.GateTesting.part("FrontChannelAutoRegistrationFilter").state());
+        String eReason = com.pingidentity.ps.oidf.servlet.GateTesting.part("FrontChannelAutoRegistrationFilter").reason();
+        assertTrue(eReason.contains("automatic registration"), eReason);
     }
 
     @Test

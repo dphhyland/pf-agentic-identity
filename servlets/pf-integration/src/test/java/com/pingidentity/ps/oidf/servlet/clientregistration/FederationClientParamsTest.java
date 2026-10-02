@@ -3,59 +3,57 @@ package com.pingidentity.ps.oidf.servlet.clientregistration;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
+import com.pingidentity.ps.oidf.platform.settings.Catalogue;
+import com.pingidentity.ps.oidf.platform.settings.EntryKind;
+import com.pingidentity.ps.oidf.platform.settings.Setting;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * PF rejects an extended-property name it has not been told about, so every deployment running these
- * modules must declare all of them. This pins the contract that tells a deployment which ones.
+ * PF drops an extended-property name it has not been told about, so every deployment running these modules must
+ * declare all of them. This pins the names this module writes onto a client to the catalogue that declares them.
  *
- * <p>The check used to read {@code ../../deploy/pingfederate/terraform/extended-properties.tf} directly,
- * behind an {@code assumeTrue(Files.exists(...))} guard. That only worked while this repo also owned the
- * deployment: once the deploy tree moved out, the guard would have skipped every run and the test would
- * have passed forever without asserting anything — a silent green, which is worse than no test.
- *
- * <p>So the direction is inverted. The Java constant is the source of truth, {@code
- * docs/extended-properties.json} publishes it, and this test holds the two together. Consuming repos
- * diff their own Terraform against the published file in their own CI, where the Terraform actually
- * lives. Neither side can drift without something failing.
+ * <p>The check first read {@code ../../deploy/pingfederate/terraform/extended-properties.tf} behind an {@code
+ * assumeTrue(Files.exists(...))} guard, which would have skipped forever once the deploy tree moved out; then it held
+ * {@code docs/extended-properties.json} to this constant. Now the catalogue is the source: {@code client-properties}
+ * in this module's {@code META-INF/oidf-settings} declares every extended property the module reads or writes,
+ * {@code tools/config-reference.py} generates {@code docs/extended-properties.json} from every catalogue and CI fails
+ * when the file is not current, and consuming repos diff their own Terraform against that file. A name written here
+ * but not catalogued would be missing from the published contract, so this test fails first.
  */
 class FederationClientParamsTest {
 
-    /** Published contract, at the repo root — this module sits two levels down. */
-    private static final Path PUBLISHED = Path.of("../../docs/extended-properties.json");
+    /** The component that declares this module's extended properties, loaded as PingFederate would load it. */
+    private static final Catalogue CATALOGUE = Catalogue.load(FederationClientParams.class.getClassLoader(),
+            "client-properties");
+
+    private static List<String> catalogued() {
+        return CATALOGUE.settings().stream()
+                .filter(s -> s.kind() == EntryKind.EXTENDED_PROPERTY)
+                .map(Setting::name)
+                .toList();
+    }
 
     @Test
-    void thePublishedContractMatchesTheNamesThisModuleWrites() throws Exception {
-        assertTrue(Files.exists(PUBLISHED),
-                "docs/extended-properties.json is missing — it is the contract every consuming "
-                        + "deployment declares its extended properties from, not an optional artifact");
+    void everyNameThisModuleWritesIsACataloguedExtendedProperty() {
+        List<String> missing = FederationClientParams.EXTENDED_PARAM_NAMES.stream()
+                .filter(name -> !catalogued().contains(name))
+                .toList();
 
-        JsonNode root = new ObjectMapper().readTree(Files.readString(PUBLISHED));
-        List<String> published = new ArrayList<>();
-        root.withArray("extended_properties").forEach(n -> published.add(n.asText()));
-
-        assertEquals(FederationClientParams.EXTENDED_PARAM_NAMES, published,
-                "docs/extended-properties.json has drifted from FederationClientParams."
-                        + "EXTENDED_PARAM_NAMES. The Java list is the source of truth: regenerate the "
-                        + "file. A name written onto a client but not declared server-side is one PF "
-                        + "will reject or silently drop.");
+        assertEquals(List.of(), missing, "FederationClientParams.EXTENDED_PARAM_NAMES writes names the client-properties"
+                + " catalogue does not declare as extended properties, so docs/extended-properties.json would not ask a"
+                + " deployment to declare them and PF would drop them. Catalogue them, then run"
+                + " python3 tools/config-reference.py.");
     }
 
     /** {@code status} is what distinguishes a module-registered client from an administrator's. */
     @Test
-    void statusIsPublished() throws Exception {
-        JsonNode root = new ObjectMapper().readTree(Files.readString(PUBLISHED));
-        List<String> published = new ArrayList<>();
-        root.withArray("extended_properties").forEach(n -> published.add(n.asText()));
+    void statusIsCataloguedAndBearsOnSecurity() {
+        Setting status = CATALOGUE.setting(FederationClientParams.STATUS);
 
-        assertTrue(published.contains(FederationClientParams.STATUS),
-                "both registration paths refuse to touch a client without 'status'; a deployment that "
-                        + "does not declare it cannot register anything");
+        assertEquals(EntryKind.EXTENDED_PROPERTY, status.kind());
+        assertTrue(status.security(), "both registration paths refuse to touch a client without 'status'; a deployment"
+                + " that does not declare it cannot register anything");
+        assertEquals(List.of(RegistrationService.STATUS_REGISTERED, RegistrationService.STATUS_AUTO), status.choices());
     }
 }

@@ -34,6 +34,11 @@ public record TrustMarkGrant(String type, String subject, Status status, Instant
         Objects.requireNonNull(grantedAt, "grantedAt");
     }
 
+    /** Whether {@code a} and {@code b} are the same grant in the same state: its status, and when it was (last) granted. */
+    public static boolean sameGrant(TrustMarkGrant a, TrustMarkGrant b) {
+        return a.status == b.status && a.grantedAt.equals(b.grantedAt);
+    }
+
     /** Whether it stands at {@code now}: not revoked, and not past its end. */
     public boolean activeAt(Instant now) {
         return this.status == Status.ACTIVE && (this.notAfter == null || now.isBefore(this.notAfter));

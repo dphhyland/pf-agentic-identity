@@ -3,33 +3,43 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
+import com.pingidentity.ps.oidf.platform.http.AddressPolicy;
+import com.pingidentity.ps.oidf.platform.http.Deadline;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttp;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttpException;
+import com.pingidentity.ps.oidf.platform.http.OutboundRequest;
+import com.pingidentity.ps.oidf.platform.http.OutboundResponse;
+import com.pingidentity.ps.oidf.platform.http.TlsTrust;
+import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
+import com.pingidentity.ps.oidf.signals.SetVerifier;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.Optional;
+import java.util.function.Supplier;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.json.JsonUtil;
 
 /**
  * The receiver's poll loop for transmitters we poll rather than receive push from (RFC 8936): each tick
- * POSTs {@code {maxEvents, returnImmediately: true, ack: [...]}} to the remote poll endpoint with the
- * receiver's bearer, feeds every returned SET through {@link SsfReceiverService} (verify → dedupe →
- * dispatch), and acks the processed {@code jti}s on the next tick. A SET that fails verification is still
- * acked (redelivering it can never succeed — the RFC 8936 equivalent of a permanent failure). The HTTP call
- * is behind {@link PollTransport} so {@link #runOnce()} is unit-testable.
+ * POSTs {@code {maxEvents, returnImmediately: true, ack: [...], setErrs: {...}}} to the remote poll endpoint with
+ * the receiver's bearer, feeds every returned SET through {@link SsfReceiverService} (verify → dedupe →
+ * dispatch), and reports each on the next tick. A SET the receiver took (accepted, a duplicate, or discarded for a
+ * critical subject member) is acknowledged in {@code ack}; one it refused is reported in {@code setErrs} with its
+ * RFC 8935 error code and description, not acknowledged - RFC 8936 §2: "The SET Recipient SHALL NOT use the event
+ * acknowledgement mechanism to report event errors other than those relating to the parsing and validation of the
+ * SET", and §2.2 defines {@code setErrs} as "the "jti" values of invalid SETs received". Either way it is not
+ * delivered again. The HTTP call is behind {@link PollTransport} so {@link #runOnce()} is unit-testable.
  */
 public final class PollReceiverClient {
 
-    /** The poll POST: body JSON in, response JSON out. */
+    /** The poll POST: body JSON in, response JSON out; null when there is nowhere to poll yet. */
     public interface PollTransport {
         String poll(String bodyJson) throws Exception;
     }
@@ -40,7 +50,8 @@ public final class PollReceiverClient {
     private final PollTransport transport;
     private final int maxEvents;
     private final List<String> pendingAcks = new ArrayList<>();
-    private volatile ScheduledExecutorService scheduler;
+    private final Map<String, Object> pendingErrs = new LinkedHashMap<>();
+    private volatile ManagedExecutor scheduler;
 
     public PollReceiverClient(SsfReceiverService receiver, PollTransport transport, int maxEvents) {
         this.receiver = Objects.requireNonNull(receiver, "receiver");
@@ -56,6 +67,9 @@ public final class PollReceiverClient {
         if (!this.pendingAcks.isEmpty()) {
             body.put("ack", new ArrayList<>(this.pendingAcks));
         }
+        if (!this.pendingErrs.isEmpty()) {
+            body.put("setErrs", new LinkedHashMap<>(this.pendingErrs));
+        }
         String response;
         try {
             response = this.transport.poll(JsonUtil.toJson(body));
@@ -63,7 +77,11 @@ public final class PollReceiverClient {
             LOGGER.warn((Object) ("SSF poll client: poll failed: " + e.getMessage()));
             return 0; // keep pendingAcks — retried next tick
         }
+        if (response == null) {
+            return 0; // nowhere to poll yet: the receiver's stream is not set up
+        }
         this.pendingAcks.clear();
+        this.pendingErrs.clear();
         Map<String, Object> parsed;
         try {
             parsed = JsonUtil.parseJson(response);
@@ -81,88 +99,153 @@ public final class PollReceiverClient {
             try {
                 this.receiver.receive(String.valueOf(entry.getValue()));
                 processed++;
+                this.pendingAcks.add(jti);
             } catch (SetVerifier.SetVerificationException e) {
                 LOGGER.warn((Object) ("SSF poll client: SET " + jti + " rejected (" + e.errorCode()
-                        + ") — acking anyway, redelivery cannot succeed"));
+                        + "); reported in setErrs, redelivery cannot succeed"));
+                LinkedHashMap<String, Object> err = new LinkedHashMap<>();
+                err.put("err", e.errorCode());
+                err.put("description", e.getMessage());
+                this.pendingErrs.put(jti, err);
             }
-            this.pendingAcks.add(jti); // ack processed AND permanently-failed SETs
         }
         return processed;
     }
 
-    /** Start the background poll loop (idempotent). */
+    /** The poll loop's managed executor; its thread is {@code oidf-ssf-poll-receiver-1}. */
+    static final String EXECUTOR_NAME = "ssf-poll-receiver";
+
+    /**
+     * Start the background poll loop (idempotent): a tick every {@code intervalSeconds} (at least 1), the first one
+     * interval from now, each starting one interval after the last ended. It runs once in the JVM; a start that finds
+     * it running elsewhere starts nothing.
+     */
     public synchronized void start(long intervalSeconds) {
         if (this.scheduler != null) {
             return;
         }
         long tick = Math.max(1, intervalSeconds);
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "ssf-poll-receiver");
-            t.setDaemon(true);
-            return t;
-        });
-        this.scheduler.scheduleWithFixedDelay(() -> {
+        Optional<ManagedExecutor> started = ManagedExecutors.every(EXECUTOR_NAME, Duration.ofSeconds(tick), () -> {
             try {
                 runOnce();
             } catch (Exception e) {
                 LOGGER.warn((Object) ("SSF poll client tick failed: " + e.getMessage()));
             }
-        }, tick, tick, TimeUnit.SECONDS);
+        });
+        if (started.isEmpty()) {
+            return;
+        }
+        this.scheduler = started.get();
         LOGGER.info((Object) ("SSF poll receiver started (tick " + tick + "s)"));
     }
 
-    public synchronized void stop() {
-        if (this.scheduler != null) {
-            this.scheduler.shutdownNow();
+    /** Stops the loop: a tick in progress is interrupted and waited for, briefly, outside this client's lock. */
+    public void stop() {
+        ManagedExecutor running;
+        synchronized (this) {
+            running = this.scheduler;
             this.scheduler = null;
+        }
+        if (running != null) {
+            running.close();
         }
     }
 
-    /** Runtime transport: POST JSON to the remote poll endpoint with a bearer token. */
-    public static PollTransport httpTransport(String pollUrl, String bearerToken, boolean insecureTls) {
-        HttpClient http = insecureTls ? TrustAll.client() : HttpClient.newHttpClient();
+    /**
+     * The receiver's switch that trusts any certificate on its outbound calls (init-param {@code receiverInsecureTls}),
+     * as InsecureTls names it.
+     */
+    static final String RECEIVER_INSECURE_TLS = "OIDF_SSF_RECEIVER_INSECURE_TLS";
+
+    /**
+     * The deadlines of one poll: connecting (TLS included) within 1 s, and the whole exchange within 5 s. The poll
+     * asks {@code returnImmediately}, so the transmitter has nothing to wait for; a long poll would add its wait to the
+     * total.
+     */
+    static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(1);
+    static final Duration TOTAL_TIMEOUT = Duration.ofSeconds(5);
+    /**
+     * The largest poll response read: the default {@code maxEvents} of 100 at 40 KiB a SET. A larger answer is a
+     * failed poll - logged, and asked again next tick with the same acknowledgements, so the same answer comes back
+     * until {@code OIDF_SSF_POLL_MAX_EVENTS} is lowered (F-0406).
+     */
+    static final long MAX_BODY_BYTES = 4L * 1024L * 1024L;
+
+    /**
+     * The receiver's outbound rules, for its poll, stream management and JWKS calls: its peer is the transmitter the
+     * operator named, which may be internal by design, so any address is allowed, still resolved once and pinned. That
+     * holds for the URLs the transmitter's own answers name too - its configuration_endpoint and a poll stream's
+     * endpoint_url - and the bearer goes to them (F-0407). A
+     * scheme is the settings' to govern: the production profile refuses an http transmitter configuration URL, and
+     * {@link ReceiverStreamClient#requireTls} refuses an http URL the transmitter names unless that URL was http.
+     */
+    static AddressPolicy receiverPolicy() {
+        return AddressPolicy.builder().allowHttp(true).allowPrivateNetworks(true).build();
+    }
+
+    /** The receiver's transport: {@code insecureTls} trusts any chain through platform's InsecureTls; the name is still checked. */
+    static OutboundHttp receiverHttp(AddressPolicy policy, boolean insecureTls, Duration connect, long maxBody) {
+        return OutboundHttp.builder(policy)
+                .tls(TlsTrust.insecureIf(RECEIVER_INSECURE_TLS, insecureTls))
+                .connectTimeout(connect)
+                .maxBodyBytes(maxBody)
+                .build();
+    }
+
+    /**
+     * Runtime transport: POST JSON to the remote poll endpoint with the receiver's bearer - {@code bearer}'s token,
+     * asked again once after a 401 - or nothing when {@code pollUrl} has none yet, through platform's
+     * {@link OutboundHttp} ({@link #CONNECT_TIMEOUT}, {@link #TOTAL_TIMEOUT}, {@link #MAX_BODY_BYTES}).
+     * {@code insecureTls} trusts any certificate chain through platform's {@link InsecureTls}; the host name is still
+     * checked.
+     */
+    public static PollTransport httpTransport(Supplier<String> pollUrl, ReceiverBearer bearer, boolean insecureTls) {
+        return httpTransport(pollUrl, bearer, receiverHttp(receiverPolicy(), insecureTls, CONNECT_TIMEOUT, MAX_BODY_BYTES),
+                TOTAL_TIMEOUT);
+    }
+
+    /** The transport over {@code http}, each exchange within {@code total}: the test seam. */
+    static PollTransport httpTransport(Supplier<String> pollUrl, ReceiverBearer bearer, OutboundHttp http, Duration total) {
         return bodyJson -> {
-            HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(pollUrl))
-                    .header("Content-Type", "application/json")
-                    .header("Accept", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(bodyJson));
-            if (bearerToken != null && !bearerToken.isBlank()) {
-                b.header("Authorization", "Bearer " + bearerToken);
+            String url = pollUrl.get();
+            if (url == null) {
+                return null;
             }
-            HttpResponse<String> resp = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
-            if (resp.statusCode() != 200) {
-                throw new IllegalStateException("poll endpoint returned HTTP " + resp.statusCode());
+            String token = bearer.token();
+            OutboundResponse resp = send(http, url, bodyJson, token, total);
+            if (resp.status() == 401) {
+                bearer.rejected(token);
+                resp = send(http, url, bodyJson, bearer.token(), total);
             }
-            return resp.body();
+            if (resp.status() != 200) {
+                throw new IllegalStateException("poll endpoint returned HTTP " + resp.status());
+            }
+            return resp.bodyText();
         };
     }
 
-    /** Shared dev trust-all HTTP client builder. */
-    static final class TrustAll {
-        private TrustAll() {
+    private static OutboundResponse send(OutboundHttp http, String url, String bodyJson, String token, Duration total)
+            throws OutboundHttpException {
+        OutboundRequest.Builder b = OutboundRequest.post(url)
+                .header("Accept", "application/json")
+                .body("application/json", bodyJson);
+        if (token != null && !token.isBlank()) {
+            b.header("Authorization", "Bearer " + token);
         }
+        return withReason(http, b.build(), total);
+    }
 
-        static HttpClient client() {
-            try {
-                javax.net.ssl.TrustManager[] trustAll = {new javax.net.ssl.X509TrustManager() {
-                    public void checkClientTrusted(java.security.cert.X509Certificate[] c, String a) {
-                        // dev trust-all
-                    }
-
-                    public void checkServerTrusted(java.security.cert.X509Certificate[] c, String a) {
-                        // dev trust-all
-                    }
-
-                    public java.security.cert.X509Certificate[] getAcceptedIssuers() {
-                        return new java.security.cert.X509Certificate[0];
-                    }
-                }};
-                javax.net.ssl.SSLContext ssl = javax.net.ssl.SSLContext.getInstance("TLS");
-                ssl.init(null, trustAll, new java.security.SecureRandom());
-                return HttpClient.newBuilder().sslContext(ssl).build();
-            } catch (Exception e) {
-                throw new IllegalStateException("failed to build trust-all HTTP client", e);
-            }
+    /**
+     * Sends {@code request} by {@code total}; a failure keeps its type and gains its reason ({@code HEADER_TIMEOUT},
+     * {@code DEADLINE}, {@code TLS} and the rest) at the front of its message, which is what the receiver's log shows.
+     */
+    static OutboundResponse withReason(OutboundHttp http, OutboundRequest request, Duration total)
+            throws OutboundHttpException {
+        try {
+            return http.send(request, Deadline.after(total));
+        } catch (OutboundHttpException e) {
+            throw new OutboundHttpException(e.reason(), e.reason() + ": " + request.method() + " " + request.uri() + ": "
+                    + e.getMessage(), e);
         }
     }
 }

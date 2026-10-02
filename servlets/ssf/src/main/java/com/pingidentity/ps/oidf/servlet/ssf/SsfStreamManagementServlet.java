@@ -6,7 +6,8 @@ package com.pingidentity.ps.oidf.servlet.ssf;
 import com.pingidentity.ps.oidf.ssf.AuthContext;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.StreamManagementService;
-import com.pingidentity.ps.oidf.ssf.SubjectId;
+import com.pingidentity.ps.oidf.signals.SubjectId;
+import com.pingidentity.ps.oidf.ssf.SsfSubjects;
 import com.pingidentity.ps.oidf.ssf.SsfSupport;
 import java.io.IOException;
 import java.util.Map;
@@ -38,9 +39,10 @@ public class SsfStreamManagementServlet extends HttpServlet {
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        if (SsfHttp.bootstrap(config)) { // fail-soft: unconfigured SSF is disabled, not fatal
-            SsfSupport.startPushDelivery(); // background RFC 8935 delivery loop
-        }
+        // Fail-soft: unconfigured SSF is disabled, not fatal. The push loop is the bootstrap's to start (it
+        // starts at boot, from SsfConfigurationServlet), not this servlet's: until 0.4.0 it started here, so
+        // nothing was pushed until a receiver's first management request initialised this servlet (B5).
+        SsfHttp.bootstrap(config);
     }
 
     /** Route PATCH (not covered by HttpServlet) ourselves; everything else via the standard dispatch. */
@@ -75,6 +77,9 @@ public class SsfStreamManagementServlet extends HttpServlet {
     }
 
     private void dispatch(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (SsfHttp.gate(resp)) {
+            return; // the transmitter is starting, failed, refused (503) or off (404)
+        }
         SsfConfiguration cfg = SsfSupport.configuration();
         AuthContext auth = authorize(req, resp, cfg);
         if (auth == null) {
@@ -112,6 +117,12 @@ public class SsfStreamManagementServlet extends HttpServlet {
             writeError(resp, 404, "not_found", e.getMessage());
         } catch (StreamManagementService.ForbiddenException e) {
             writeError(resp, 403, "access_denied", e.getMessage());
+        } catch (StreamManagementService.StreamLimitException e) {
+            writeError(resp, 409, "conflict", e.getMessage());
+        } catch (StreamManagementService.TooManyRequestsException e) {
+            // SSF 1.0 Table 10: 429 "if the Event Receiver is sending too many requests in a given amount of time"
+            resp.setHeader("Retry-After", Long.toString(e.retryAfterSeconds()));
+            writeError(resp, 429, "too_many_requests", e.getMessage());
         } catch (IllegalArgumentException | IllegalStateException e) {
             writeError(resp, 400, "invalid_request", e.getMessage());
         } catch (Exception e) {
@@ -185,7 +196,7 @@ public class SsfStreamManagementServlet extends HttpServlet {
         if (!(subj instanceof Map)) {
             throw new IllegalArgumentException("missing required field: subject");
         }
-        SubjectId subject = SubjectId.fromMap((Map<String, Object>) subj);
+        SubjectId subject = SsfSubjects.parse((Map<String, Object>) subj);
         // Both are empty responses, and they differ: SSF §8.1.3.2 answers an add with 200, §8.1.3.3 a
         // remove with 204.
         if (add) {

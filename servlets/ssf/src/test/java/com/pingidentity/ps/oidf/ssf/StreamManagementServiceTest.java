@@ -11,6 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
+import com.pingidentity.ps.oidf.signals.SetMinter;
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.net.InetAddress;
 import java.util.HashMap;
 import java.util.List;
@@ -36,7 +38,9 @@ class StreamManagementServiceTest {
         store = new InMemorySsfStore();
         // the audience these bodies name is one the operator has agreed for this client
         cfg = new SsfConfiguration.Builder().issuer("https://op.example.com")
-                .allowedAudiences("receiver-client=https://receiver.example.com").build();
+                .allowedAudiences("receiver-client=https://receiver.example.com")
+                // several of these tests queue SETs by verifying more than once; the interval is StreamOptionalMembersTest's
+                .minVerificationIntervalSeconds(0).build();
         svc = new StreamManagementService(store, new SetMinter("RS256", keys), cfg, SetPublisher.NOOP, testPolicy());
     }
 
@@ -238,7 +242,9 @@ class StreamManagementServiceTest {
     @Test
     void aSetMintedWithNoTtlIsNeverEvictedByAPoll() throws Exception {
         cfg = new SsfConfiguration.Builder().issuer("https://op.example.com").setTtlSeconds(0)
-                .allowedAudiences("receiver-client=https://receiver.example.com").build();
+                .allowedAudiences("receiver-client=https://receiver.example.com")
+                // several of these tests queue SETs by verifying more than once; the interval is StreamOptionalMembersTest's
+                .minVerificationIntervalSeconds(0).build();
         svc = new StreamManagementService(store, new SetMinter("RS256", keys), cfg, SetPublisher.NOOP, testPolicy());
         String id = (String) svc.createStream(pollBody(), RECEIVER).get("stream_id");
         String kept = svc.verify(id, "no-ttl", RECEIVER);

@@ -62,7 +62,7 @@ audiences and one meant for a different API must not be accepted here.
 
 `GrantView` exists because PF's `AccessGrant` is **not** a value object: constructing one reaches into the
 server's service locator and throws `No Impl found for AccessGrantService` outside a running PF.
-Isolating it keeps the decision logic ordinary and testable (83 tests on 2026-09-26; jacoco gates ten
+Isolating it keeps the decision logic ordinary and testable (88 tests on 2026-09-28; jacoco gates ten
 decision methods, `GrantEvaluator.build*` and `authorise` among them, at 100% line + branch). `PdpClient`, `GrantOperations.evaluate`/
 `.search` (against a real loopback `HttpServer` standing in for the PDP), and the audience guard on
 `PfTokenVerifier`'s constructor are also unit tested. What still needs a live PF and is not —
@@ -71,29 +71,29 @@ calls (`lookup`/`describe`/`revoke`) — is for the same reason `GrantView` exis
 
 ## Build
 
-Not a BOM consumer: every dependency is `provided` under `local.pingfederate:*` coordinates
-(`pingfederate-sdk` 13.1.3, `jakarta-servlet-api` 5.0.2, `jose4j`, `jackson-*`, `commons-lang3`,
-`commons-logging`). The PF SDK is Ping-licensed and not on Maven Central, so those coordinates must be
-installed into `~/.m2` first — the `install:install-file` lines in
-`.github/actions/pf-provided-jars/action.yml` do it from the public `pingidentity/pingfederate` image; or
-copy the jars out of a running PingFederate 13.1.3, which names them without versions:
+A BOM consumer like the rest of the reactor; only its groupId (`au.com.idpartners`) differs. Apart from this
+repository's own `platform-pf` (and `platform` through it), every runtime dependency is `provided`, version-less, on
+its real coordinates: `com.pingidentity.pingfederate:pingfederate-sdk`,
+`jakarta.servlet:jakarta.servlet-api`, `org.bitbucket.b_c:jose4j` and `com.fasterxml.jackson.core:jackson-databind`
+and `jackson-core`. The PF SDK is Ping-licensed and not on Maven Central, so it must be installed into
+`~/.m2` first - the two `install:install-file` lines in `.github/actions/pf-provided-jars/action.yml` do it
+from the public `pingidentity/pingfederate` image (see CONTRIBUTING.md, Building). The rest come from Maven
+Central: jose4j and jackson at the `version.pf.*` versions the BOM holds to the image
+(`tools/pf-provided-versions.py`), and `jakarta.servlet-api` 5.0.0, the API line PingFederate 13.1's Jetty
+ships as `jetty-jakarta-servlet-api-5.0.2.jar`. No version tool holds the servlet API to the image;
+`tools/pf-linkcheck.py --lib pf-lib --lib pf-jetty-lib` checks every servlet member the war references.
 
 ```bash
-PF=gm-pingfederate
-for j in pingfederate-sdk jose4j commons-logging commons-lang3 jackson-core jackson-databind jackson-annotations; do
-  docker cp "$PF:/opt/out/instance/server/default/lib/$j.jar" lib/
-done
-docker cp $PF:/opt/out/instance/lib/jetty-jakarta-servlet-api-5.0.2.jar lib/
-mvn install:install-file -Dfile=lib/pingfederate-sdk.jar -DgroupId=local.pingfederate \
-  -DartifactId=pingfederate-sdk -Dversion=13.1.3 -Dpackaging=jar -DgeneratePom=true
-# likewise jakarta-servlet-api (5.0.2), jose4j (1.x), commons-logging (1.x), commons-lang3 (3.x), jackson-{core,databind,annotations} (2.x)
-
-mvn -pl services/gm-api/servlet package     # from the repo root → target/gm-api.war
+mvn -pl services/gm-api/servlet -am verify     # from the repo root → target/gm-api.war
 ```
 
-`lib/*.jar` is gitignored. **Bundle nothing**: PF isolates each deploy-dir artifact on its own
-classloader, so a second copy of a PF class would not be the same class (`rar-paz-plugin` shades jackson
-for the same reason — it needs jackson but must not collide with PF's).
+**Bundle nothing of PingFederate's**: PF isolates each deploy-dir artifact on its own classloader, so a second
+copy of a PF class would not be the same class (`rar-paz-plugin` shades jackson for the same reason - it needs
+jackson but must not collide with PF's). The war's `WEB-INF/lib` holds only `platform-pf` and `platform` (from
+0.5.0): this war's own copy, with its own lifecycle listener, `GM_API` component, health at
+`/gm-api/agentic-identity/health/{live,ready}` and start-up audit banner
+([libs/platform-pf](../../../libs/platform-pf/README.md#lifecycle)). On the rig (PingFederate 13.1.3.0, 2026-09-28)
+gm-api's webapp loader loaded them from its own `WEB-INF/lib`, not the engine's copies in `server/default/deploy`.
 
 ## Deploy and configure
 
@@ -102,15 +102,24 @@ docker cp target/gm-api.war gm-pingfederate:/opt/out/instance/server/default/dep
 docker restart gm-pingfederate
 ```
 
-`web.xml` init-params, with env fallbacks (`McpServlet.ServletConfigs`, shared by both servlets):
+`web.xml` init-params, with env fallbacks, read through the `gm-api` settings catalogue
+([docs/configuration/gm-api.md](../../../docs/configuration/gm-api.md)) by `McpServlet.ServletConfigs`, shared by both
+servlets. Each value is read strictly: one that does not parse stops the servlet, naming it, and GM_API is
+`FAILED_CONFIG`. The shipped `web.xml` sets `pdpUrl` and `audience`, so their variables are read only once `web.xml`
+is edited (F-0238, X-C02's to fix).
 
 | Param | Env | Meaning |
 |---|---|---|
-| `pdpUrl` | `AUTHZEN_BASE_URL` | AuthZEN PDP base URL; `/access/v1/evaluation` is appended. **Required** |
+| `pdpUrl` | `AUTHZEN_BASE_URL` | AuthZEN PDP base URL; `/access/v1/evaluation` is appended. **Required**. From 0.6.0 it must be `https` unless `OIDF_DEPLOYMENT_PROFILE=development`: an `http` URL under the production profile leaves GM_API `FAILED_CONFIG`, the reason naming `pdpUrl`. The shipped `web.xml`'s `http://host.docker.internal:9099` is a demo value, so a production deployment edits it |
 | `audience` | `GM_AUDIENCE` | the `aud` this API answers to (the token manager's audience claim). **REQUIRED** — the servlet refuses to start without it, because unset would accept any token this server signed, including one minted for a different API |
 | `pdpToken` | `AUTHZEN_BEARER_TOKEN` | credential for a protected PDP |
-| `pdpTimeoutMs` | — | default 10000 |
-| `issuer`, `grantManagementEndpoint` (metadata servlet) | — | what `/.well-known/grant-management-configuration` advertises; endpoint defaults to `<base>/gm-api/grants` |
+| `pdpTimeoutMs` | — | default 10000. From 0.6.0 it bounds the whole PDP call, the answer's body included, and a value above 10 s holds; connecting, TLS included, takes at most 5 s of it (plan item S5d, [the PDP](../README.md#the-pdp)); zero or below, which meant no timeout, is the default |
+| `issuer`, `grantManagementEndpoint` (metadata servlet) | — | what `/.well-known/grant-management-configuration` advertises; endpoint defaults to `<base>/gm-api/grants`, and one that is not an http or https URL stops the metadata servlet |
+
+Events: every evaluation the PDP answers is `gm.grant.evaluated` (permit or deny, with the reason id), one the
+authorization server refuses before asking the PDP is `gm.grant.refused`, and a revocation is `gm.grant.revoked` - all
+three in PingFederate's audit log as well as `server.log`, counted in `oidf_events_total`, and catalogued in
+`src/main/resources/META-INF/oidf-events/gm.json`. None carries a token, a consent's contents or the PDP's messages.
 
 Confirm it started: `Started ContextHandler{Grant Management API,/gm-api,...,a=AVAILABLE}` (the `display-name` in `web.xml`) —
 `a=UNAVAILABLE` means the context failed; check `web.xml` parsed.

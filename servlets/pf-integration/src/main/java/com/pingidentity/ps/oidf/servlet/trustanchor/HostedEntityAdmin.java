@@ -98,7 +98,8 @@ final class HostedEntityAdmin {
         if (entity.status() == EntityStatus.REVOKED) {
             return Answer.error(409, "invalid_request", "the entity is revoked, and revocation is permanent");
         }
-        AuthoritySupport.registry().setStatus(entity.entityId(), status, reason, actor);
+        // From the status read above only: another operator's change since is a 409, not a second event (H-FED-3).
+        AuthoritySupport.registry().setStatus(entity.entityId(), entity.status(), status, reason, actor);
         FederationEvents.event(event).subject(entity.entityId()).role("authority").audit().field("actor", actor).description(reason).emit();
         return changed(entity.entityId());
     }

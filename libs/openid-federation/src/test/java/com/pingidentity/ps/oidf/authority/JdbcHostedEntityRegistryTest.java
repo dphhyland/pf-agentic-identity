@@ -1,58 +1,42 @@
 package com.pingidentity.ps.oidf.authority;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
+import com.pingidentity.ps.oidf.federation.testkit.Racing;
+import com.pingidentity.ps.oidf.testkit.Migrations;
+import com.pingidentity.ps.oidf.testkit.PostgresDatabase;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
-import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 /**
- * The JDBC registry, held to the same contract as the in-memory one. Runs against H2 in PostgreSQL
- * compatibility mode, executing the <em>real</em> migration from
- * {@code db/migration/V100__hosted_entity.sql} rather than a hand-written test schema — the point is
- * verifying the shipped DDL parses and the queries work against it. (The instance registry made the
- * opposite call — it moved into the Identity Object Model, whose invariants are Postgres-only, so
- * {@code IomInstanceRegistryTest} needs a real Postgres rather than H2.)
+ * The JDBC registry, held to the same contract as the in-memory one, on PostgreSQL - a database of this class's
+ * own (libs/testkit) - running the federation family's <em>real</em> migrations ({@code V100__hosted_entity.sql}
+ * to {@code V103}) rather than a hand-written test schema: the point is that the shipped DDL runs and the queries
+ * work against it. Each test starts from an empty schema with the family applied.
  */
 class JdbcHostedEntityRegistryTest extends HostedEntityRegistryContract {
 
-    private static final AtomicInteger DB_COUNTER = new AtomicInteger();
+    @RegisterExtension
+    static final PostgresDatabase POSTGRES = new PostgresDatabase();
 
     private DataSource dataSource;
 
     @Override
     protected HostedEntityRegistry newRegistry() throws Exception {
-        JdbcDataSource h2 = new JdbcDataSource();
-        h2.setURL("jdbc:h2:mem:authority" + DB_COUNTER.incrementAndGet()
-                + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
-        h2.setUser("sa");
-        this.dataSource = h2;
-        applyMigration(h2);
-        return new JdbcHostedEntityRegistry(h2);
-    }
-
-    private static void applyMigration(DataSource dataSource) throws Exception {
-        for (String migration : new String[]{"/db/migration/V100__hosted_entity.sql", "/db/migration/V101__hosted_entity_actor.sql"}) {
-            String ddl;
-            try (InputStream in = JdbcHostedEntityRegistryTest.class.getResourceAsStream(migration)) {
-                assertNotNull(in, "the migration must ship on the classpath: " + migration);
-                ddl = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            }
-            try (Connection c = dataSource.getConnection(); Statement s = c.createStatement()) {
-                s.execute(ddl);
-            }
-        }
+        this.dataSource = POSTGRES.dataSource();
+        POSTGRES.resetPublicSchema();
+        assertEquals(List.of("V100__hosted_entity.sql", "V101__hosted_entity_actor.sql", "V102__trust_mark.sql",
+                "V103__federation_key_history.sql"), Migrations.apply(this.dataSource, 100, 199));
+        return new JdbcHostedEntityRegistry(this.dataSource);
     }
 
     @Test
@@ -135,5 +119,59 @@ class JdbcHostedEntityRegistryTest extends HostedEntityRegistryContract {
 
         assertEquals(AuthorityRegistryException.STORAGE_FAILURE, e.reason());
         assertEquals(Map.of("client_name", "before"), registry.find(id).orElseThrow().metadata().get("oauth_client"), "rolled back");
+    }
+
+    // ---- H-FED-3: two status changes whose transactions overlap ------------------------------------------------------
+
+    private static final String ID = "https://as.example.com/agents/raced";
+
+    /**
+     * Runs {@code first} and {@code second} as two threads whose status updates wait for each other, so both have read the
+     * status before either writes: the second to commit finds the row no longer in the status it read.
+     */
+    private List<Object> overlapping(EntityStatus from, EntityStatus first, EntityStatus second) throws Exception {
+        HostedEntityRegistry setup = newRegistry();
+        setup.register(HostedEntity.hosted(ID, "k1", Map.of("oauth_client", Map.of()), null));
+        if (from != EntityStatus.ACTIVE) {
+            setup.setStatus(ID, from, "setup", "admin:setup");
+        }
+        HostedEntityRegistry racing = new JdbcHostedEntityRegistry(Racing.meetingAt(this.dataSource, "UPDATE hosted_entity SET status"));
+        return Racing.together(() -> {
+            racing.setStatus(ID, first, "first", "admin:first");
+            return first;
+        }, () -> {
+            racing.setStatus(ID, second, "second", "admin:second");
+            return second;
+        });
+    }
+
+    /** Exactly one change applied, the other refused as stale; the audit log has the winner's line and nothing of the loser. */
+    private void exactlyOneApplied(List<Object> outcomes, int auditLinesBefore) throws Exception {
+        List<Object> applied = outcomes.stream().filter(o -> o instanceof EntityStatus).toList();
+        List<Object> stale = outcomes.stream().filter(o -> o instanceof AuthorityRegistryException e
+                && AuthorityRegistryException.STALE_UPDATE.equals(e.reason())).toList();
+        assertEquals(1, applied.size(), String.valueOf(outcomes));
+        assertEquals(1, stale.size(), String.valueOf(outcomes));
+        HostedEntityRegistry registry = new JdbcHostedEntityRegistry(this.dataSource);
+        assertEquals(applied.get(0), registry.find(ID).orElseThrow().status());
+        List<AuthorityAuditEntry> trail = registry.auditTrail(ID);
+        assertEquals(auditLinesBefore + 1, trail.size(), "the refused change wrote no audit line");
+        String winner = outcomes.get(0) instanceof EntityStatus ? "admin:first" : "admin:second";
+        assertEquals(winner, trail.get(trail.size() - 1).actor());
+    }
+
+    @Test
+    void twoRevocationsThatOverlapOneIsRefusedAsStale() throws Exception {
+        this.exactlyOneApplied(this.overlapping(EntityStatus.ACTIVE, EntityStatus.REVOKED, EntityStatus.REVOKED), 1);
+    }
+
+    @Test
+    void aSuspensionAndARevocationThatOverlapApplyExactlyOne() throws Exception {
+        this.exactlyOneApplied(this.overlapping(EntityStatus.ACTIVE, EntityStatus.SUSPENDED, EntityStatus.REVOKED), 1);
+    }
+
+    @Test
+    void aReactivationAndARevocationThatOverlapApplyExactlyOne() throws Exception {
+        this.exactlyOneApplied(this.overlapping(EntityStatus.SUSPENDED, EntityStatus.ACTIVE, EntityStatus.REVOKED), 2);
     }
 }

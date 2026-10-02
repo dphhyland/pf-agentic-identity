@@ -59,28 +59,41 @@ class VerifyOnceTest {
         return request;
     }
 
-    @Test
-    void aRequestTheFilterAlreadyVerifiedIsNotVerifiedAgain() {
+    private static final String CLIENT = "https://rp.example.com/agent-1";
+    private static final String ISSUER = "https://as.example.com";
+
+    private static boolean criterion(HttpServletRequest request, String clientId, AttestationPolicyResolver resolver) {
+        return ClientAttestationUtils.validateClientAttestationInner(inParams(request, clientId), false,
+                "https://trust-controller.example.com", "https://trust-controller.example.com", r -> ISSUER, () -> null,
+                resolver, CriterionTesting.NO_SUBJECT_TOKENS);
+    }
+
+    /** What the filter publishes for {@code clientId}: its members, and the fingerprint of the policy it verified under. */
+    private static Map<String, Object> published(String clientId, AttestationPolicyResolver resolver) throws Exception {
         Map<String, Object> verified = new HashMap<>();
-        verified.put("client_id", "https://rp.example.com/agent-1");
-        verified.put("sub", "https://rp.example.com/agent-1");
-        HttpServletRequest request = requestWith(verified);
+        verified.put("client_id", clientId);
+        verified.put("sub", clientId);
+        verified.put(ClientAttestationUtils.POLICY_FINGERPRINT_KEY, AttestationPolicyResolver.fingerprint(
+                ClientAttestationUtils.effectivePolicy(resolver, clientId, ISSUER, null, null)));
+        return verified;
+    }
+
+    @Test
+    void aRequestTheFilterAlreadyVerifiedIsNotVerifiedAgain() throws Exception {
+        HttpServletRequest request = requestWith(published(CLIENT, CriterionTesting.NO_CLIENTS));
 
         // No attestation headers at all: if this returned true, it can only be because the published
         // verification was honoured rather than the header re-read.
-        boolean permitted = ClientAttestationUtils.validateClientAttestation(
-                inParams(request, "https://rp.example.com/agent-1"));
+        boolean permitted = criterion(request, CLIENT, CriterionTesting.NO_CLIENTS);
 
         assertTrue(permitted, "the filter's verification must satisfy the criterion");
     }
 
     @Test
-    void thePriorVerificationIsRepublishedForTheRarProcessor() {
-        Map<String, Object> verified = new HashMap<>();
-        verified.put("client_id", "https://rp.example.com/agent-1");
-        HttpServletRequest request = requestWith(verified);
+    void thePriorVerificationIsRepublishedForTheRarProcessor() throws Exception {
+        HttpServletRequest request = requestWith(published(CLIENT, CriterionTesting.NO_CLIENTS));
 
-        ClientAttestationUtils.validateClientAttestation(inParams(request, "https://rp.example.com/agent-1"));
+        criterion(request, CLIENT, CriterionTesting.NO_CLIENTS);
 
         assertNotNull(request.getAttribute("com.pingidentity.ps.oidf.rar.attestation_context"),
                 "the RAR processor reads this; reusing a verification must not stop publishing it");
@@ -94,9 +107,27 @@ class VerifyOnceTest {
     void nothingPublishedAndNoAttestationIsStillADenial() {
         HttpServletRequest request = requestWith(null);
 
-        boolean permitted = ClientAttestationUtils.validateClientAttestation(
-                inParams(request, "https://rp.example.com/agent-1"));
+        boolean permitted = criterion(request, CLIENT, CriterionTesting.NO_CLIENTS);
 
         assertFalse(permitted, "absent verification must fall through to verifying, and fail");
+    }
+
+    /**
+     * A verification the filter made under another policy than the one this copy resolves for the client - a filter
+     * from before 0.6.0, which ignored the client's properties, or properties changed in between - is refused, and so
+     * is one for another client or one with no fingerprint (plan item S4c).
+     */
+    @Test
+    void aVerificationUnderAnotherPolicyOrForAnotherClientIsRefused() throws Exception {
+        AttestationPolicyResolver tighter = AttestationPolicyResolver.over(
+                id -> Map.of(ClientAttestationPolicy.POP_MAX_AGE, java.util.List.of("30")), java.time.Clock.systemUTC(), () -> false);
+        assertFalse(criterion(requestWith(published(CLIENT, CriterionTesting.NO_CLIENTS)), CLIENT, tighter),
+                "the filter verified under the server's policy; the client's is tighter");
+        assertTrue(criterion(requestWith(published(CLIENT, tighter)), CLIENT, tighter));
+        assertFalse(criterion(requestWith(published(CLIENT, CriterionTesting.NO_CLIENTS)), "https://rp.example.com/other",
+                CriterionTesting.NO_CLIENTS), "a context for another client");
+        Map<String, Object> old = published(CLIENT, CriterionTesting.NO_CLIENTS);
+        old.remove(ClientAttestationUtils.POLICY_FINGERPRINT_KEY);
+        assertFalse(criterion(requestWith(old), CLIENT, CriterionTesting.NO_CLIENTS), "a filter from before 0.6.0");
     }
 }

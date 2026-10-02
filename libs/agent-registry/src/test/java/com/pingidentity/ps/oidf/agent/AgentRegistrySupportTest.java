@@ -1,9 +1,17 @@
 package com.pingidentity.ps.oidf.agent;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.platform.profile.AcceptedRisks;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
+import com.pingidentity.ps.oidf.platform.profile.ProfileRefusals;
+import com.pingidentity.ps.oidf.platform.settings.ProfileAudit;
+import com.pingidentity.ps.oidf.platform.settings.ProfileRefused;
+import java.time.LocalDate;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -12,6 +20,33 @@ import org.junit.jupiter.api.Test;
  * pattern {@code AuthoritySupportTest} uses for the equivalent authority holder.
  */
 class AgentRegistrySupportTest {
+
+    /** The in-memory-state risk accepted, as OIDF_ACCEPTED_RISKS=in-memory-state says it. */
+    private static final AcceptedRisks IN_MEMORY = AcceptedRisks.parse("in-memory-state", LocalDate.of(2026, 9, 30));
+
+    @AfterEach
+    void forgetRefusals() {
+        ProfileRefusals.resetForTests();
+    }
+
+    @Test
+    void theInMemoryRegistryIsRefusedInProductionWithoutTheRisk() {
+        // A test run's environment names no profile, which is production, and accepts no risk.
+        ProfileRefused refused = assertThrows(ProfileRefused.class, AgentRegistrySupport::configureInMemoryRegistry);
+        assertTrue(refused.getMessage().contains("'in-memory-state'"), refused.getMessage());
+        assertTrue(refused.getMessage().contains("OIDF_ACCEPTED_RISKS"), refused.getMessage());
+        assertTrue(ProfileRefusals.codeRefusals().stream().anyMatch(v -> v.components().contains("ATTESTATION_ISSUER")),
+                "the attester is the component refused");
+    }
+
+    @Test
+    void theInMemoryRegistryIsAllowedWithTheRiskOrInDevelopment() {
+        assertDoesNotThrow(() -> AgentRegistrySupport.configureInMemoryRegistry(IN_MEMORY));
+        ProfileRefusals.publish(ProfileAudit.Result.empty(DeploymentProfile.DEVELOPMENT));
+        assertDoesNotThrow(() -> AgentRegistrySupport.configureInMemoryRegistry(AcceptedRisks.none()));
+        assertDoesNotThrow(() -> AgentRegistrySupport.configureInMemoryRegistry(), "this process's risks, under development");
+        assertTrue(ProfileRefusals.codeRefusals().isEmpty(), "development refuses nothing");
+    }
 
     @Test
     void registryThrowsClearlyUntilExplicitlyConfigured() {
@@ -27,10 +62,10 @@ class AgentRegistrySupportTest {
 
     @Test
     void configuringInMemoryMakesTheRegistryAvailableAndSticky() {
-        AgentRegistrySupport.configureInMemoryRegistry();
+        AgentRegistrySupport.configureInMemoryRegistry(IN_MEMORY);
         AgentRegistry first = AgentRegistrySupport.registry();
         // A second configuration call — of either kind — must not replace the first.
-        AgentRegistrySupport.configureInMemoryRegistry();
+        AgentRegistrySupport.configureInMemoryRegistry(IN_MEMORY);
         assertSame(first, AgentRegistrySupport.registry());
     }
 
@@ -45,7 +80,7 @@ class AgentRegistrySupportTest {
         try {
             return AgentRegistrySupport.registry();
         } catch (IllegalStateException e) {
-            AgentRegistrySupport.configureInMemoryRegistry();
+            AgentRegistrySupport.configureInMemoryRegistry(IN_MEMORY);
             return AgentRegistrySupport.registry();
         }
     }

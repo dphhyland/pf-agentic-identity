@@ -29,18 +29,20 @@ what a token introspection cannot see.
 - [`docs/pingfederate-gm-api-gaps.md`](docs/pingfederate-gm-api-gaps.md) — the implementer's report, written against PF 13.0.3 and not re-run on 13.1.3: §6 and §7.1 can be added from outside the product, §5 cannot; what PF supports natively (nothing, verified then).
 - [`docs/MCP.md`](docs/MCP.md) — the MCP server: tools (`evaluate_grant`, `list_entitlements`, `describe_grant`), transport, why it holds no credential of its own.
 
-## Build — this module is different
+## Build
 
-`services/gm-api/servlet` is a **vendored tree** and deliberately not a consumer of the repo BOM: groupId
-`au.com.idpartners`, artifact `gm-api` on the reactor's version (`tools/set-version.py` keeps it in step),
-and every dependency `provided` under the `local.pingfederate:*` coordinate convention (`pingfederate-sdk`
-13.1.3, `jakarta-servlet-api` 5.0.2, `jose4j` 1.x, `jackson-*` 2.x, `commons-lang3` 3.x,
-`commons-logging` 1.x). Those coordinates exist in `~/.m2` only after the `install:install-file` lines in
-`.github/actions/pf-provided-jars/action.yml` have run — CI extracts the jars from the public
-`pingidentity/pingfederate` image; locally, run those lines once (or copy the jars out of a running PF as
-[`servlet/README.md`](servlet/README.md) shows). Without them the root
-`mvn package` fails on this module. Bundling any of them into the war would break linkage: PF isolates
-each deploy-dir artifact on its own classloader.
+`services/gm-api/servlet` builds like every other module in the reactor: it imports the repo BOM, and
+its dependencies carry no versions of their own. Only its groupId differs - it keeps the coordinates
+`au.com.idpartners:gm-api`, on the reactor's version (`tools/set-version.py` keeps it in step). Every
+PingFederate dependency is `provided` and comes from PingFederate at run time; from 0.5.0 the war bundles only
+this repository's own `platform-pf` and `platform`, for its lifecycle listener, health and start-up audit
+([libs/platform-pf](../../libs/platform-pf/README.md#lifecycle)). At build time
+`pingfederate-sdk` is one of the two jars `.github/actions/pf-provided-jars/action.yml` installs from the
+public `pingidentity/pingfederate` image, and the rest come from Maven Central: `jose4j`,
+`jackson-databind` and `jackson-core` at the versions the BOM holds to the image, and `jakarta.servlet-api`
+5.0.0, the API line the image's Jetty ships as 5.0.2 (`tools/pf-linkcheck.py` checks the servlet members
+the war uses). Bundling any of them into the war would break linkage: PF isolates each deploy-dir
+artifact on its own classloader.
 
 ## Related
 
@@ -58,3 +60,14 @@ The servlet is the enforcement point; the decision is an **AuthZEN 1.0 PDP** it 
 (`/access/v1/evaluation`, resource search at `/access/v1/search/resource`). For a demo PDP, run
 `cmd/pdp` from `grant-evaluation-api`, or point `pdpUrl` at PingAuthorize behind its AuthZEN facade.
 The servlet needs no PDP code of its own.
+
+From 0.6.0 (plan item S5d) the call goes through libs/platform's `OutboundHttp`, and `pdpTimeoutMs` (10 s by
+default) bounds the whole exchange, the answer's body included, and a value above 10 s holds; before, it bounded the
+connect and each read apart, so a PDP sending a byte at a time held a grant request without end. Connecting, TLS
+included, takes at most platform's default 5 s within it (before, it could take the whole `pdpTimeoutMs`), and at most platform's default 256 KiB of the answer is read. A `pdpTimeoutMs` of zero or below,
+which meant no timeout, is now the 10 s default. The PDP is internal by design (the demo reaches PingAuthorize at
+`http://pingauthorize.railway.internal:1080`), so the URL `pdpUrl` names is exempt from the scheme and address rules -
+pinned to its scheme, host, port and path - and nothing else is; production already refuses an http `pdpUrl`. The JVM's
+trust store decides the PDP's certificate, which must name its host. Every failure - no answer by the deadline, a body
+over the cap, a TLS failure, a status other than 200 - is a PDP that could not be asked, a 503, with the reason in the
+log; never a denial.

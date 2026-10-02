@@ -1,5 +1,8 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
+import com.pingidentity.ps.oidf.pf.testkit.OperatorRequests;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorTestKit;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -7,7 +10,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
+import com.pingidentity.ps.oidf.authority.AuthoritySupportTestAccess;
+import com.pingidentity.ps.oidf.authority.EntityStatus;
 import com.pingidentity.ps.oidf.authority.HostedEntity;
+import com.pingidentity.ps.oidf.authority.HostedEntityRegistry;
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.federation.testkit.EventCapture;
 import com.pingidentity.ps.oidf.federation.testkit.MutableClock;
@@ -19,8 +25,12 @@ import java.io.BufferedReader;
 import java.io.PrintWriter;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.jose4j.json.JsonUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -63,7 +73,7 @@ class HostedEntityAdminTest {
     @BeforeEach
     void host() throws Exception {
         this.events = EventCapture.install();
-        AuthoritySupport.resetForTests();
+        AuthoritySupportTestAccess.reset();
         AuthoritySupport.configureSigning(entity -> {
             if (entity.hostingKeyRef().startsWith("good")) {
                 return SIGNER;
@@ -76,7 +86,7 @@ class HostedEntityAdminTest {
     @AfterEach
     void release() {
         this.events.close();
-        AuthoritySupport.resetForTests();
+        AuthoritySupportTestAccess.reset();
     }
 
     private final class Exchange {
@@ -86,12 +96,14 @@ class HostedEntityAdminTest {
         Exchange(String method, String path, String json, Map<String, String> params) throws Exception {
             HttpServletRequest request = mock(HttpServletRequest.class);
             when(request.getPathInfo()).thenReturn(path);
-            when(request.getHeader("Authorization")).thenReturn("Bearer " + TOKEN);
+            when(request.getMethod()).thenReturn(method);
+            OperatorRequests.stub(request, "/federation/admin" + path, "Bearer " + TOKEN, null);
             when(request.getHeader("X-Federation-Actor")).thenReturn("dave");
             when(request.getReader()).thenReturn(new BufferedReader(new StringReader(json == null ? "" : json)));
             params.forEach((name, value) -> when(request.getParameter(name)).thenReturn(value));
             when(this.response.getWriter()).thenReturn(new PrintWriter(this.body));
-            FederationAdminServlet servlet = new FederationAdminServlet(TOKEN, Map.of(), new InMemoryTrustMarkRegistry(HostedEntityAdminTest.this.clock),
+            FederationAdminServlet servlet = new FederationAdminServlet(
+                    OperatorTestKit.unconfigured(DeploymentProfile.DEVELOPMENT).withStaticBearer(TOKEN), Map.of(), new InMemoryTrustMarkRegistry(HostedEntityAdminTest.this.clock),
                     id -> true, HostedEntityAdminTest.this.clock, null);
             if ("POST".equals(method)) {
                 servlet.doPost(request, this.response);
@@ -153,10 +165,39 @@ class HostedEntityAdminTest {
 
         List<?> history = this.get("/entities/audit", Map.of("entity_id", AGENT)).array();
         assertEquals(4, history.size(), "the second revocation wrote nothing");
-        assertTrue(((String) ((Map<?, ?>) history.get(1)).get("actor")).endsWith("(dave)"));
+        assertTrue(((String) ((Map<?, ?>) history.get(1)).get("actor")).matches("admin:[0-9a-f]{8}"), "the actor is the operator, never X-Federation-Actor");
         assertEquals("key lost", this.events.only(FederationEvents.HOSTED_ENTITY_REVOKED).description());
         assertEquals(1, this.events.withCode(FederationEvents.HOSTED_ENTITY_SUSPENDED).size());
         assertEquals(1, this.events.withCode(FederationEvents.HOSTED_ENTITY_REACTIVATED).size());
+    }
+
+    /**
+     * H-FED-3: the admin API moves an entity only from the status it read. Another operator suspends the entity after
+     * this request read it active; the revocation decided on "active" is 409 stale_update, and nothing is announced.
+     */
+    @Test
+    void aChangeDecidedOnAStatusAnotherOperatorHasSinceChangedIsAConflict() throws Exception {
+        HostedEntityRegistry live = AuthoritySupport.registry();
+        HostedEntity read = live.find(AGENT).orElseThrow();
+        live.setStatus(AGENT, EntityStatus.SUSPENDED, "the other operator", "admin:other");
+        HostedEntityRegistry staleReads = (HostedEntityRegistry) Proxy.newProxyInstance(HostedEntityRegistry.class.getClassLoader(),
+                new Class<?>[]{HostedEntityRegistry.class}, (proxy, method, args) -> {
+                    if ("find".equals(method.getName())) {
+                        return Optional.of(read);
+                    }
+                    try {
+                        return method.invoke(live, args);
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
+        Field holder = AuthoritySupport.class.getDeclaredField("registry");
+        holder.setAccessible(true);
+        holder.set(null, staleReads);
+
+        assertEquals("stale_update", this.post("revoke", body("reason", "\"key lost\"")).json(409).get("error"));
+        assertEquals(EntityStatus.SUSPENDED, live.find(AGENT).orElseThrow().status(), "the other operator's change stands");
+        assertTrue(this.events.withCode(FederationEvents.HOSTED_ENTITY_REVOKED).isEmpty(), "and no revocation is announced");
     }
 
     @Test
@@ -199,13 +240,15 @@ class HostedEntityAdminTest {
     void requestsNamingNothingOrNobodyAreRefused() throws Exception {
         assertEquals("invalid_request", this.post("suspend", "{}").json(400).get("error"));
         assertEquals("not_found", this.post("suspend", "{\"entity_id\": \"" + AUTHORITY + "/federation/agents/nobody\"}").json(404).get("error"));
-        assertEquals("not_found", this.post("frobnicate", body()).json(404).get("error"));
+        assertEquals("not_found", this.post("frobnicate", body()).json(404).get("error"), "no operator route names it");
+        assertEquals(404, HostedEntityAdmin.change("frobnicate", JsonUtil.parseJson(body()), "operator").status(),
+                "and the handler refuses it too");
         assertEquals("invalid_request", this.get("/entities/audit", Map.of()).json(400).get("error"));
     }
 
     @Test
     void withoutHostingThereIsNothingToAdminister() throws Exception {
-        AuthoritySupport.resetForTests();
+        AuthoritySupportTestAccess.reset();
 
         assertEquals("not_found", this.get("/entities", Map.of()).json(404).get("error"));
         assertEquals("not_found", this.get("/entities/audit", Map.of("entity_id", AGENT)).json(404).get("error"));
@@ -214,7 +257,7 @@ class HostedEntityAdminTest {
 
     @Test
     void aStoreThatFailsIsAServerError() throws Exception {
-        AuthoritySupport.resetForTests();
+        AuthoritySupportTestAccess.reset();
         AuthoritySupport.configureJdbcRegistry((javax.sql.DataSource) java.lang.reflect.Proxy.newProxyInstance(
                 javax.sql.DataSource.class.getClassLoader(), new Class<?>[]{javax.sql.DataSource.class}, (proxy, method, args) -> {
                     throw new java.sql.SQLException("connection refused");

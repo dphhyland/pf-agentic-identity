@@ -65,16 +65,33 @@ public final class InstanceAttestationValidators {
         return DEFAULTS;
     }
 
-    /** Validators are stateless, so the built-in catalogue is built once and shared. */
-    private static final InstanceAttestationValidators DEFAULTS = new InstanceAttestationValidators(List.of(
-            new SpiffeInstanceAttestationValidator(),
-            new GkeTokenValidator(),
-            new GcpSaTokenValidator(),
-            new EksTokenValidator(),
-            new AwsStsWebIdentityValidator(),
-            new AksWorkloadIdentityValidator(),
-            new AzureManagedIdentityValidator(),
-            new WalletInstanceAttestationValidator(InstanceAttestationValidators::unconfiguredWalletTrust)));
+    /**
+     * Validators are stateless, so the built-in catalogue is built once and shared. The six cloud-token validators
+     * read the process's cloud evidence policy ({@link CloudTokenValidator.Policy#process()}) on first use, not here, so
+     * loading this class never reads the environment.
+     */
+    private static final InstanceAttestationValidators DEFAULTS = builtIn(new GkeTokenValidator(),
+            new GcpSaTokenValidator(), new EksTokenValidator(), new AwsStsWebIdentityValidator(),
+            new AksWorkloadIdentityValidator(), new AzureManagedIdentityValidator());
+
+    /**
+     * The built-in catalogue with the six cloud-token validators held to {@code policy} rather than the process's
+     * (plan item H-ATT-1): for a test, or an embedding that reads its policy elsewhere.
+     */
+    public static InstanceAttestationValidators defaults(CloudTokenValidator.Policy policy) {
+        return builtIn(new GkeTokenValidator(policy), new GcpSaTokenValidator(policy), new EksTokenValidator(policy),
+                new AwsStsWebIdentityValidator(policy), new AksWorkloadIdentityValidator(policy),
+                new AzureManagedIdentityValidator(policy));
+    }
+
+    /** The built-in catalogue, in its order, around the six cloud-token validators given. */
+    private static InstanceAttestationValidators builtIn(InstanceAttestationValidator... cloud) {
+        List<InstanceAttestationValidator> all = new ArrayList<>();
+        all.add(new SpiffeInstanceAttestationValidator());
+        all.addAll(List.of(cloud));
+        all.add(new WalletInstanceAttestationValidator(InstanceAttestationValidators::unconfiguredWalletTrust));
+        return new InstanceAttestationValidators(all);
+    }
 
     /**
      * This registry plus {@code validator}, replacing any existing entry with the same id. Used at servlet

@@ -1,0 +1,23 @@
+id: F-0106
+title: Two of the RAR plugin's coverage-gate includes named nested classes with '$' and gated nothing
+severity: low
+area: rar-paz-plugin
+source: pr-review
+status: closed
+plan_items: [S1c]
+prs: [36]
+verification: >
+  2026-09-27, PR #36. javap -c of org.jacoco.report 0.8.12: JavaNames.getQualifiedClassName replaces '/' and
+  '$' with '.', and BundleChecker names each method through it, so an include spelt Outer$Inner.method never
+  matches. Shown on this module the same day: with GovernanceEngineConfig.Builder.timeoutMillis(* and
+  GovernanceEngineConfig$Builder.service(* both added to the gate (both methods miss a branch), jacoco:check
+  reported the first and passed the second. The two includes from PR #29, PrincipalResolver$Flow.is* and
+  PdpUrlPolicy$Validator.validate(*, are now the dotted method names, and every method they name was already
+  at 100% line and branch coverage, so nothing was ungated in fact; the build passes with them enforced.
+target_release: 0.4.0
+notes: >
+  Found while wiring S1c's gate. The two includes read as gated in the pom and were checked by nothing: jacoco
+  passes an include that matches no method, and the coverage dashboard (tools/coverage-report.py) listed them
+  as "not found in report", which reads like a stale build rather than a gate that does not exist. Low: the
+  methods were covered. Every include in the plugin's gate is now an explicit dotted method name, which is also
+  the only spelling the dashboard matches (it compares names exactly and has no wildcards).

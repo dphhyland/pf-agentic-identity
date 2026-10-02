@@ -6,11 +6,11 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>oidf-jose</artifactId>
-    <version>0.4.0-SNAPSHOT</version>
+    <version>0.7.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>oidf-jose</name>
-    <description>Shared JOSE/JWT + SD-JWT SDK: the crypto foundation the client-attestation and openid-federation
+    <description>Shared JOSE/JWT SDK: the crypto foundation the client-attestation and openid-federation
         libraries build on. No PingFederate, servlet, federation, or attestation dependencies.</description>
     <url>https://github.com/dphhyland/oidf-jose</url>
 
@@ -25,17 +25,23 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.4.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.7.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
     <dependencies>
+        <!-- platform (plan item F-1): what every module shares. oidf-jose is the root the other libraries build on,
+             so they reach it through here. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId></dependency>
         <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>
@@ -45,27 +51,27 @@
 
     <build>
         <plugins>
-            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
-            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.16.0</version></plugin>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.6.0</version></plugin>
 
             <!--
               Coverage gate on the JOSE decisions a caller cannot re-check for itself: what a JWT's
-              header says it is, which claims are allowed to be missing, which SD-JWT digests get
-              reconstructed into a payload, and which hosts escape the outbound address rule. 100%
-              line + branch, enforced - a missed branch here is a typ confusion, a required claim
-              silently absent, an undisclosed digest reconstructed anyway, or a private endpoint
-              waved through, not a cosmetic gap.
+              header says it is, which claims are allowed to be missing, which algorithms and keys a
+              signature may be checked or made with, which URLs and hosts escape the outbound rules,
+              and what a failed fetch reaches its caller as. 100% line + branch, enforced - a missed
+              branch here is a typ confusion, a required claim silently absent, a MAC or a short key
+              accepted, or a private endpoint waved through, not a cosmetic gap.
 
               Gated per METHOD, not per class, so the members that need a socket or a real key stay
-              honestly out of scope: JdkHttpGetClient.get and OpenBaoTransitSigner.sign talk to a
-              server, and the verifyAgainstKeys/verifyAttestationPop consumers still have
-              null-argument branches no test reaches. Those are the queue, not the gate - widen the
+              honestly out of scope: OpenBaoTransitSigner.sign talks to a server, and the
+              verifyAgainstKeys/verifyAttestationPop consumers still have null-argument branches no
+              test reaches. Those are the queue, not the gate - widen the
               includes as tests land, never lower the limits.
             -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.12</version>
+                <version>0.8.15</version>
                 <executions>
                     <execution>
                         <id>prepare-agent</id>
@@ -96,8 +102,55 @@
                                         <include>com.pingidentity.ps.oidf.jose.Claims.requiredMap(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.Claims.requireNonBlank(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.Claims.stringList(*</include>
-                                        <include>com.pingidentity.ps.oidf.jose.SdJwt.reconstruct(*</include>
-                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.addressExempt(*</include>
+                                        <!-- HJOSE (plan items H-JOSE-1, H-JOSE-2): the claims read before a signature is
+                                             checked, the algorithm and key every verifier here allows, and the keys the
+                                             in-process signer accepts (RFC 7518 §3.3-3.5, RFC 8725 §3.1-3.2). -->
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.unverifiedIssuer(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.unverifiedSubject(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.unverifiedString(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.unverifiedClaim(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.hasUnverifiedClaim(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.unverifiedNumericDate(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.unverifiedMap(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.unverifiedStringList(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.unverifiedClaimsMap(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.UnverifiedClaims.toString(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JwtCodec.permittedAlgorithms(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JwtCodec.signingKeys(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JwtCodec.isSigningUse(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JwtCodec.verificationKeyOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.LocalJwkSigner.ecAlgorithm(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.LocalJwkSigner.rsaAlgorithm(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.LocalJwkSigner.jcaAlgorithm(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.LocalJwkSigner.pssParameters(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.LocalJwkSigner.ecConcatLength(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.trusting(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.refusal(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.addressRuleApplies(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.post(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.send(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.failure(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.headerMap(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpGetClient.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.HttpGetClient.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.HttpPostClient.post(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.HttpPostClient.postForm(*</include>
+                                        <!-- The DPoP proof checks, moved here from client-attestation with their gate (F-0225). -->
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.requireHtu(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.normalizeHtu(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.normalizePercentEncoding(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.removeDotSegments(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.shown(*</include>
+                                        <!-- ST5F (plan item ST-5): the federation readers on platform.settings - the one
+                                             Setting per variable, the strict parse, where each value came from - and PR-2's
+                                             refusals of the federation stores. -->
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.settings(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.fromEnvironment(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
@@ -111,6 +164,69 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+          Mutation testing of the JOSE decisions (plan items H-JOSE-2 and R-CI8): pitest changes a class one small way
+          at a time and runs the tests that reach it; a change no test notices is a check the tests only appear to
+          make. `mvn -Pmutation verify -pl libs/oidf-jose -Djacoco.skip=true`. The same shape as openid-federation's
+          and pf-integration's; the HTTP clients are left out, since their tests wait on sockets and deadlines. The
+          score of the first run is in the README; R-CI8 makes it a gate in Phase 7.
+        -->
+        <profile>
+            <id>mutation</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.pitest</groupId>
+                        <artifactId>pitest-maven</artifactId>
+                        <version>1.30.0</version>
+                        <dependencies>
+                            <dependency>
+                                <groupId>org.pitest</groupId>
+                                <artifactId>pitest-junit5-plugin</artifactId>
+                                <version>1.2.3</version>
+                            </dependency>
+                        </dependencies>
+                        <configuration>
+                            <targetClasses>
+                                <param>com.pingidentity.ps.oidf.jose.JwtCodec*</param>
+                                <param>com.pingidentity.ps.oidf.jose.UnverifiedClaims*</param>
+                                <param>com.pingidentity.ps.oidf.jose.VerificationPolicy*</param>
+                                <param>com.pingidentity.ps.oidf.jose.Claims*</param>
+                                <param>com.pingidentity.ps.oidf.jose.Jwks*</param>
+                                <param>com.pingidentity.ps.oidf.jose.LocalJwkSigner*</param>
+                                <param>com.pingidentity.ps.oidf.jose.CompactJws*</param>
+                                <param>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy*</param>
+                                <param>com.pingidentity.ps.oidf.jose.dpop.*</param>
+                            </targetClasses>
+                            <targetTests>
+                                <param>com.pingidentity.ps.oidf.jose.*</param>
+                            </targetTests>
+                            <excludedTestClasses>
+                                <param>com.pingidentity.ps.oidf.jose.JdkHttp*</param>
+                                <param>com.pingidentity.ps.oidf.jose.OpenBaoTransitSignerTest</param>
+                            </excludedTestClasses>
+                            <mutationThreshold>85</mutationThreshold>
+                            <threads>4</threads>
+                            <timestampedReports>false</timestampedReports>
+                            <outputFormats>
+                                <param>HTML</param>
+                                <param>XML</param>
+                            </outputFormats>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>mutation</id>
+                                <phase>verify</phase>
+                                <goals><goal>mutationCoverage</goal></goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
     <!-- Published as a versioned artifact; downstream repos (client-attestation, openid-federation) depend on it.
          Registry defaults to GitHub Packages; `mvn deploy` needs a settings.xml server 'github' with a token. -->

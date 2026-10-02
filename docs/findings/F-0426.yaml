@@ -1,0 +1,20 @@
+id: F-0426
+title: Preflight removes the quotes a Docker env file passes through, so a quoted value it judges clean is refused by the server
+severity: low
+area: platform
+source: design
+status: open
+plan_items: [ST-7, PR-5]
+prs: [101]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-10-01 by package ST7. Preflight's file reader (PR5's Preflight.readEnvFile) removes one pair of matching
+  quotes around a value, as a shell or a dotenv reader would. docker run --env-file does not: with Docker 29.4.1 the
+  line A="quoted" reached the container as "quoted", quotes included (checked 2026-10-01). So
+  OIDF_FETCH_ALLOW_HTTP="false" in a Docker env file is clean to Preflight and oidf-preflight.jar, and the server,
+  which reads the value "false" with its quotes, refuses FEDERATION, AUTO_REGISTRATION, ATTESTATION_AUTH,
+  ATTESTATION_ISSUER and HOSTING as unreadable (the same file with the value written '"false"' shows that refusal in
+  the preflight). It fails closed at start rather than open, which is why it is low. docs/operator/preflight.md gives a
+  sed line that single-quotes every value so the preflight sees what Docker passes. A fix is a --format docker option
+  that reads each value as written; it is PR5's reader, which ST7 was not to change.

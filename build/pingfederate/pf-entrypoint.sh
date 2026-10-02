@@ -21,6 +21,12 @@
 # /opt/out/instance, so the plaintext archive and the keys exist in three places for the life of the
 # container. What this script guarantees is narrower and holds: none of them is in an image layer.
 #
+# EVERY START DECRYPTS. The ciphertext is kept, and each start of the container - the first, and every
+# restart that keeps its writable layer - decrypts it again over the plaintext the last start wrote, so each
+# start needs the identity (F-0313). The plaintext a start wrote is never what a later start boots from:
+# while the ciphertext is there it is chosen and the plaintext overwritten. A plaintext archive is chosen
+# only when no ciphertext is, and production refuses it.
+#
 # THE ONE SECRET. pf.jwk is NOT supplied separately. It is extracted from the archive, which keeps the
 # invariant that matters: the running key is by construction the key the archive was encrypted under.
 # Supplying them separately is how an archive and a key drift apart, and a PF whose key does not match
@@ -36,9 +42,17 @@
 #                            Both are removed from the environment before PingFederate starts.
 #   PF_ARCHIVE_SHA256        optional: the archive's SHA-256, hex. Checked before the archive is decrypted
 #                            or imported; a mismatch stops the boot.
-#   OIDF_DEPLOYMENT_PROFILE  development lets a plaintext archive boot; production - the default when
-#                            unset, and what any other value counts as - refuses it. Read directly here
-#                            and by plugins/ciba-sim until plan item PR-1 (Phase 2) centralises the profile.
+#   PING_IDENTITY_ACCEPT_EULA  YES (or Y, in any case) accepts Ping Identity's licence agreement. The image does
+#                            not accept it for you: anything else, or unset, stops the boot here, before the
+#                            base image's licence hook runs.
+#   OIDF_DEPLOYMENT_PROFILE  development lets a plaintext archive boot and PingFederate's plain HTTP listener
+#                            open; production - the default when unset, and what any other value counts as -
+#                            refuses both. The Java modules read it through libs/platform's DeploymentProfile;
+#                            DeploymentProfileShellTest holds is_development to that rule, padding included
+#                            (trimmed as Java's String.trim does: F-0161).
+#   PF_RUN_PF_HTTP_PORT      PingFederate's plain HTTP runtime listener (pf.http.port, which the Dockerfile has
+#                            the base image's template read from this variable). Unset or negative: off, as
+#                            PingFederate ships it. A port: on, in development only - production refuses it.
 #   PF_DATA_DIR              where the archive and keys go (default /opt/in/instance/server/default/data).
 #   PF_BOOTSTRAP             the base image's bootstrap (default /opt/bootstrap.sh); test-entrypoint.sh
 #                            points it at a stub.
@@ -67,7 +81,38 @@ sha256_of() {
 # decrypts either without being told which). Nothing else is decrypted. The bytes stay in a pipe rather
 # than a shell variable: a zip has NULs in its first 34.
 is_age() { head -c 34 "$1" | head -n 1 | grep -qsE '^(age-encryption\.org/v1|-----BEGIN AGE ENCRYPTED FILE-----)$'; }
-is_development() { [ "$(printf '%s' "$PROFILE" | tr '[:upper:]' '[:lower:]')" = development ]; }
+# development, in any case, with nothing around it but characters Java's String.trim removes (U+0001-U+0020;
+# an environment variable cannot hold U+0000): DeploymentProfile.parse's rule. Deleting every such character
+# leaves "development" only when the value holds nothing else, and the word being there whole means none of
+# them was inside it.
+is_development() { p="$(printf '%s' "$PROFILE" | tr '[:upper:]' '[:lower:]')"; case "$p" in *development*) [ "$(printf '%s' "$p" | tr -d '\001-\040')" = development ] ;; *) false ;; esac; }
+
+# --- the licence agreement, which the image no longer accepts for anyone ---
+# The base image's licence hook reads the same variable the same way (yes or y, any case), but only on the path
+# that fetches an evaluation licence; this refuses on every path, before PingFederate starts.
+case "$(printf '%s' "${PING_IDENTITY_ACCEPT_EULA:-}" | tr '[:upper:]' '[:lower:]')" in
+    yes | y) ;;
+    *) die "PING_IDENTITY_ACCEPT_EULA is '${PING_IDENTITY_ACCEPT_EULA:-}': set PING_IDENTITY_ACCEPT_EULA=YES at run time to accept Ping Identity's licence agreement. This image does not accept it for you." ;;
+esac
+
+# --- PingFederate's plain HTTP listener: off unless asked for, and never in production ---
+# The Dockerfile has pf.http.port read ${PF_RUN_PF_HTTP_PORT} in the base image's run.properties template, and
+# sets it to -1, PingFederate's own "off". A number of 0 or more opens a listener that serves every runtime
+# endpoint - tokens, authorization codes, the operator API - in the clear, to whatever reaches the port.
+HTTP_PORT="${PF_RUN_PF_HTTP_PORT:--1}"
+case "${HTTP_PORT#-}" in
+    "" | *[!0-9]*) die "PF_RUN_PF_HTTP_PORT is '$HTTP_PORT', not a whole number (-1, or unset, leaves the plain HTTP listener off)" ;;
+esac
+# Off means strictly negative. Jetty reads -0 or -00 as the port 0, which opens a listener on a port the system
+# picks, so those are ports here too.
+case "$HTTP_PORT" in
+    -*[1-9]*) ;;
+    *)
+        is_development || die "PF_RUN_PF_HTTP_PORT=$HTTP_PORT opens PingFederate's plain HTTP listener, which is refused when OIDF_DEPLOYMENT_PROFILE is production (it is '$PROFILE', and unset means production). Terminate TLS in front of 9031 instead, or set OIDF_DEPLOYMENT_PROFILE=development on a rig"
+        log "WARNING: PingFederate's plain HTTP listener is on (port $HTTP_PORT) because OIDF_DEPLOYMENT_PROFILE=$PROFILE."
+        ;;
+esac
+export PF_RUN_PF_HTTP_PORT="$HTTP_PORT"
 
 # --- which archive ---
 if [ -n "${PF_ARCHIVE_FILE:-}" ]; then
@@ -115,8 +160,12 @@ elif is_age "$SOURCE"; then
     else
         die "$SOURCE is age-encrypted but neither PF_ARCHIVE_AGE_KEY_FILE nor PF_ARCHIVE_AGE_KEY is set"
     fi
-    # The ciphertext has served its purpose; only the copy the image carries is ours to remove.
-    [ "$SOURCE" != "$ENCRYPTED" ] || rm -f "$ENCRYPTED"
+    # The ciphertext stays, wherever it came from, and every start decrypts it again (F-0313). A start that
+    # removed it left the next start of the same container - docker restart, a restart policy, a node reboot -
+    # only the plaintext written here, which production refuses, as it must refuse one an operator supplies:
+    # the two are the same bytes in the same place. Keeping the ciphertext needs no marker to tell them apart,
+    # and it also serves a restart that finds /opt/out empty (a tmpfs there, README.md), which the base
+    # image's bootstrap treats as a first start and imports the archive again.
     log "config archive ready"
 
 else

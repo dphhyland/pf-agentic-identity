@@ -3,10 +3,16 @@ title: B1 RAR containment ignores scalars (both copies)
 severity: blocker
 area: client-attestation, rar-paz-plugin
 source: review-2026-09-26
-status: open
+status: closed
 plan_items: [S-1, S1a, S1b, S1c]
-prs: []
-verification: ''
+prs: [26, 37, 36]
+verification: >
+  Closed 2026-09-27 when S1c (PR #36) merged after S1b (PR #37). Every containment question - the token
+  endpoint's gate and the attester (S1b), the RAR plugin's check of a PDP answer and isEqualOrSubset on refresh
+  (S1c) - is asked of libs/rar-model (S1a, PR #26), which compares every field by its type's rule; the shared
+  vector file runs through the library, the token gate, the issuer and the refresh path; RarContainment is
+  deleted and RarEntitlement is unused (its deletion is F-0100). The request with no authorization_details that
+  PingFederate fills from PAR or authorization is F-0032 (S4d, Phase 3).
 target_release: 0.4.0
 notes: >
   RarEntitlement (libs/client-attestation) and RarContainment (plugins/rar-paz-plugin) compare `type` and five
@@ -14,4 +20,12 @@ notes: >
   scalar pass, and a refresh reissues the requested detail when isEqualOrSubset says so. Verified in code by
   the review (2026-09-26). S-1 replaces both with libs/rar-model: per-type rules, strict contains, undeclared
   fields refused, one vector file run by four runners. The ceiling bypass found while designing is F-0032
-  (S4d, Phase 3).
+  (S4d, Phase 3). S1a landed libs/rar-model on 2026-09-27 (the library only: nine rules, alternatives for
+  payment_initiation's two spellings of an amount, three built-in models, contains / authorize / intersect,
+  244 vectors in a test-jar); both copies still run until S1b and S1c wire the library in, so the status stays
+  open. S1b (PR #37, 2026-09-27) moved the authorization server's token gate and the attester onto it: every field
+  compared, strictly at the token endpoint, with the vector file run through both; RarEntitlement is unused and
+  waits for its deletion on F-0100. S1c (PR #36, 2026-09-27) wires the plugin: RarContainment and its contract
+  test are gone, the plugin shades and relocates libs/rar-model, holds each requested detail to its model before
+  the PDP, refuses a PDP answer the model does not find within the request, answers isEqualOrSubset with the
+  model's strict contains, and compares the attestation context's rar_models_fingerprint with its own.

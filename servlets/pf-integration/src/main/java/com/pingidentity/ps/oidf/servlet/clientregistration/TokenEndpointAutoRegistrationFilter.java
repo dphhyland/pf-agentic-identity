@@ -4,10 +4,15 @@ import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfRequestScope;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
+import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -22,7 +27,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 
 /**
  * OpenID Federation §12.1 Automatic Registration, and §12.3 registration lifetime, at the OAuth token endpoint.
@@ -56,10 +60,15 @@ import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
  * }</pre>
  */
 public final class TokenEndpointAutoRegistrationFilter implements Filter {
+    /** The header an attested request names its client in (OAuth 2.0 Attestation-Based Client Authentication). */
+    static final String ATTESTATION_HEADER = "OAuth-Client-Attestation";
+
     private static final Log LOGGER = LogFactory.getLog(TokenEndpointAutoRegistrationFilter.class);
     private volatile RegistrationService service;
     private final Function<HttpServletRequest, String> issuerResolver;
     private volatile boolean failClosed = true;
+    /** This filter's part of AUTO_REGISTRATION, from init; null when a test's constructor made it and init never ran. */
+    private volatile ComponentParts.Part part;
 
     public TokenEndpointAutoRegistrationFilter() {
         this.issuerResolver = TokenEndpointAutoRegistrationFilter::defaultIssuer;
@@ -88,13 +97,24 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
     }
 
     private static String defaultIssuer(HttpServletRequest request) {
-        return OAuthIssuerUtils.getInstance().getIssuerValue(request);
+        return PfInternals.issuer(request);
     }
 
     @Override
     public void init(FilterConfig config) throws ServletException {
+        boolean injected = this.service != null;
+        ComponentParts.Part part = Startup.begin(Startup.AUTO_REGISTRATION, "TokenEndpointAutoRegistrationFilter");
+        this.part = part;
+        part.start(() -> this.init(config, part, injected));
+    }
+
+    /**
+     * The start function: what {@code init} did before S-9, run by {@link ComponentParts.Part#start} at deploy and again
+     * by each supervisor retry after a dependency failure. What it throws is the part's state, never the container's.
+     */
+    private void init(FilterConfig config, ComponentParts.Part part, boolean injected) throws ServletException {
         PfAuditEventSink.install();
-        if (this.service != null) {
+        if (injected) {
             return;
         }
         // The trust controller is deployment-wide (FederationRuntimeConfig), not per-filter. This used
@@ -107,18 +127,20 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
             // Refuse, but do not take the web app down. The modules are merged into pf-runtime.war, so a
             // failed init here would also stop this entity's own /.well-known/openid-federation - and a
             // PF that is its own trust anchor has to serve that before anyone can capture the keys to
-            // pin. Every automatic registration is skipped until the keys are set; the token request
-            // then meets PF's own client authentication, which knows no such client.
+            // pin. The component is FAILED_CONFIG until the keys are set: the gate answers a request that
+            // names a federation client 503, and passes every other token request to PingFederate.
             LOGGER.error((Object)("TokenEndpointAutoRegistrationFilter: " + FederationRuntimeConfig.HOST_ENV + " names "
                     + runtime.trustControllerHost() + " but " + FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV
                     + " is unset - automatic registration (OpenID Federation 1.0 §12.1) is refused for every request until the"
                     + " trust anchor's keys are pinned (§4: they are distributed out of band, not fetched)"));
+            part.failedConfig(FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV + " is unset: automatic registration at the token"
+                    + " endpoint is refused for every request until the trust anchor's keys are pinned");
             return;
         }
         // Building the service builds the validator, and the validator needs the anchor's out-of-band
         // keys (FederationRuntimeConfig.trustAnchor). No trust controller at all, or a JWKS that is set
         // but is not a usable public key set, is a deployment error that no request can fix: refuse to
-        // start, naming what to set. (The "no trust controller" case already failed init before the
+        // start, naming what to set - FAILED_CONFIG, with the war still serving. (The "no trust controller" case already failed init before the
         // anchor keys existed - the old validator constructor threw on a blank anchor - but as an
         // unchecked exception, which a container does not reliably surface from init.) So is an init-param
         // that does not parse: it used to mean the default, quietly.
@@ -141,6 +163,9 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
+        if (ComponentGate.autoRegistration(this.part, request, response, chain, FederationClientLookup.pingFederate())) {
+            return;
+        }
         // No service means init refused automatic registration (no pinned anchor keys); pass through.
         if (!(request instanceof HttpServletRequest http) || !(response instanceof HttpServletResponse httpResponse) || this.service == null) {
             chain.doFilter(request, response);
@@ -156,7 +181,16 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
                 return;
             }
             try {
-                this.service.admit(clientId, extractTrustChain(clientAssertion), this.issuerResolver.apply(http));
+                String issuer = this.issuerResolver.apply(http);
+                this.service.admit(clientId, extractTrustChain(clientAssertion), issuer);
+                // An attested request authenticates as its attestation's sub, whatever else it names: ClientAttestationAuth
+                // never compares a client_assertion with the attestation, and replaces it with the bridge's. So that
+                // client's registration is checked too, or a decoy client_assertion naming another client would carry
+                // the request past its expiry. It presents no chain of its own.
+                String attested = attestedClientOf(http);
+                if (attested != null && !attested.equals(clientId)) {
+                    this.service.admit(attested, List.of(), issuer);
+                }
             }
             catch (RegistrationRejectedException e) {
                 if (!this.failClosed) {
@@ -194,23 +228,60 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
     }
 
     /**
-     * The client the request names: the {@code sub} of its {@code client_assertion} (not yet verified - PingFederate
-     * does that next), else its {@code client_id} parameter. Null when it names none.
+     * The client the request names, in this order: the {@code sub} of its {@code client_assertion}, its {@code client_id}
+     * parameter, and the {@code sub} of its {@code OAuth-Client-Attestation} header. Null when it names none - such a
+     * request is left to PingFederate.
+     *
+     * <p>None of them is verified yet: PingFederate verifies the assertion next, and ClientAttestationAuth, mapped after
+     * this filter, verifies the attestation and refuses the request unless the verified {@code sub} is the one it read
+     * first (and, when there is one, the {@code client_id} parameter). Here the name only chooses which registration is
+     * looked up - renewed when due, its expiry enforced when past it. The attestation's {@code sub} is read so that an
+     * attested request, which need send no {@code client_id}, is not let past its client's expired registration.
+     *
+     * <p>An attested request is not bound to the name this returns: ClientAttestationAuth ignores the
+     * {@code client_assertion} and forwards the request as the attestation's {@code sub}. So {@link #doFilter} also checks
+     * {@link #attestedClientOf} when it differs - a decoy assertion naming another client then adds a lookup, and never
+     * takes one away.
      */
     static String clientIdOf(HttpServletRequest request, String clientAssertion) {
-        if (clientAssertion != null && !clientAssertion.isBlank()) {
-            try {
-                String sub = JwtCodec.parseUnverifiedClaims(clientAssertion).getSubject();
-                if (sub != null && !sub.isBlank()) {
-                    return sub;
-                }
-            }
-            catch (Exception e) {
-                // Not a JWT PingFederate will accept either; fall back to client_id.
-            }
+        String fromAssertion = unverifiedSubject(clientAssertion);
+        if (fromAssertion != null) {
+            return fromAssertion;
         }
         String clientId = request.getParameter("client_id");
-        return clientId == null || clientId.isBlank() ? null : clientId;
+        if (clientId != null && !clientId.isBlank()) {
+            return clientId;
+        }
+        return attestedClientOf(request);
+    }
+
+    /**
+     * The unverified {@code sub} of the request's {@code OAuth-Client-Attestation} header - the client an attested
+     * request authenticates as, once ClientAttestationAuth has verified it. Null when there is none, when it is not a
+     * JWT with a {@code sub}, and when there is more than one header: ClientAttestationAuth refuses that request.
+     */
+    static String attestedClientOf(HttpServletRequest request) {
+        Enumeration<String> attestations = request.getHeaders(ATTESTATION_HEADER);
+        if (attestations == null || !attestations.hasMoreElements()) {
+            return null;
+        }
+        String attestation = attestations.nextElement();
+        return attestations.hasMoreElements() ? null : unverifiedSubject(attestation);
+    }
+
+    /** A JWT's {@code sub}, not verified; null when it has none or is not a JWT. */
+    private static String unverifiedSubject(String jwt) {
+        if (jwt == null || jwt.isBlank()) {
+            return null;
+        }
+        try {
+            String sub = JwtCodec.parseUnverifiedClaims(jwt).unverifiedSubject();
+            return sub == null || sub.isBlank() ? null : sub;
+        }
+        catch (Exception e) {
+            // Not a JWT PingFederate (or ClientAttestationAuth) will accept either.
+            return null;
+        }
     }
 
     private static List<String> extractTrustChain(String clientAssertion) {

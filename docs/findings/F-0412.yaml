@@ -1,0 +1,24 @@
+id: F-0412
+title: The Entity Configuration's openid_provider block asks every federation client for a client attestation
+severity: low
+area: openid-federation
+source: pr-review
+status: open
+plan_items: [S-4]
+prs: [95]
+verification: ''
+target_release: 1.0.0
+notes: >
+  Found on 2026-10-01 in S4M's review. openid_provider carries client_attestation_pop_methods_supported, by default
+  ["attestation_pop_jwt", "dpop_combined"] (clientAttestationPopMethodsSupported), with no "none", as it has since
+  before 0.6.0. ABCA-10 section 7.6 (draft -10, read verbatim 2026-10-01): "A server signals this demand by including
+  the client_attestation_pop_methods_supported metadata parameter in its published metadata", and "When the parameter
+  is present and does not include none, a Client SHOULD include the Client Attestation and its Proof of Possession in
+  its requests to that server". This deployment asks for an attestation only of clients registered for it
+  (attestation_required, or attest_jwt_client_auth as the method). S4M first added the member to all four metadata
+  documents with the rest of the set, and the review caught it: the member is kept out of PingFederate's two
+  discovery documents and the oauth_authorization_server block (AttestationMetadataConfig.extend), which every client
+  reads, and openid_provider was left as it was. Low: a SHOULD on the client, and a federation relying party that
+  omits the attestation is authenticated by its own method as before. The fix is a decision - append "none" to the
+  default list, drop the member from openid_provider too, or keep it and document that federation clients are asked
+  for an attestation.

@@ -25,7 +25,7 @@ class FederationServiceHistoricalKeysTest {
     private final MutableClock clock = new MutableClock(Instant.ofEpochSecond(1_800_000_000L));
 
     private FederationService pf(HistoricalKeys keys) {
-        FederationConfiguration configuration = new FederationConfiguration(List.of(PF), List.of(), null, false, false, null, null, null, 0, "RS256",
+        FederationConfiguration configuration = new FederationConfiguration(List.of(PF), List.of(), false, false, null, null, null, 0, "RS256",
                 AttestationMetadataConfig.defaults(), null, null, FederationConfiguration.DEFAULT_CLIENT_REGISTRATION_TYPES,
                 FederationConfiguration.ResolveDiscovery.KNOWN);
         return FederationService.builder(configuration, Keys.signingKeys(PF_KEY)).historicalKeys(keys).clock(this.clock).build();
@@ -53,7 +53,7 @@ class FederationServiceHistoricalKeysTest {
         assertEquals(PF + "/federation/historical_keys", with.get("federation_historical_keys_endpoint"));
         assertFalse(without.containsKey("federation_historical_keys_endpoint"));
         assertEquals(FederationError.NOT_FOUND, assertThrows(FederationException.class, () -> this.pf(null).historicalKeys(PF)).error());
-        assertEquals(List.of(), JwtCodec.parseUnverifiedClaims(this.pf(List::of).historicalKeys(PF)).getClaimValue("keys"),
+        assertEquals(List.of(), JwtCodec.parseUnverifiedClaims(this.pf(List::of).historicalKeys(PF)).unverifiedClaim("keys"),
                 "before the first rotation there is no history, only an empty list");
     }
 
@@ -65,12 +65,12 @@ class FederationServiceHistoricalKeysTest {
         Map<String, Object> inUse = service.signingKey();
 
         assertEquals("pf-2", inUse.get("kid"));
-        assertEquals(List.of(inUse), ((Map<?, ?>) JwtCodec.parseUnverifiedClaims(service.createEntityConfigurationJwt(PF)).getClaimValue("jwks"))
+        assertEquals(List.of(inUse), ((Map<?, ?>) JwtCodec.parseUnverifiedClaims(service.createEntityConfigurationJwt(PF)).unverifiedClaim("jwks"))
                 .get("keys"));
     }
 
     private static Map<?, ?> federationEntity(FederationService service) throws Exception {
-        return (Map<?, ?>) ((Map<?, ?>) JwtCodec.parseUnverifiedClaims(service.createEntityConfigurationJwt(PF)).getClaimValue("metadata"))
+        return (Map<?, ?>) ((Map<?, ?>) JwtCodec.parseUnverifiedClaims(service.createEntityConfigurationJwt(PF)).unverifiedClaim("metadata"))
                 .get("federation_entity");
     }
 }

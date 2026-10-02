@@ -1,0 +1,19 @@
+id: F-0125
+title: The SSF module calls its JDBC store cluster-safe, where 0.4.0 supports one node
+severity: low
+area: ssf
+source: pr-review
+status: open
+plan_items: [S-10, C-7]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found by the 0.4.0 release's adversarial review, 2026-09-27. SsfSupport.selectStore logs a JDBC-backed store
+  as "(cluster-safe, durable)", and the javadoc of SsfSupport, SsfStore and JdbcSsfStore says the same, while
+  docs/operator/deployment-limits.md states that 0.4.0 supports one PingFederate node: with a shared store both
+  nodes' push loops can post the same SET (SsfStore.dueForPush takes no lock and nothing leases the loop), and
+  the receiver's jti dedupe and poll acknowledgements stay per node (F-0043). An operator reading the boot log
+  could take it as leave to cluster. Low: a log line and comments, and the release notes say otherwise. Left out
+  of the release pull request, whose code is main at 714e7ce as verified; the fix is to drop "cluster-safe" from
+  the log line and javadoc until the leases (C-4) and the cluster suite (C-7) land, or to say what it covers.

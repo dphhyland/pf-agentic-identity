@@ -1,0 +1,20 @@
+id: U-0420
+title: That the attester's authorization_server_metadata is right for an issuer with a path
+area: attestation-issuer
+source: pr-review
+status: open
+plan_items: [S-4]
+prs: [95]
+recorded_in: servlets/attestation-issuer/README.md
+verify_by: >
+  On the rig, run PingFederate with a runtime context path (pf.runtime.context.path) or another issuer with a path, and
+  request the URL /.well-known/client-attester gives as authorization_server_metadata; confirm it answers with
+  PingFederate's RFC 8414 document and that AttestationMetadataFilter extends it. If PingFederate serves the document
+  under the context path instead (<host>/<path>/.well-known/oauth-authorization-server), the pointer must follow it.
+verification: ''
+notes: >
+  Found on 2026-10-01 in S4M's review. AttesterConfigurationServlet.authorizationServerMetadata builds RFC 8414 section
+  3's path-inserted URL (<scheme>://<authority>/.well-known/oauth-authorization-server<path>) for an issuer with a
+  path. AttestationMetadataFilter is mapped to the exact /.well-known/oauth-authorization-server inside pf-runtime.war,
+  and whether PingFederate 13.1.3 serves the path-inserted form at all was not checked. S4M's rig checks (2026-10-01)
+  used a root issuer, for which the URL is the one the rig answered and the filter extended.

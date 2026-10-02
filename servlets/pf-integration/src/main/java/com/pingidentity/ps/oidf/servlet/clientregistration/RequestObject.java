@@ -5,12 +5,16 @@ package com.pingidentity.ps.oidf.servlet.clientregistration;
 
 import com.pingidentity.ps.oidf.federation.EntityId;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwt.JwtClaims;
 
@@ -24,9 +28,11 @@ import org.jose4j.jwt.JwtClaims;
  * to the profile before anything is fetched, so a request that could never be accepted costs nothing. Then, once
  * the RP's keys are known, {@link #verify} checks the signature and spends the {@code jti}. An encrypted request
  * object can only be read as far as its header: its claims and signature are PingFederate's to check once it has
- * decrypted it, against the keys registered here.
+ * decrypted it, against the keys registered here - so in production it never registers a client
+ * ({@link #registeringFromEncrypted}), and only goes ahead on a registration its RP already has.
  */
 final class RequestObject {
+    private static final Log LOGGER = LogFactory.getLog(RequestObject.class);
     /** The {@code typ} values a request object may carry: none, the generic JWT, or RFC 9101's. */
     private static final Set<String> REQUEST_OBJECT_TYPES = Set.of("jwt", "oauth-authz-req+jwt");
     /** Leeway for {@code exp} and {@code iat}, as for every other JWT this module reads. */
@@ -45,9 +51,9 @@ final class RequestObject {
     private final Kind kind;
     private final String compact;
     private final Map<String, Object> header;
-    private final JwtClaims claims;
+    private final UnverifiedClaims claims;
 
-    private RequestObject(Kind kind, String compact, Map<String, Object> header, JwtClaims claims) {
+    private RequestObject(Kind kind, String compact, Map<String, Object> header, UnverifiedClaims claims) {
         this.kind = kind;
         this.compact = compact;
         this.header = header;
@@ -62,7 +68,7 @@ final class RequestObject {
     static RequestObject read(Kind kind, String compact) throws RegistrationRejectedException {
         try {
             Map<String, Object> header = JwtCodec.compactProtectedHeader(compact);
-            JwtClaims claims = JwtCodec.isCompactJwe(compact) ? null : JwtCodec.parseUnverifiedClaims(compact);
+            UnverifiedClaims claims = JwtCodec.isCompactJwe(compact) ? null : JwtCodec.parseUnverifiedClaims(compact);
             return new RequestObject(kind, compact, header, claims);
         } catch (Exception e) {
             throw RegistrationRejectedException.request(400, errorFor(kind), what(kind) + " is not a compact JWS or JWE");
@@ -86,13 +92,46 @@ final class RequestObject {
         if (!fromHeader.isEmpty() || this.claims == null || this.kind != Kind.REQUEST_OBJECT) {
             return fromHeader;
         }
-        return strings(this.claims.getClaimValue("trust_chain"));
+        return strings(this.claims.unverifiedClaim("trust_chain"));
     }
 
-    /** The {@code alg} it is signed (or, encrypted, key-managed) with, or null. */
+    /**
+     * The JWS {@code alg} it is signed with, or null. Always null for an encrypted object: the {@code alg} of a JWE's
+     * header is its key-management algorithm (RFC 7516 §4.1.1: it "identifies the cryptographic algorithm used to
+     * encrypt or determine the value of the CEK"), such as {@code RSA-OAEP} or {@code ECDH-ES}, and says nothing about
+     * how the request inside is signed - so it must never become a client's {@code request_object_signing_alg}.
+     */
     String algorithm() {
+        if (this.encrypted()) {
+            return null;
+        }
         Object alg = this.header.get("alg");
         return alg instanceof String s ? s : null;
+    }
+
+    /**
+     * What registering {@code clientId} from an encrypted proof - one whose {@link #algorithm()} is null - comes to
+     * under {@code profile}. OpenID Federation 1.0 §12.1.1: "Authentication requests MUST demonstrate that the
+     * requesting Entity controls the Entity's RP keys, using one of the methods described below. Attempted
+     * authentication requests that do not do so MUST be rejected." This module cannot decrypt a request object - it
+     * is encrypted to PingFederate's key - so it never sees the JWS inside, and {@link #verify} has nothing to check.
+     * PingFederate decrypts and checks it only after the client has been registered from the RP's published metadata:
+     * by then the registration has been written on the word of a request that showed nothing. So production refuses
+     * it ({@code invalid_request_object}, 400; a failure of the request, never held against the RP) and development
+     * accepts it with a warning. An RP registers with a signed request object, or at PAR with its client assertion;
+     * its later requests on a current registration may be encrypted, as before.
+     *
+     * @throws RegistrationRejectedException under the production profile
+     */
+    static void registeringFromEncrypted(String clientId, DeploymentProfile profile) throws RegistrationRejectedException {
+        if (profile.isProduction()) {
+            throw RegistrationRejectedException.request(400, "invalid_request_object", "an encrypted request object cannot register a"
+                    + " client: its signature cannot be checked before the registration is written (OpenID Federation 1.0 §12.1.1)."
+                    + " Register with a signed request object, or at the PAR endpoint");
+        }
+        LOGGER.warn((Object)("Development profile: registering " + clientId + " from an encrypted request object, whose signature"
+                + " cannot be checked until PingFederate decrypts it - after the registration is written. Production refuses this"
+                + " (OpenID Federation 1.0 §12.1.1)"));
     }
 
     private static List<String> strings(Object raw) {
@@ -131,19 +170,19 @@ final class RequestObject {
             throw this.refused("the request object's typ must be oauth-authz-req+jwt, if it has one");
         }
         if (this.kind == Kind.REQUEST_OBJECT) {
-            this.require(clientId.equals(this.claims.getClaimValue("client_id")), "its client_id must be the client_id of the request");
-            this.require(this.claims.getClaimValue("sub") == null, "it must not carry sub (OpenID Federation 1.0 §12.1.1.1)");
+            this.require(clientId.equals(this.claims.unverifiedClaim("client_id")), "its client_id must be the client_id of the request");
+            this.require(this.claims.unverifiedClaim("sub") == null, "it must not carry sub (OpenID Federation 1.0 §12.1.1.1)");
         } else {
-            this.require(clientId.equals(this.claims.getClaimValue("sub")), "its sub must be the client's Entity Identifier");
+            this.require(clientId.equals(this.claims.unverifiedClaim("sub")), "its sub must be the client's Entity Identifier");
         }
-        this.require(clientId.equals(this.claims.getClaimValue("iss")), "its iss must be the client's Entity Identifier");
-        this.require(onlyAudience(this.claims.getClaimValue("aud"), opIssuer), "its aud must be this OP's Entity Identifier and nothing else");
-        Object jti = this.claims.getClaimValue("jti");
+        this.require(clientId.equals(this.claims.unverifiedClaim("iss")), "its iss must be the client's Entity Identifier");
+        this.require(onlyAudience(this.claims.unverifiedClaim("aud"), opIssuer), "its aud must be this OP's Entity Identifier and nothing else");
+        Object jti = this.claims.unverifiedClaim("jti");
         this.require(jti instanceof String s && !s.isBlank(), "it must carry a jti");
-        Object exp = this.claims.getClaimValue("exp");
+        Object exp = this.claims.unverifiedClaim("exp");
         this.require(exp instanceof Number, "it must carry exp");
         this.require(((Number) exp).longValue() > now - CLOCK_SKEW_SECONDS, "it has expired");
-        Object iat = this.claims.getClaimValue("iat");
+        Object iat = this.claims.unverifiedClaim("iat");
         this.require(iat == null || iat instanceof Number n && n.longValue() <= now + CLOCK_SKEW_SECONDS, "its iat is in the future");
     }
 
@@ -169,7 +208,9 @@ final class RequestObject {
      * §12.1.1.1.2: the OP "MUST verify that the client was actually the one sending the Authentication Request by
      * verifying the signature of the Request Object using the key material the client published in its metadata for
      * the openid_relying_party Entity Type" - and then spends its {@code jti}, which "MUST only be used once".
-     * An encrypted request object passes: PingFederate decrypts and verifies it against the keys registered.
+     * An encrypted request object passes here: PingFederate decrypts and verifies it against the keys registered. It
+     * reaches this point only on a registration the RP already has, or in development
+     * ({@link #registeringFromEncrypted}).
      *
      * @throws RegistrationRejectedException {@code invalid_client} (401) when no RP key verifies it, the profile
      *                                       error when its {@code jti} was spent before
@@ -178,15 +219,17 @@ final class RequestObject {
         if (this.encrypted()) {
             return;
         }
+        JwtClaims verified;
         try {
-            JwtCodec.verifySignature(this.compact, rpKeys, Set.of());
+            verified = JwtCodec.verifySignature(this.compact, rpKeys, Set.of());
         } catch (JwtVerificationException e) {
             throw RegistrationRejectedException.request(401, "invalid_client", what(this.kind)
                     + " is not signed by a key the RP publishes for openid_relying_party (" + e.code() + ")");
         }
-        long exp = ((Number) this.claims.getClaimValue("exp")).longValue();
+        // checkProfile held these to the profile before any key was fetched; the replay window reads the verified ones.
+        long exp = ((Number) verified.getClaimValue("exp")).longValue();
         long window = Math.max(CLOCK_SKEW_SECONDS, Math.min(exp - now + CLOCK_SKEW_SECONDS, MAX_REPLAY_WINDOW_SECONDS));
-        if (!replay.firstSeen(clientId, (String) this.claims.getClaimValue("jti"), window)) {
+        if (!replay.firstSeen(clientId, (String) verified.getClaimValue("jti"), window)) {
             throw this.refused(what(this.kind) + " has been used before (its jti is spent)");
         }
     }

@@ -1,0 +1,20 @@
+id: F-0450
+title: The assembled pf-runtime.war carries each staged jar's file time, so the same stage copied twice assembles two different wars
+severity: low
+area: war-assembler, image
+source: pr-review
+status: open
+plan_items: [R-I5]
+prs: [105]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found on 2026-10-01 proving that a release's stage builds the reactor's image (SPB). Two conformance images built on
+  the rig, one from stage-modules.sh and one from stage-from-release.sh, had every module jar in
+  server/default/deploy byte for byte the same and MANIFESTs equal but for the header, and pf-runtime.war differed
+  (806670a6... and 4269c1da...). The war's WEB-INF/lib entries for the staged jars are dated the time they were
+  staged (20261001.031438 for the release image), because Assembler.java (line 271 at 338a1067) writes each staged
+  jar with Files.getLastModifiedTime, and both staging scripts copy with cp, which sets the copy's time. The entries
+  from the stock war keep their own times. So the war cannot be compared across two builds of the same bytes, and
+  an image is not reproducible from its stage. The fix is a fixed entry time for the staged jars (the reactor's
+  project.build.outputTimestamp, or the stock war's), in the war assembler.

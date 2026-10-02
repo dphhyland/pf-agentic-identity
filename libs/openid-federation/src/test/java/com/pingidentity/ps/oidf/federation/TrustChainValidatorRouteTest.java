@@ -286,6 +286,34 @@ class TrustChainValidatorRouteTest {
         assertEquals(f.subordinateStatement(INT2, LEAF), result.trustChain().get(1));
     }
 
+    /**
+     * H-FED-8: of everything fetched while searching, only the validated route's statements are cached. The forged
+     * statement from the abandoned route - and its issuer's configuration - is fetched afresh by the next resolution,
+     * never served to it from the cache.
+     */
+    @Test
+    @Requirement({"OIDFED §10(1)", "OIDFED §10.2(5)"})
+    void aStatementFromAnAbandonedRouteIsNeverCached() {
+        PublicJsonWebKey wrong = Keys.ec("wrong-1");
+        Federation f = Federation.builder().anchor(TA).intermediate(INT, TA).intermediate(INT2, TA).leaf(LEAF, INT, INT2)
+                .subordinate(INT, LEAF, s -> s.signWith(wrong)).build();
+        SubordinateStatementCache cache = new SubordinateStatementCache();
+        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(f.http(), TA, cache), f.trustAnchor(TA));
+
+        validator.validate(request().build());
+
+        assertEquals(f.subordinateStatement(INT2, LEAF), cache.get(INT2, LEAF, 0L), "the validated route's statement is cached");
+        assertEquals(f.entityConfiguration(LEAF), cache.get(LEAF + "/", LEAF, 0L), "under the key either spelling finds");
+        assertTrue(cache.get(INT2, INT2, 0L) != null && cache.get(TA, TA, 0L) != null, "with the configurations that located it");
+        assertEquals(null, cache.get(INT, LEAF, 0L), "the abandoned route's statement is not");
+        assertEquals(null, cache.get(INT, INT, 0L), "nor its issuer's configuration");
+
+        f.http().clearRequests();
+        validator.validate(request().build());
+        assertEquals(1L, f.http().hitsStartingWith(f.fetchEndpoint(INT)), "the next resolution fetches it afresh");
+        assertEquals(0L, f.http().hitsStartingWith(f.fetchEndpoint(INT2)), "and is answered the validated one from the cache");
+    }
+
     @Test
     void whenNoRouteValidatesTheFirstFailureIsReportedNotNoRoute() {
         PublicJsonWebKey wrong = Keys.ec("wrong-1");

@@ -1,0 +1,25 @@
+id: F-0130
+title: platform and rar-model each carry a copy of the same JDK-only JSON reader and writer
+severity: low
+area: platform, rar-model
+source: design
+status: open
+plan_items: [F-1]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Package F1 (2026-09-28) copied rar-model's Json into libs/platform as com.pingidentity.ps.oidf.platform.json.Json,
+  with rar-model's limits (nesting 32, number literals of 128 characters, 64 digits written out), its messages,
+  PR #26's fix that reads a number the same on JDK 17 and 20, and its tests, and left rar-model unchanged
+  (Phase 2 plan, decision 10): unifying them in F1 would have touched rar-model's fingerprinted semantics in
+  the same change that created platform. Until they are one, a fix to either reader must be made to both, with
+  its test, or the two will parse the same text differently. Who and when: a small Phase 3 package under F-1,
+  after PR-1 has made the RAR plugin shade and relocate platform, so that rar-model can depend on platform and
+  drop its copy without adding a jar to the plugin. Its proof is that RarModelVectorsTest and the model
+  fingerprint are unchanged.
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  libs/platform and libs/rar-model each still carry Json.java. Unifying them touches rar-model's fingerprinted
+  semantics, which no Phase 3 package took on (Phase 3 PLAN.md, "What should move"). The programme plan gives it no
+  later item of its own, so David schedules it.

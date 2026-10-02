@@ -5,7 +5,7 @@ package com.pingidentity.ps.oidf.servlet.ssf;
 
 import com.pingidentity.ps.oidf.ssf.AuthContext;
 import com.pingidentity.ps.oidf.ssf.EmitRequest;
-import com.pingidentity.ps.oidf.ssf.SetMinter;
+import com.pingidentity.ps.oidf.signals.SetMinter;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.SsfEmitService;
 import com.pingidentity.ps.oidf.ssf.SsfEventEmitter;
@@ -44,6 +44,9 @@ public class SsfEventEmitServlet extends HttpServlet {
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (SsfHttp.gate(resp)) {
+            return; // the transmitter is starting, failed, refused (503) or off (404)
+        }
         SsfConfiguration cfg = SsfSupport.configuration();
         AuthContext auth = SsfHttp.authorizeProvisioner(req, resp, cfg);
         if (auth == null) {

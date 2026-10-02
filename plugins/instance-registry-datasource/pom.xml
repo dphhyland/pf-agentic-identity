@@ -6,7 +6,7 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>instance-registry-datasource</artifactId>
-    <version>0.4.0-SNAPSHOT</version>
+    <version>0.7.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>instance-registry-datasource</name>
@@ -26,38 +26,61 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.4.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.7.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
     <dependencies>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>device-instance</artifactId></dependency>
+        <!-- The platform library, for the strict reads of the instance-registry catalogue, the deployment profile and
+             ProfileRefusals (plan items ST-5, PR-3). Shaded and relocated below, as ciba-sim does, so the copy in
+             this jar never meets another plugin's or the servlets'. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId></dependency>
         <dependency><groupId>pingfederate</groupId><artifactId>pf-protocolengine</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>com.pingidentity.pingfederate</groupId><artifactId>pingfederate-sdk</artifactId><scope>provided</scope></dependency>
         <!-- pingfederate-sdk's own POM declares commons-lang3 provided (PluginDescriptor uses StringUtils
              at construction time), but provided-scope transitive dependencies are never inherited - PF
              supplies it on the server classpath at runtime, so this module must declare it too to build
-             and test standalone. Same local install services/gm-api/servlet already uses. -->
-        <dependency><groupId>local.pingfederate</groupId><artifactId>commons-lang3</artifactId><version>3.x</version><scope>provided</scope></dependency>
+             and test standalone. The BOM holds it to the version PingFederate ships (version.pf.commons-lang3). -->
+        <dependency><groupId>org.apache.commons</groupId><artifactId>commons-lang3</artifactId><scope>provided</scope></dependency>
         <!-- PF supplies a driver on its own classpath; bundling a second copy risks a LinkageError,
              the same trap the jose4j exclusion in assemble-pf-runtime-war.sh documents. -->
         <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>provided</scope></dependency>
 
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
-        <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>test</scope></dependency>
     </dependencies>
 
     <build>
         <plugins>
-            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
-            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.16.0</version></plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <!-- ShadedJarCheck reads the jar the shade plugin wrote, so it runs after package; its name is
+                         outside surefire's default patterns, so the test phase does not run it early. -->
+                    <execution>
+                        <id>shaded-jar</id>
+                        <phase>verify</phase>
+                        <goals><goal>test</goal></goals>
+                        <configuration>
+                            <includes><include>**/ShadedJarCheck.java</include></includes>
+                            <reportNameSuffix>shaded-jar</reportNameSuffix>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <!--
               Coverage gate on the two fail-closed decisions this driver makes off its own bat: the
               value map an unknown instance yields, and the refusal to answer at all before PF has
@@ -76,7 +99,7 @@
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.12</version>
+                <version>0.8.15</version>
                 <executions>
                     <execution>
                         <id>prepare-agent</id>
@@ -98,6 +121,10 @@
                                     <includes>
                                         <include>com.pingidentity.ps.oidf.registry.InstanceLookup.notFound(*</include>
                                         <include>com.pingidentity.ps.oidf.registry.InstanceRegistryDataSource.requireLookup(*</include>
+                                        <!-- Which database, and the refusals: the JDBC URL and a store that is not
+                                             PostgreSQL under production (ST-5, PR-3). -->
+                                        <include>com.pingidentity.ps.oidf.registry.InstanceRegistryDataSource.configure(java.lang.String*</include>
+                                        <include>com.pingidentity.ps.oidf.registry.InstanceRegistryDataSource.DataStoreSource.getConnection(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
@@ -112,12 +139,55 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
-                <version>3.3.0</version>
+                <version>3.5.1</version>
                 <configuration>
+                    <!-- Rebuilt every time: shade replaces this jar with the shaded one under the same name, so a
+                         second build that found it up to date would shade the shaded jar again. -->
+                    <forceCreation>true</forceCreation>
                     <!-- PF discovers plugin jars by filename prefix; without pf.plugins. it is ignored
                          silently, which is one of the ways this fails with no error at all. -->
                     <finalName>pf.plugins.instance-registry-datasource</finalName>
                 </configuration>
+            </plugin>
+            <!-- platform shaded in and relocated under this plugin's own package, as ciba-sim does; platform-pf's
+                 classes are excluded by name and never bundled. device-instance is not shaded here (X-A20). -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.6.2</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals><goal>shade</goal></goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <shadedArtifactAttached>false</shadedArtifactAttached>
+                            <artifactSet>
+                                <includes>
+                                    <include>com.pingidentity.ps.oidf:platform</include>
+                                </includes>
+                            </artifactSet>
+                            <relocations>
+                                <relocation>
+                                    <pattern>com.pingidentity.ps.oidf.platform.</pattern>
+                                    <shadedPattern>com.pingidentity.ps.oidf.registry.shaded.platform.</shadedPattern>
+                                    <excludes><exclude>com.pingidentity.ps.oidf.platform.pf.**</exclude></excludes>
+                                </relocation>
+                            </relocations>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <exclude>module-info.class</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

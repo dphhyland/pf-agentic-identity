@@ -1,0 +1,20 @@
+id: F-0117
+title: The federation's oauth_client_attester metadata carries only the attester's keys, not its endpoints
+severity: low
+area: openid-federation, attestation-issuer
+source: pr-review
+status: open
+plan_items: [X-B11]
+prs: []
+verification: ''
+target_release: 0.8.0
+notes: >
+  Found on 2026-09-27 in S4b. CAS section 5.2: in an OpenID Federation the attester publishes "an Entity
+  Configuration containing the metadata of Section 5.1 under the entity type identifier oauth_client_attester" -
+  issuer, attestation_endpoint, instance_attestation_formats_supported and, when it has one, challenge_endpoint.
+  FederationService publishes that block only when OIDF_FEDERATION_ATTESTER_JWKS is set, and then with jwks alone
+  (FederationService.java:338). A client that finds the attester through the federation learns its keys, but not
+  where to ask for an attestation or a challenge; it has to fall back to /.well-known/client-attestation-service.
+  Low: discovery, not a control, and the keys an authorisation server needs are there. X-B11 feeds metadata and
+  enforcement from one IssuerCapabilities object; the federation block should come from the same place as the
+  CAS document, so the two cannot disagree.

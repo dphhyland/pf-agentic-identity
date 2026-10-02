@@ -1,0 +1,53 @@
+{
+  "component": "attestation",
+  "module": "servlets/pf-integration",
+  "description": "Attestation-based client authentication at the token endpoint: a client's attestation_* extended properties refused by the policy the token-endpoint filter and the OGNL criterion share (plan item S4c). The verified and refused decisions themselves are attestation.client.verified and attestation.client.refused, in the federation catalogue.",
+  "logger": "com.pingidentity.ps.oidf.federation.event",
+  "auditProtocol": "Client Attestation",
+  "fields": {
+    "endpoint": {
+      "pii": "OPERATIONAL",
+      "description": "Where the client's properties were read: token_endpoint_filter, issuance_criterion or startup_scan."
+    },
+    "property": {
+      "pii": "OPERATIONAL",
+      "description": "The name of the attestation_* extended property refused. Its value is never recorded."
+    },
+    "enforcer": {
+      "pii": "OPERATIONAL",
+      "description": "Which check refused the issued authorization_details: response_belt (the token endpoint's belt) or issuance_criterion (IssuedDetailsCriterion on an access-token mapping)."
+    },
+    "detail_types": {
+      "pii": "OPERATIONAL",
+      "description": "The types of the authorization_details refused, comma-separated, at most eight. A detail's values are never recorded."
+    }
+  },
+  "events": {
+    "attestation.policy.invalid": {
+      "description": "A client's attestation_* extended property does not parse, holds more than one value, or would loosen the server's policy (the reason: unparsable, loosens, empty_intersection or foreign_htu), so the client is refused with 401 invalid_client. The start-up scan records each client once, when it is first found.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "property",
+        "endpoint"
+      ],
+      "declaredOnly": false
+    },
+    "attestation.issued.refused": {
+      "description": "A token was refused because what it would carry is not held by the client attestation (plan item S4d): its authorization_details not within the attestation's (exceeds_ceiling), a question the model cannot answer (uncheckable), a token response too large for the belt to check (too_large), a refresh that must repeat its authorization_details (redecide_on_refresh), or a client with attestation_required that presented none (attestation_required). The belt answers the client 400 invalid_authorization_details (500 server_error for too_large); the criterion makes PingFederate answer with its Error Result.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "enforcer",
+        "detail_types"
+      ],
+      "declaredOnly": false
+    }
+  }
+}

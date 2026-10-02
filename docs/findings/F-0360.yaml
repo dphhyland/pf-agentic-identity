@@ -1,0 +1,23 @@
+id: F-0360
+title: Long polling is not held in PingFederate, because no filter in front of /ssf/poll allows async requests
+severity: low
+area: ssf
+source: design
+status: open
+plan_items: [H-SSF-2]
+prs: [87]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-09-30 by package HSSF1. The poll servlet holds a long poll in async mode (RFC 8936 §2.5: the
+  transmitter "SHALL delay responding until a SET is available or the timeout interval has elapsed"), so no request
+  thread waits. In PingFederate 13.1.3 req.isAsyncSupported() is false for /ssf/poll: pf-runtime.war's web.xml maps
+  RuntimeServiceSetFilter, proxyFilter, threadContextCleanupFilter, HttpRequestIdFilter and more to /* and none
+  declares async-supported (the staged pf-runtime.war of a Phase 3 rig image, read 2026-09-30). On the rig, a poll of an empty stream with {}
+  was answered in 0.21 s and server.log said "SSF long polling is unavailable here: a filter in front of /ssf/poll
+  does not support async requests". So in PingFederate every poll is answered at once, as with
+  OIDF_SSF_POLL_LONG_POLL_WAIT_SECONDS=0 - which RFC 8936 §2.2 allows ("The timeout for the request is part of the
+  configuration between the participants"), but it is not long polling. Low: receivers poll again, and nothing is
+  lost. Owner decision: accept this; have the war assembler mark PingFederate's filters async-supported (their
+  thread-context clean-up would then run before an async answer, which needs its own study); or hold the request
+  thread for a bounded number of polls, which the plan ruled out.

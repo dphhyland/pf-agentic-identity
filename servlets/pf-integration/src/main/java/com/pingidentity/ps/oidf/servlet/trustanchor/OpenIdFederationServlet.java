@@ -10,6 +10,7 @@ import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfJwksSigningKeyProvider;
 import com.pingidentity.ps.oidf.pf.PfProviderMetadata;
 import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.Arrays;
@@ -24,8 +25,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
+import com.pingidentity.ps.oidf.clientattestation.AttestationReplayCache;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
+import com.pingidentity.ps.oidf.clientattestation.StoreNamespace;
 import com.pingidentity.ps.oidf.federation.EndpointAuthPolicy;
 import com.pingidentity.ps.oidf.federation.EntityId;
 import com.pingidentity.ps.oidf.federation.FederationService;
@@ -34,12 +36,16 @@ import com.pingidentity.ps.oidf.federation.FederationError;
 import com.pingidentity.ps.oidf.federation.FederationException;
 import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
 import com.pingidentity.ps.oidf.federation.ListRequest;
+import com.pingidentity.ps.oidf.federation.ResolveGuard;
 import com.pingidentity.ps.oidf.federation.ResolveRequest;
 import com.pingidentity.ps.oidf.federation.TrustAnchorSet;
 import com.pingidentity.ps.oidf.federation.ValidatorOptions;
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
 import com.pingidentity.ps.oidf.keyhistory.KeyHistory;
 import com.pingidentity.ps.oidf.keyhistory.KeyHistorySupport;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
+import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
 
@@ -58,14 +64,14 @@ public class OpenIdFederationServlet
 extends RequestScopedServlet {
     private static final long serialVersionUID = 1L;
     private FederationService federationService;
+    /** This servlet's part of FEDERATION, from init; null when a test's constructor made it and init never ran. */
+    private transient volatile ComponentParts.Part part;
     private FederationConfiguration federationConfiguration;
     private final Function<HttpServletRequest, String> issuerResolver;
     /** PingFederate's own discovery documents, which this entity's openid_provider and AS metadata start from. */
     private final PfProviderMetadata providerMetadata;
     private static final Log log = LogFactory.getLog(OpenIdFederationServlet.class);
     private static final String TRUST_MARK_STATUS = "/federation/trust_mark_status";
-    /** Where a client's spent endpoint-assertion {@code jti} values are kept, apart from every other replay cache user. */
-    private static final String ENDPOINT_REPLAY_NAMESPACE = "oidf-endpoint-auth:";
     /** Each federation endpoint this servlet serves, by the §5.1.1 metadata name §8.8.1 builds its {@code _auth_methods} from. */
     static final Map<String, String> ENDPOINTS = Map.of(
             "/federation/fetch", "federation_fetch_endpoint",
@@ -77,13 +83,13 @@ extends RequestScopedServlet {
             "/federation/historical_keys", "federation_historical_keys_endpoint");
 
     public OpenIdFederationServlet() {
-        this.issuerResolver = req -> OAuthIssuerUtils.getInstance().getIssuerValue(req);
+        this.issuerResolver = req -> PfInternals.issuer(req);
         this.providerMetadata = new PfProviderMetadata();
     }
 
     /**
      * Test seam: a ready service and configuration, and an issuer resolver, so the servlet runs without a
-     * booted PingFederate ({@link OAuthIssuerUtils} and PF's signing keys need one).
+     * booted PingFederate ({@link PfInternals#issuer} and PF's signing keys need one).
      */
     OpenIdFederationServlet(FederationService service, FederationConfiguration configuration,
                             Function<HttpServletRequest, String> issuerResolver) {
@@ -101,8 +107,20 @@ extends RequestScopedServlet {
 
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
+        // A test's constructor supplies the service; a retry after a failure builds it again, whatever the last attempt set.
+        boolean injected = this.federationService != null;
+        ComponentParts.Part part = Startup.begin(Startup.FEDERATION, "OpenIdFederationServlet");
+        this.part = part;
+        part.start(() -> this.init(config, part, injected));
+    }
+
+    /**
+     * The start function: what {@code init} did before S-9, run by {@link ComponentParts.Part#start} at deploy and again
+     * by each supervisor retry after a dependency failure. What it throws is the part's state, never the container's.
+     */
+    private void init(ServletConfig config, ComponentParts.Part part, boolean injected) throws ServletException {
         PfAuditEventSink.install();
-        if (this.federationService != null) {
+        if (injected) {
             return;
         }
         try {
@@ -144,9 +162,11 @@ extends RequestScopedServlet {
             // Hosting is configured now, not on HostedEntityServlet's first request, when the environment names an authority:
             // fetches about hosted entities are answered from the first request on.
             try {
-                HostedEntityServlet.configureAuthority(null);
+                if (Startup.mayStart(Startup.HOSTING)) {
+                    HostedEntityServlet.configureAuthority(null);
+                }
             } catch (RuntimeException e) {
-                log.error("Hosting could not be configured at start-up; HostedEntityServlet tries again on its first request", e);
+                log.error("Hosting could not be configured at start-up; HostedEntityServlet tries again at its own start and reports HOSTING's state", e);
             }
             service.subordinateConstraints(runtime.subordinateConstraints());
             FederationRuntimeConfig.TrustMarkIssuingSettings marks = runtime.trustMarkIssuing();
@@ -154,9 +174,8 @@ extends RequestScopedServlet {
             if (!marks.types().isEmpty()) {
                 // The grants live in the authority's store; HostedEntityServlet points the registry at it too, but starts
                 // only on its first request, so the store is resolved here as well - whichever runs first configures it.
-                if (!TrustMarkSupport.isConfigured()) {
-                    AuthorityDataSource.fromEnvironment().ifPresent(TrustMarkSupport::configureJdbcRegistry);
-                }
+                // In memory, or not PostgreSQL, is refused under production (PR-2).
+                AuthorityDataSource.trustMarkRegistry(Startup.FEDERATION);
                 service.trustMarkIssuing(new TrustMarkIssuer(marks.types(), TrustMarkSupport.shared(), AuthoritySupport::isActiveHostedEntity,
                         java.time.Clock.systemUTC()));
                 log.info("Issuing Trust Marks of types " + marks.types().keySet());
@@ -164,15 +183,14 @@ extends RequestScopedServlet {
             FederationRuntimeConfig.KeyHistorySettings keyHistory = runtime.keyHistory();
             KeyHistory history = null;
             if (keyHistory.enabled()) {
-                if (!KeyHistorySupport.isConfigured()) {
-                    AuthorityDataSource.fromEnvironment().ifPresent(KeyHistorySupport::configureJdbcStore);
-                }
+                AuthorityDataSource.keyHistoryStore(Startup.FEDERATION);
                 history = new KeyHistory(KeyHistorySupport.shared(), java.time.Clock.systemUTC(), java.time.Duration.ofSeconds(keyHistory.graceSeconds()));
                 service.historicalKeys(history);
             }
             EndpointAuthPolicy endpointAuth = runtime.endpointAuth();
             // A spent jti is kept where attestation keeps its own - Redis when configured - so a replay is caught on any node.
-            service.endpointAuth(endpointAuth, (client, jti, ttl) -> AttestationSupport.replayCache().firstSeen(ENDPOINT_REPLAY_NAMESPACE + client, jti, ttl));
+            service.endpointAuth(endpointAuth, (client, jti, ttl) ->
+                    assertionNotSpent(AttestationSupport.replayCache(StoreNamespace.FED_ENDPOINT), client, jti, ttl));
             if (endpointAuth.anyEnabled()) {
                 java.util.Map<String, String> modes = new java.util.TreeMap<>();
                 for (String endpoint : EndpointAuthPolicy.ENDPOINTS) {
@@ -206,6 +224,31 @@ extends RequestScopedServlet {
         catch (Exception e) {
             throw new ServletException("Failed to initialize OpenID Federation servlet", e);
         }
+    }
+
+    /**
+     * Where a spent client assertion {@code jti} is recorded: the shared store's {@code oidf:fed:endpoint:*} namespace
+     * (Redis when one is configured). A store that cannot answer is a 503 here, the status
+     * {@link FederationErrors} already gives {@link FederationError#TEMPORARILY_UNAVAILABLE}, and never a spent jti.
+     */
+    static boolean assertionNotSpent(AttestationReplayCache spent, String client, String jti, long ttl) {
+        switch (spent.record(client, jti, ttl)) {
+            case FIRST_USE:
+                return true;
+            case STORE_UNAVAILABLE:
+                throw new FederationException(FederationError.TEMPORARILY_UNAVAILABLE,
+                        "the store that records spent client assertions is unavailable");
+            default:
+                return false;
+        }
+    }
+
+    @Override
+    protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        if (ComponentGate.federationEndpoint(this.part, resp)) {
+            return;
+        }
+        super.service(req, resp);
     }
 
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -446,11 +489,19 @@ extends RequestScopedServlet {
 
     /**
      * §8.3: a signed {@code resolve-response+jwt}; {@code trust_anchor} and {@code entity_type} may repeat. A client that
-     * authenticated is its audience (§8.3.2).
+     * authenticated is its audience (§8.3.2). Each caller address is answered about a capped number of distinct subjects a
+     * minute, and a response is kept a short while for the same request (plan item H-FED-9, {@code ResolveGuard}); a
+     * caller over its share is told when to ask again.
      */
     private void handleResolve(HttpServletRequest req, HttpServletResponse resp, String oidcIssuer, String client) throws Exception {
         ResolveRequest request = new ResolveRequest(optional(req, "sub"), repeated(req, "trust_anchor"), repeated(req, "entity_type"));
-        String jwt = this.federationService.resolve(request, oidcIssuer, client);
+        String jwt;
+        try {
+            jwt = this.federationService.resolve(request, oidcIssuer, client, req.getRemoteAddr());
+        } catch (ResolveGuard.Limited e) {
+            resp.setHeader("Retry-After", Long.toString(e.retryAfterSeconds()));
+            throw e;
+        }
         resp.setStatus(200);
         resp.setContentType("application/resolve-response+jwt");
         try (PrintWriter out = resp.getWriter()) {

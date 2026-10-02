@@ -1,0 +1,278 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.pingidentity.ps.oidf</groupId>
+    <artifactId>oidf-preflight</artifactId>
+    <version>0.7.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>oidf-preflight</name>
+    <description>oidf-preflight.jar (plan item ST-7): platform's Preflight and every module's settings catalogue in one
+        jar, run with `java -jar` on an env file before an upgrade. It exits 1 when the production profile would refuse
+        a component, 0 when nothing would be refused and 2 when it cannot read its arguments or the file. A release
+        asset; docs/operator/preflight.md says how to run it.</description>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
+        <!-- The commit the manifest names (F-0190's property): the release and CI builds pass
+             -Doidf.build.commit=$GITHUB_SHA; a build that passes nothing says unknown. -->
+        <oidf.build.commit>unknown</oidf.build.commit>
+        <!-- More java executables for PreflightJarCheck to run the jar on, separated by the path separator
+             (-Dpreflight.javas=/path/to/jdk-21/bin/java). The build's own java always runs it. -->
+        <preflight.javas></preflight.javas>
+        <!-- Where the jar's contents are gathered before it is packed. -->
+        <preflight.contents>${project.build.directory}/jar-contents</preflight.contents>
+    </properties>
+
+    <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
+         otherwise: no parent, plugin config kept local. -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.7.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <!--
+      Every module that holds a settings catalogue, provided: the reactor builds them first, and the unpack below takes
+      the catalogues out of their artifacts. Nothing of theirs but the catalogues reaches the jar - platform's classes
+      come from its own unpack. A module that gains a catalogue joins here; PreflightJarCheck fails the build until it
+      does. The four without a BOM entry name their version here.
+    -->
+    <dependencies>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform-pf</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-integration</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>attestation-issuer</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>ssf</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>ciba-sim</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-rar-paz-plugin</artifactId><version>${project.version}</version><scope>provided</scope></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>instance-registry-datasource</artifactId><version>${project.version}</version><scope>provided</scope></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>device-enrolment</artifactId><version>${project.version}</version><scope>provided</scope></dependency>
+        <dependency><groupId>au.com.idpartners</groupId><artifactId>gm-api</artifactId><version>${project.version}</version><type>war</type><scope>provided</scope></dependency>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+    </dependencies>
+
+    <build>
+        <finalName>oidf-preflight</finalName>
+        <plugins>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.16.0</version></plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.6.0</version>
+                <configuration>
+                    <systemPropertyVariables>
+                        <preflight.jar>${project.build.directory}/${project.build.finalName}.jar</preflight.jar>
+                        <preflight.version>${project.version}</preflight.version>
+                        <preflight.commit>${oidf.build.commit}</preflight.commit>
+                        <preflight.javas>${preflight.javas}</preflight.javas>
+                        <preflight.reactor>${project.basedir}/../..</preflight.reactor>
+                    </systemPropertyVariables>
+                </configuration>
+                <executions>
+                    <!-- PreflightJarCheck reads and runs the jar, so it runs after package; its name is outside
+                         surefire's default patterns, so the test phase does not run it early (ciba-sim's pattern). -->
+                    <execution>
+                        <id>preflight-jar</id>
+                        <phase>verify</phase>
+                        <goals><goal>test</goal></goals>
+                        <configuration>
+                            <includes><include>**/PreflightJarCheck.java</include></includes>
+                            <reportNameSuffix>preflight-jar</reportNameSuffix>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- What the jar holds: this module's class, platform's classes, unrelocated (nothing else runs in its JVM),
+                 and every catalogue of every module above, gathered in target/jar-contents at prepare-package, after
+                 the tests, so `mvn test` never needs a module's packaged artifact. target/classes keeps only this
+                 module's class, so jacoco reports that and not a second copy of platform's. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>own-classes</id>
+                        <phase>prepare-package</phase>
+                        <goals><goal>copy-resources</goal></goals>
+                        <configuration>
+                            <outputDirectory>${preflight.contents}</outputDirectory>
+                            <resources><resource><directory>${project.build.outputDirectory}</directory></resource></resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.11.0</version>
+                <executions>
+                    <execution>
+                        <id>platform-classes</id>
+                        <phase>prepare-package</phase>
+                        <goals><goal>unpack</goal></goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>com.pingidentity.ps.oidf</groupId>
+                                    <artifactId>platform</artifactId>
+                                    <version>${project.version}</version>
+                                </artifactItem>
+                            </artifactItems>
+                            <excludes>META-INF/MANIFEST.MF,META-INF/maven/**,META-INF/oidf-settings/**</excludes>
+                            <outputDirectory>${preflight.contents}</outputDirectory>
+                            <overWriteSnapshots>true</overWriteSnapshots>
+                        </configuration>
+                    </execution>
+                    <!-- Every catalogue, platform's among them. A war keeps its classes under WEB-INF/classes; the mapper
+                         puts its catalogues where a jar's are. A plugin jar carries copies of the platform and rar-model
+                         catalogues it shades, identical to theirs; two different files under one name would leave one
+                         of them, and PreflightJarCheck compares every module's catalogue with the jar's byte for byte. -->
+                    <execution>
+                        <id>catalogues</id>
+                        <phase>prepare-package</phase>
+                        <goals><goal>unpack-dependencies</goal></goals>
+                        <configuration>
+                            <includeScope>provided</includeScope>
+                            <excludeTransitive>true</excludeTransitive>
+                            <includes>META-INF/oidf-settings/*.json,WEB-INF/classes/META-INF/oidf-settings/*.json</includes>
+                            <fileMappers>
+                                <org.codehaus.plexus.components.io.filemappers.RegExpFileMapper>
+                                    <pattern>^WEB-INF/classes/(.*)$</pattern>
+                                    <replacement>$1</replacement>
+                                </org.codehaus.plexus.components.io.filemappers.RegExpFileMapper>
+                            </fileMappers>
+                            <outputDirectory>${preflight.contents}</outputDirectory>
+                            <overWriteSnapshots>true</overWriteSnapshots>
+                            <overWriteIfNewer>true</overWriteIfNewer>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- The catalogue names the manifest lists, sorted, from what the unpack above wrote. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>catalogue-names</id>
+                        <phase>prepare-package</phase>
+                        <goals><goal>run</goal></goals>
+                        <configuration>
+                            <exportAntProperties>true</exportAntProperties>
+                            <target>
+                                <pathconvert property="oidf.preflight.catalogues" pathsep=" ">
+                                    <sort>
+                                        <fileset dir="${preflight.contents}/META-INF/oidf-settings" includes="*.json"/>
+                                    </sort>
+                                    <chainedmapper>
+                                        <flattenmapper/>
+                                        <globmapper from="*.json" to="*"/>
+                                    </chainedmapper>
+                                </pathconvert>
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.5.1</version>
+                <configuration>
+                    <classesDirectory>${preflight.contents}</classesDirectory>
+                    <forceCreation>true</forceCreation>
+                    <archive>
+                        <manifest>
+                            <mainClass>com.pingidentity.ps.oidf.platform.settings.PreflightJar</mainClass>
+                        </manifest>
+                        <manifestEntries>
+                            <Implementation-Title>oidf-preflight</Implementation-Title>
+                            <Implementation-Version>${project.version}</Implementation-Version>
+                            <Build-Commit>${oidf.build.commit}</Build-Commit>
+                            <Oidf-Catalogues>${oidf.preflight.catalogues}</Oidf-Catalogues>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+
+            <!--
+              Coverage gate on the jar's own class, 100% line + branch per METHOD: which options it takes, what the listing
+              prints and when it fails, the check with the accepted-risks option in place of the file's list, and the manifest
+              read that heads the listing. main() is plumbing and stays out.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.15</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>METHOD</element>
+                                    <includes>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.PreflightJar.run(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.PreflightJar.list(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.PreflightJar.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.PreflightJar.about(*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <!-- Published to the monorepo's own package registry, as every module is; the release asset is the same jar. -->
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/dphhyland/pf-agentic-identity</url>
+        </repository>
+    </distributionManagement>
+
+</project>

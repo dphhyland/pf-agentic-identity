@@ -222,19 +222,63 @@ class RegistrationServiceFrontChannelTest {
         verifyNoInteractions(this.validator);
     }
 
+    /**
+     * §12.1.1: "Authentication requests MUST demonstrate that the requesting Entity controls the Entity's RP keys".
+     * An encrypted request object shows nothing this module can check before a registration is written, so under the
+     * production profile - these tests run with OIDF_DEPLOYMENT_PROFILE unset, which is production - it registers
+     * nothing; FederationClientBuilderTest has development's warning. Refused as the request's failure, it is not
+     * remembered against the RP, whose signed request registers at once.
+     */
     @Test
-    void anEncryptedRequestObjectRegistersOnlyWhereThatIsAllowed() throws Exception {
+    @Requirement("OIDFED §12.1.1(2)")
+    void anEncryptedRequestObjectRegistersNothingInProduction() throws Exception {
         this.federationResolves(Map.of("openid_relying_party", this.rpMetadata()));
-        Base64.Encoder b64 = Base64.getUrlEncoder().withoutPadding();
-        String jwe = b64.encodeToString("{\"alg\":\"RSA-OAEP-256\",\"enc\":\"A256GCM\"}".getBytes(StandardCharsets.UTF_8)) + ".a.b.c.d";
+        String jwe = jwe();
         AutoRegistrationSettings refuse = new AutoRegistrationSettings(true, true, false, "openid", false, true, 65_536, 8, 2_000L, null);
 
         RegistrationRejectedException e = assertThrows(RegistrationRejectedException.class, () -> this.admit(this.service(), this.proof(jwe), refuse));
         assertEquals("invalid_request_object", e.error());
         verifyNoInteractions(this.validator);
 
-        assertEquals(Admission.REGISTERED, this.admit(this.service(), this.proof(jwe)));
+        RegistrationService service = this.service();
+        RegistrationRejectedException production = assertThrows(RegistrationRejectedException.class, () -> this.admit(service, this.proof(jwe)));
+        assertEquals("invalid_request_object", production.error());
+        assertEquals(400, production.status());
+        assertTrue(production.getMessage().contains("encrypted request object cannot register"), production.getMessage());
+        assertEquals(List.of(), this.store.writes());
+        assertEquals(Set.of(), this.spent);
+        assertEquals(Admission.REGISTERED, this.admit(service, this.proof(this.requestObject(this.rpKey, c -> { }, null))),
+                "the RP's own signed request is not held back by a stranger's");
+    }
+
+    /** A known RP whose registration is current sends encrypted request objects as before: PingFederate decrypts and checks them. */
+    @Test
+    void aKnownRpsEncryptedRequestObjectGoesToPingFederate() throws Exception {
+        this.store.with(this.registered(this.clock.epochSecond() + 3600));
+
+        assertEquals(Admission.CURRENT, this.admit(this.service(), this.proof(jwe())));
+        verifyNoInteractions(this.validator);
         assertEquals(Set.of(), this.spent, "PingFederate checks it once it has decrypted it");
+        assertEquals(List.of(), this.store.writes());
+    }
+
+    /**
+     * A renewal is a registration too: one due when the RP's request is encrypted is refused in production like a first
+     * one, and the registration stands until the RP sends a signed request object (or uses PAR) or it expires.
+     */
+    @Test
+    void aRenewalIsNotMadeFromAnEncryptedRequestObjectInProduction() throws Exception {
+        this.federationResolves(Map.of("openid_relying_party", this.rpMetadata()));
+        this.store.with(this.registered(this.clock.epochSecond() + 100));
+
+        RegistrationRejectedException e = assertThrows(RegistrationRejectedException.class, () -> this.admit(this.service(), this.proof(jwe())));
+        assertEquals("invalid_request_object", e.error());
+        assertEquals(List.of(), this.store.writes());
+    }
+
+    private static String jwe() {
+        Base64.Encoder b64 = Base64.getUrlEncoder().withoutPadding();
+        return b64.encodeToString("{\"alg\":\"RSA-OAEP-256\",\"enc\":\"A256GCM\"}".getBytes(StandardCharsets.UTF_8)) + ".a.b.c.d";
     }
 
     @Test

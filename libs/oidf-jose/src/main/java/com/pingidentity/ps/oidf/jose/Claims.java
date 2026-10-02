@@ -10,6 +10,10 @@ import org.jose4j.jwt.JwtClaims;
  * objects. The map accessors return an empty map rather than {@code null} when
  * a claim is absent or of the wrong type, so callers can chain without
  * defensive null checks.
+ *
+ * <p>The {@link JwtClaims} these take are verified ones: a verifier in {@link JwtCodec} is the only way to one. The
+ * claims of a JWT whose signature has not been checked are an {@link UnverifiedClaims}, which has accessors of its
+ * own, each named for what it returns.
  */
 public final class Claims {
 

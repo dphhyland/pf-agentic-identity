@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
+import com.pingidentity.ps.oidf.signals.SetMinter;
 import java.net.InetAddress;
 import java.util.List;
 import java.util.Map;

@@ -19,5 +19,6 @@ suite/*.json
 
 # Derived.
 .context/
+.rar-principal/
 terraform/.terraform/
 terraform/terraform.tfstate*

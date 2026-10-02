@@ -1,0 +1,43 @@
+id: F-0115
+title: PingFederate's own discovery documents name no challenge endpoint and no attestation client authentication
+severity: low
+area: openid-federation, pf-integration
+source: pr-review
+status: closed
+plan_items: [S-4]
+prs: [95]
+verification: >
+  2026-10-01, PR 95 (S4M), on the rig (slot 4, pfai-p3-s4m, PingFederate 13.1.3, the branch's image,
+  OIDF_ATTESTATION_AUTH_ENABLED=true): /.well-known/openid-configuration and /.well-known/oauth-authorization-server
+  came back with attest_jwt_client_auth and attest_jwt_client_auth_dpop appended to PingFederate's six
+  token_endpoint_auth_methods_supported, client_attestation_signing_alg_values_supported,
+  client_attestation_pop_signing_alg_values_supported, client_attestation_pop_methods_supported and challenge_endpoint
+  <issuer>/federation/attestation-challenge added after PingFederate's members, every one of PingFederate's members
+  unchanged and in its order, over HTTP/2, HTTP/1.1 and the plain listener; the war assembler printed
+  AttestationMetadata in both documents' chains. The Entity Configuration's oauth_authorization_server block carries
+  the same set through AttestationMetadataConfig.extend. ChallengeEndpointAdvertisementTest
+  .theFourDocumentsCarryTheSameAttestationMembers holds the four documents to one set, and
+  switchedOffNoneOfTheFourAdvertisesAMember holds S9b's rule. After that run the review took
+  client_attestation_pop_methods_supported out of the three extended documents (ABCA-10 section 7.6 reads it, without
+  none, as a demand on every client; F-0412), so the final set is the methods, the two algorithm lists and
+  challenge_endpoint, which the same tests hold; the rig was not booted again for that change.
+target_release: 0.6.0
+notes: >
+  Found on 2026-09-27 in S4b. ABCA-10 section 6.1 (read at ietf.org that day; draft -11 says the same): an
+  authorization server that offers a challenge endpoint and supports RFC 8414 metadata "MUST signal support for
+  the challenge endpoint" with challenge_endpoint in that metadata. On a booted PingFederate 13.1.3 (the S4b
+  rig, 2026-09-27) /.well-known/openid-configuration and /.well-known/oauth-authorization-server carry no
+  challenge_endpoint, and their token_endpoint_auth_methods_supported lists neither attest_jwt_client_auth nor
+  attest_jwt_client_auth_dpop (section 8's SHOULD). The only document that names the endpoint and the methods is
+  the Entity Configuration's openid_provider block; its oauth_authorization_server block is PingFederate's own
+  document (FederationService.java:332) and carries neither. That block is RFC 8414 metadata this repository
+  publishes, so it misses the section 6.1 MUST just as PingFederate's two documents do. So a client that discovers
+  the authorization server from its RFC 8414 or OpenID Connect discovery document, or from that federation block,
+  rather than from openid_provider, does not learn that attestation or the challenge exist; since S4b the
+  attester's /.well-known/client-attester does not lead it there either (F-0118). Low all the same: conformance and
+  discovery, not a control. A missing challenge_endpoint never loosens a check - the token endpoint enforces its
+  challenge policy whatever the metadata says, and a client that cannot find the endpoint fails closed where a
+  challenge is required. S4b left the federation block as it was because the members belong in every RFC 8414
+  surface as one set, with one upgrade note, and PingFederate's own two documents need a filter or a documented
+  alternative first. The fix is to publish the attestation members wherever this authorization server's metadata
+  is served - both federation blocks, and PF's own two documents - as one set, never the challenge endpoint alone.

@@ -1,0 +1,22 @@
+id: U-0125
+title: 'Not exercised on a booted 13.1.3: a challenge refused at the surface that did not issue it'
+area: client-attestation, attestation-issuer
+source: pr-review
+status: open
+plan_items: [X-B11]
+prs: []
+recorded_in: 'docs/releases/unreleased/S4B.md, Notes'
+verify_by: >
+  A rig profile with attestation live (an attester client with a SPIFFE bundle, a bridge key) that fetches a
+  challenge from POST /federation/attestation-challenge and presents it in the instance-key proof at
+  /federation/attestation (expect 401 invalid_instance_proof), then fetches one from GET
+  /federation/attestation/challenge and presents it in the PoP at /as/token.oauth2 (expect 400
+  use_attestation_challenge), with and without OIDF_REDIS_URL, and confirms each refused challenge is still
+  accepted once at the surface that issued it.
+verification: ''
+notes: >
+  The rig runs attestation inert, so what was exercised on a booted 13.1.3 on 2026-09-27 (PF_RIG_NAME=pfai-s4b)
+  is each endpoint's method rule, its response, the documents that advertise it, and with Redis the namespace each
+  challenge lands in. The refusals themselves are covered by unit tests (AttestationIssuanceServletTest, through
+  the real servlets and a verifier wired as ClientAttestationAuthFilter wires it) and by the store test on the
+  RESP fake, not by a boot.

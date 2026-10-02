@@ -1,0 +1,24 @@
+id: F-0295
+title: A refused SSF or SSF_RECEIVER component is shown refused, but its servlets still configure and serve
+severity: medium
+area: ssf, platform
+source: design
+status: closed
+plan_items: [PR-5, ST-5]
+prs: [77, 82]
+verification: >
+  2026-09-30, package ST5C. SsfConfigurationServlet and SsfReceiverServlet start through Part.start, which runs
+  nothing for a part Startup.begin refused, and every SSF servlet's request methods start with a gate (the receiver's
+  part for SsfReceiverServlet, the transmitter's for the rest), so a refused SSF configures nothing and answers 503
+  (SsfComponentsTest.aRefusedPartConfiguresNothingAndItsServletsAnswer503). S9B replaces the floor with each surface's
+  own rule.
+target_release: 0.6.0
+notes: >
+  Found by PR5 on the rig (2026-09-30). SsfConfigurationServlet and SsfReceiverServlet register their parts with
+  Startup.begin but report their outcome themselves (failed, finish) instead of handing a start function to
+  Part.start, and neither has a ComponentGate. PR5's Startup.begin marks a refused component's part REFUSED before
+  init, and ComponentParts now keeps a refused part refused whatever it reports next, so the health detail, the
+  start-up audit and readiness show SSF REFUSED; but the init still configures the transmitter and the SSF endpoints
+  keep answering. On the rig with the JVM flag set, a boot made before the part was made to stay refused showed SSF
+  READY. Who and when: ST5C (wave 3) moves the SSF start-up onto Part.start, and S9B (wave 4) gives the SSF surfaces
+  their gate.

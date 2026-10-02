@@ -1,34 +1,36 @@
 package com.pingidentity.ps.oidf.federation;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.jose4j.jwt.JwtClaims;
 import com.pingidentity.ps.oidf.jose.HttpGetClient;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import com.pingidentity.ps.oidf.jose.Claims;
 import com.pingidentity.ps.oidf.jose.VerificationPolicy;
 
 /**
- * HTTP-backed {@link TrustControllerGateway}. Fetches entity configurations, member lists and
+ * HTTP-backed {@link TrustControllerGateway}. Fetches entity configurations and
  * subordinate statements over HTTP (resolving each authority's {@code federation_fetch_endpoint}
  * on demand) and caches statements in a {@link SubordinateStatementCache}, honouring optional
  * max-age freshness bounds and staging writes into a supplied {@link SubordinateStatementCache.PendingWrites}.
+ *
+ * <p>Within a resolution every request is paid for from its {@link ResolutionBudget} and made by its deadline
+ * (see {@link TrustControllerGateway}): the statement asked for is paid by the validator, and each further request
+ * - an authority's Entity Configuration that is neither cached nor staged, a second retrieval of an anchor's - is
+ * paid here before it is made. So one statement can cost up to three requests, and each is counted. A call through
+ * an overload without a budget gets one of its own from {@link ValidatorOptions#defaults()}, and pays for the
+ * statement from it too.
  */
 public final class HttpTrustControllerGateway
 implements TrustControllerGateway {
     private static final Log LOGGER = LogFactory.getLog(HttpTrustControllerGateway.class);
     private static final String ENTITY_STATEMENT_ACCEPT = "application/entity-statement+jwt, application/json";
-    private static final String JSON_ACCEPT = "application/json";
     private final HttpGetClient http;
     private final String trustControllerBaseUrl;
     private final String selfIssuer;
@@ -73,22 +75,6 @@ implements TrustControllerGateway {
     }
 
     @Override
-    public JwtClaims fetchEntityConfiguration() throws Exception {
-        String url = this.trustControllerBaseUrl + "/.well-known/openid-federation";
-        String jwt = this.http.get(url, ENTITY_STATEMENT_ACCEPT);
-        EntityStatementType.require(jwt, "from " + url);
-        return JwtCodec.parseUnverifiedClaims(jwt);
-    }
-
-    @Override
-    public List<String> fetchMembers() throws Exception {
-        String body = this.http.get(this.trustControllerBaseUrl + "/list", JSON_ACCEPT);
-        ObjectMapper mapper = new ObjectMapper();
-        List<String> items = mapper.readValue(body, new TypeReference<List<String>>(){});
-        return toStringList(items);
-    }
-
-    @Override
     public String fetchEntityStatement(String issuer) throws Exception {
         return this.fetchEntityStatement(issuer, -1L, null);
     }
@@ -100,6 +86,26 @@ implements TrustControllerGateway {
 
     @Override
     public String fetchEntityStatement(String issuer, long maxAgeFromIatSeconds, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
+        return this.entityStatement(issuer, maxAgeFromIatSeconds, pendingWrites, ownBudget(), false);
+    }
+
+    @Override
+    public String fetchEntityStatement(String issuer, long maxAgeFromIatSeconds, SubordinateStatementCache.PendingWrites pendingWrites,
+            ResolutionBudget budget) throws Exception {
+        return this.entityStatement(issuer, maxAgeFromIatSeconds, pendingWrites, Objects.requireNonNull(budget, "budget"), true);
+    }
+
+    /** A budget for a call made outside a resolution: the settings' wall clock and requests. */
+    private static ResolutionBudget ownBudget() {
+        return ResolutionBudget.of(ValidatorOptions.defaults());
+    }
+
+    /**
+     * An Entity Configuration from the cache, the staged writes, or the network by the budget's deadline; a network
+     * request not already {@code paid} for is paid from the budget first.
+     */
+    private String entityStatement(String issuer, long maxAgeFromIatSeconds, SubordinateStatementCache.PendingWrites pendingWrites,
+            ResolutionBudget budget, boolean paid) throws Exception {
         Objects.requireNonNull(issuer, "issuer");
         String cached = this.subordinateStatementCache.get(issuer, issuer, 300L, maxAgeFromIatSeconds);
         if (cached != null) {
@@ -118,7 +124,8 @@ implements TrustControllerGateway {
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug(String.format("fetchEntityStatement-cache-not-found: issuer(%s)", issuer));
         }
-        String jwt = this.http.get(this.entityConfigurationUrl(issuer), ENTITY_STATEMENT_ACCEPT);
+        payFor(budget, paid, "the entity configuration of " + issuer);
+        String jwt = this.http.get(this.entityConfigurationUrl(issuer), ENTITY_STATEMENT_ACCEPT, budget.deadline());
         this.recordCacheWrite(issuer, issuer, jwt, pendingWrites);
         return jwt;
     }
@@ -152,8 +159,31 @@ implements TrustControllerGateway {
     @Override
     public String anchorConfiguration(TrustAnchor anchor, Set<String> acceptedSigningAlgorithms,
             SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
-        return this.verifiedAnchorConfiguration(new Binding(anchor, acceptedSigningAlgorithms == null ? Set.of()
-                : Set.copyOf(acceptedSigningAlgorithms)), pendingWrites);
+        return this.verifiedAnchorConfiguration(binding(anchor, acceptedSigningAlgorithms), pendingWrites, ownBudget(), false);
+    }
+
+    /** As above, the configuration paid for by {@code budget} and a second retrieval (§11.3) paid from it. */
+    @Override
+    public String anchorConfiguration(TrustAnchor anchor, Set<String> acceptedSigningAlgorithms,
+            SubordinateStatementCache.PendingWrites pendingWrites, ResolutionBudget budget) throws Exception {
+        return this.verifiedAnchorConfiguration(binding(anchor, acceptedSigningAlgorithms), pendingWrites,
+                Objects.requireNonNull(budget, "budget"), true);
+    }
+
+    private static Binding binding(TrustAnchor anchor, Set<String> acceptedSigningAlgorithms) {
+        return new Binding(anchor, acceptedSigningAlgorithms == null ? Set.of() : Set.copyOf(acceptedSigningAlgorithms));
+    }
+
+    /**
+     * Pays for a request about to go on the network from {@code budget}, unless the caller already has: the
+     * statement a resolution asked for is paid by the validator, anything further by this gateway.
+     *
+     * @throws TrustChainValidationException of kind BUDGET when the budget has no request or time left
+     */
+    static void payFor(ResolutionBudget budget, boolean paid, String what) {
+        if (!paid) {
+            budget.spend(what);
+        }
     }
 
     /**
@@ -175,19 +205,25 @@ implements TrustControllerGateway {
      * <p>Any other authority's Entity Configuration is only a directory entry here. What it points at
      * is a Subordinate Statement that the chain verifies against the keys its own superior asserts.
      */
-    private JwtClaims authorityConfiguration(String authorityIssuer, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
+    private UnverifiedClaims authorityConfiguration(String authorityIssuer, SubordinateStatementCache.PendingWrites pendingWrites,
+            ResolutionBudget budget) throws Exception {
         Binding binding = this.anchors.get(EntityId.comparable(authorityIssuer));
         if (binding == null) {
-            return this.fetchEntityConfigurationOf(authorityIssuer, pendingWrites);
+            // Only the statement was paid for: this lookup, when it goes to the network, is paid here.
+            return this.configurationOf(authorityIssuer, pendingWrites, budget);
         }
-        return JwtCodec.parseUnverifiedClaims(this.verifiedAnchorConfiguration(binding, pendingWrites));
+        return JwtCodec.parseUnverifiedClaims(this.verifiedAnchorConfiguration(binding, pendingWrites, budget, false));
     }
 
-    /** The anchor's Entity Configuration as a JWT, verified against its configured keys, with the §11.3 retry. */
-    private String verifiedAnchorConfiguration(Binding binding, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
+    /**
+     * The anchor's Entity Configuration as a JWT, verified against its configured keys, with the §11.3 retry. The
+     * first retrieval is {@code paid} for or paid here; the retry is always paid here.
+     */
+    private String verifiedAnchorConfiguration(Binding binding, SubordinateStatementCache.PendingWrites pendingWrites,
+            ResolutionBudget budget, boolean paid) throws Exception {
         TrustAnchor anchor = binding.anchor();
         String authorityIssuer = anchor.entityId();
-        String jwt = this.fetchEntityStatement(authorityIssuer, -1L, pendingWrites);
+        String jwt = this.entityStatement(authorityIssuer, -1L, pendingWrites, budget, paid);
         // §3 before §10.2: an untyped configuration is refused outright, not retried - a retry could
         // only return the same wrong type, and no key should be tried on it.
         EntityStatementType.require(jwt, "iss=sub=" + authorityIssuer);
@@ -199,7 +235,8 @@ implements TrustControllerGateway {
             LOGGER.warn("Trust anchor " + authorityIssuer + " entity configuration did not verify against the configured keys ("
                     + first.getMessage() + "); retrieving it again (OpenID Federation 1.0 §11.3)");
             this.subordinateStatementCache.evict(authorityIssuer, authorityIssuer);
-            String again = this.http.get(this.entityConfigurationUrl(authorityIssuer), ENTITY_STATEMENT_ACCEPT);
+            payFor(budget, false, "a second retrieval of the entity configuration of " + authorityIssuer);
+            String again = this.http.get(this.entityConfigurationUrl(authorityIssuer), ENTITY_STATEMENT_ACCEPT, budget.deadline());
             EntityStatementType.require(again, "iss=sub=" + authorityIssuer);
             try {
                 anchor.verify(again, binding.acceptedSigningAlgorithms(), VerificationPolicy.entityStatement());
@@ -217,11 +254,12 @@ implements TrustControllerGateway {
         }
     }
 
-    @Override
-    public JwtClaims fetchEntityConfigurationOf(String issuer, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
+    /** An Entity Configuration, a request of {@code budget} when it goes to the network. */
+    private UnverifiedClaims configurationOf(String issuer, SubordinateStatementCache.PendingWrites pendingWrites, ResolutionBudget budget)
+            throws Exception {
         // Its federation_fetch_endpoint decides where subordinate statements are requested from, so an
         // untyped configuration is refused here (OpenID Federation 1.0 §3), not only once it is in a chain.
-        String jwt = this.fetchEntityStatement(issuer, -1L, pendingWrites);
+        String jwt = this.entityStatement(issuer, -1L, pendingWrites, budget, false);
         EntityStatementType.require(jwt, "iss=sub=" + issuer);
         return JwtCodec.parseUnverifiedClaims(jwt);
     }
@@ -238,8 +276,25 @@ implements TrustControllerGateway {
 
     @Override
     public String fetchSubordinateStatement(String authorityIssuer, String subject, long maxAgeFromIatSeconds, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
+        return this.subordinateStatement(authorityIssuer, subject, maxAgeFromIatSeconds, pendingWrites, ownBudget(), false);
+    }
+
+    @Override
+    public String fetchSubordinateStatement(String authorityIssuer, String subject, long maxAgeFromIatSeconds,
+            SubordinateStatementCache.PendingWrites pendingWrites, ResolutionBudget budget) throws Exception {
+        return this.subordinateStatement(authorityIssuer, subject, maxAgeFromIatSeconds, pendingWrites,
+                Objects.requireNonNull(budget, "budget"), true);
+    }
+
+    /**
+     * A Subordinate Statement from the cache, the staged writes, or the authority's fetch endpoint by the budget's
+     * deadline, after its Entity Configuration (paid here when it is fetched); the statement's own request, when
+     * not already {@code paid} for, is paid here too.
+     */
+    private String subordinateStatement(String authorityIssuer, String subject, long maxAgeFromIatSeconds,
+            SubordinateStatementCache.PendingWrites pendingWrites, ResolutionBudget budget, boolean paid) throws Exception {
         String endpoint;
-        JwtClaims authorityConfig;
+        UnverifiedClaims authorityConfig;
         Map<String, Object> federationEntity;
         Object endpointValue;
         Objects.requireNonNull(authorityIssuer, "authorityIssuer");
@@ -261,7 +316,7 @@ implements TrustControllerGateway {
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug(String.format("fetchSubordinateStatement-cache-not-found: issuer(%s) subject(%s)", authorityIssuer, subject));
         }
-        if (!((endpointValue = (federationEntity = Claims.optionalNestedMap(Claims.optionalMap(authorityConfig = this.authorityConfiguration(authorityIssuer, pendingWrites), "metadata"), "federation_entity")).get("federation_fetch_endpoint")) instanceof String) || ((String)endpointValue).isBlank()) {
+        if (!((endpointValue = (federationEntity = Claims.optionalNestedMap((authorityConfig = this.authorityConfiguration(authorityIssuer, pendingWrites, budget)).unverifiedMap("metadata"), "federation_entity")).get("federation_fetch_endpoint")) instanceof String) || ((String)endpointValue).isBlank()) {
             throw new IllegalStateException("Authority " + authorityIssuer + " does not publish a federation_fetch_endpoint and cannot resolve subordinate statements");
         }
         endpoint = (String)endpointValue;
@@ -270,7 +325,8 @@ implements TrustControllerGateway {
         String url = endpoint + (endpoint.contains("?") ? "&" : "?")
                 + "sub=" + URLEncoder.encode(subject, StandardCharsets.UTF_8)
                 + "&iss=" + URLEncoder.encode(authorityIssuer, StandardCharsets.UTF_8);
-        String jwt = this.http.get(url, "application/entity-statement+jwt");
+        payFor(budget, paid, "the subordinate statement " + authorityIssuer + " -> " + subject);
+        String jwt = this.http.get(url, "application/entity-statement+jwt", budget.deadline());
         this.recordCacheWrite(authorityIssuer, subject, jwt, pendingWrites);
         return jwt;
     }
@@ -303,53 +359,21 @@ implements TrustControllerGateway {
     }
 
     private static Long tryExtractExpEpochSeconds(String jwt) {
-        JwtClaims claims;
-        block3: {
-            try {
-                claims = JwtCodec.parseUnverifiedClaims(jwt);
-                if (claims.hasClaim("exp")) break block3;
-                return null;
-            }
-            catch (Exception e) {
-                LOGGER.debug("Failed to parse exp claim from subordinate statement; will not cache: " + e.getMessage());
-                return null;
-            }
-        }
         try {
-            return claims.getExpirationTime().getValue();
-        }
-        catch (org.jose4j.jwt.MalformedClaimException e) {
+            return JwtCodec.parseUnverifiedClaims(jwt).unverifiedNumericDate("exp");
+        } catch (Exception e) {
+            LOGGER.debug("Failed to parse exp claim from subordinate statement; will not cache: " + e.getMessage());
             return null;
         }
     }
 
     private static Long tryExtractIatEpochSeconds(String jwt) {
-        JwtClaims claims;
-        block3: {
-            try {
-                claims = JwtCodec.parseUnverifiedClaims(jwt);
-                if (claims.hasClaim("iat")) break block3;
-                return null;
-            }
-            catch (Exception e) {
-                LOGGER.debug("Failed to parse iat claim from subordinate statement; will cache without age bound: " + e.getMessage());
-                return null;
-            }
-        }
         try {
-            return claims.getIssuedAt().getValue();
-        }
-        catch (org.jose4j.jwt.MalformedClaimException e) {
+            return JwtCodec.parseUnverifiedClaims(jwt).unverifiedNumericDate("iat");
+        } catch (Exception e) {
+            LOGGER.debug("Failed to parse iat claim from subordinate statement; will cache without age bound: " + e.getMessage());
             return null;
         }
-    }
-
-    private static List<String> toStringList(List<?> list) {
-        ArrayList<String> result = new ArrayList<String>();
-        for (Object item : list) {
-            result.add(String.valueOf(item));
-        }
-        return result;
     }
 
     private static String normalizeBaseUrl(String baseUrl) {

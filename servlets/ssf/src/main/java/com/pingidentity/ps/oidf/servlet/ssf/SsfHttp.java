@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.servlet.ssf;
 
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.ssf.AuthContext;
 import com.pingidentity.ps.oidf.ssf.ReceiverAuthException;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
@@ -33,31 +34,37 @@ final class SsfHttp {
     }
 
     /**
-     * Fail-soft servlet bootstrap: install the JDBC store factory and configure the transmitter from
-     * init-params / {@code oidf.ssf.*} system properties / {@code OIDF_SSF_*} env vars. If SSF isn't configured
-     * (e.g. no issuer), it logs and returns {@code false} rather than throwing — a servlet must never break the
-     * runtime web application just because SSF is absent. Returns {@code true} once configured.
+     * What the SSF servlets that register no part of their own - stream management, poll, {@code events:emit}, SCIM -
+     * do at {@code init}: nothing but answer whether the transmitter is up. The transmitter starts once, as the
+     * {@code SSF} component's part, from {@code SsfConfigurationServlet} (load-on-startup), and is published whole or
+     * not at all ({@link SsfComponents#transmitter}); until then these servlets answer 503 through its part's gate.
+     * Before 0.6.0 every SSF servlet's {@code init} started it from its own init-params.
      */
     static boolean bootstrap(ServletConfig config) {
-        SsfSupport.installStoreFactory(new PfJdbcStoreFactory());
-        try {
-            SsfConfiguration cfg = SsfConfiguration.fromServletConfig(config);
-            SsfSupport.configure(cfg);
-            wireReceiver();
-            if (cfg.auditEventsEnabled()) {
-                try {
-                    SsfAuditLogSource.attach(cfg);
-                } catch (Throwable t) {
-                    // e.g. log4j-core absent outside PF — audit sourcing is optional, never fail boot
-                    log.info((Object) ("SSF audit source unavailable: " + t));
-                }
+        return SsfSupport.isConfigured();
+    }
+
+    /**
+     * The SSF servlets' gate for a servlet with no part of its own: the transmitter's part ({@code SsfConfigurationServlet}'s).
+     * Answers 503 while SSF is starting, failed or refused, and 404 while it is off; true when it has answered.
+     */
+    static boolean gate(HttpServletResponse resp) throws IOException {
+        return ComponentGate.oauthEndpoint(SsfComponents.transmitterPart(), resp);
+    }
+
+    /**
+     * The servlet layer's wiring, run once the transmitter's state is published ({@link SsfSupport#start}): the receiver's
+     * PingFederate actions and polling, and the audit source when {@code OIDF_SSF_AUDIT_EVENTS_ENABLED}.
+     */
+    static void afterConfigure() {
+        wireReceiver();
+        if (SsfSupport.configuration().auditEventsEnabled()) {
+            try {
+                SsfAuditLogSource.attach(SsfSupport.configuration());
+            } catch (Throwable t) {
+                // e.g. log4j-core absent outside PF — audit sourcing is optional, never fail boot
+                log.info((Object) ("SSF audit source unavailable: " + t));
             }
-            return true;
-        } catch (IllegalArgumentException e) {
-            log.info((Object) ("SSF transmitter not configured (" + e.getMessage() + "); endpoints disabled "
-                    + "until an issuer is set (init-param 'issuer', system property 'oidf.ssf.issuer', or "
-                    + "env OIDF_SSF_ISSUER)"));
-            return false;
         }
     }
 
@@ -117,13 +124,19 @@ final class SsfHttp {
             return;
         }
         if (SsfSupport.configuration().receiverActionsEnabled()) {
-            receiver.addHandler(new com.pingidentity.ps.oidf.ssf.ReceiverActionHandler(new PfReceiverActions()));
+            receiver.addHandler(new com.pingidentity.ps.oidf.ssf.ReceiverActionHandler(new PfReceiverActions(),
+                    SsfSupport.configuration().receiverLocalIssuers()));
         }
         SsfSupport.startReceiverPolling();
         receiverWired = true;
     }
 
     private static volatile boolean receiverWired;
+
+    /** Test hook: forget the wiring, as {@code SsfSupport.resetForTests} forgets the state it wired. */
+    static synchronized void resetForTests() {
+        receiverWired = false;
+    }
 
     static Map<String, Object> readBody(HttpServletRequest req) throws IOException {
         String body = new String(req.getInputStream().readAllBytes(), StandardCharsets.UTF_8);

@@ -11,6 +11,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.conformance.Requirement;
+import com.pingidentity.ps.oidf.signals.SetMinter;
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;

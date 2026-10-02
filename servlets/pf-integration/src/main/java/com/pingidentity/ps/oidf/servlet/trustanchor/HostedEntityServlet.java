@@ -3,7 +3,12 @@
  */
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
-import com.pingidentity.ps.oidf.pf.AdminBearer;
+import com.pingidentity.ps.oidf.pf.OperatorApi;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
+import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.auth.Operator;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
@@ -12,6 +17,7 @@ import com.pingidentity.ps.oidf.authority.HostedEntity;
 import com.pingidentity.ps.oidf.authority.HostedEntityConfigurationBuilder;
 import com.pingidentity.ps.oidf.authority.SelfSignedEntityConfigurations;
 import com.pingidentity.ps.oidf.authority.HostedEntityRegistry;
+import com.pingidentity.ps.oidf.authority.HostedEntitySigner;
 import com.pingidentity.ps.oidf.authority.HostingMode;
 import com.pingidentity.ps.oidf.authority.RegistryHostedEntitySigner;
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
@@ -25,12 +31,15 @@ import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings;
 import com.pingidentity.ps.oidf.pf.PfTracking;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
-import com.pingidentity.ps.oidf.pf.PfDataSources;
+import com.pingidentity.ps.oidf.pf.AuthorityDataSource;
+import com.pingidentity.ps.oidf.platform.profile.AcceptedRisk;
+import com.pingidentity.ps.oidf.platform.profile.ProfileRefusals;
+import com.pingidentity.ps.oidf.platform.settings.Secret;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -65,7 +74,8 @@ import org.jose4j.json.JsonUtil;
  * registry row, and deriving it per-request would mean a reverse-proxy hostname change silently orphans
  * every statement this authority ever issued about it.
  */
-@WebServlet(urlPatterns = {"/federation/agents/*", "/federation/resources/*"})
+// loadOnStartup: HOSTING's part registers at deploy, not on the first request (finding F-0193); its init never throws.
+@WebServlet(urlPatterns = {"/federation/agents/*", "/federation/resources/*"}, loadOnStartup = 1)
 public class HostedEntityServlet extends RequestScopedServlet {
     private static final long serialVersionUID = 1L;
     private static final Log LOGGER = LogFactory.getLog(HostedEntityServlet.class);
@@ -73,30 +83,53 @@ public class HostedEntityServlet extends RequestScopedServlet {
     private static final String PUBLISH_SUFFIX = "/entity-configuration";
     /** Mirrors the lighthouse trust anchor's own enrolment slug shape (harness/ui/server.py's SLUG_RE). */
     private static final Pattern SLUG = Pattern.compile("^[a-z0-9][a-z0-9-]{0,63}$");
+    /** The history's reason for a revocation through {@code DELETE}. */
+    static final String REVOKED_REASON = "revoked via the hosted-entity API";
+    /** This authority's Entity Identifier; unset, it hosts nothing. */
+    static final String AUTHORITY_ENTITY_ID = "OIDF_AUTHORITY_ENTITY_ID";
+    /** OpenBao's address and token on this servlet, used together; either unset, {@code OIDF_OPENBAO_URL} and its token. */
+    static final String OPENBAO_URL_PARAM = "openBaoUrl";
+    static final String OPENBAO_TOKEN_PARAM = "openBaoToken";
 
-    private String adminToken;
+    /** Who may enrol and revoke: this webapp's operator authenticator (plan item S8b). */
+    private transient OperatorAuthenticator authenticator;
+    /** This servlet's part of HOSTING, from init; null when a test's constructor made it and init never ran. */
+    private transient volatile ComponentParts.Part part;
 
     public HostedEntityServlet() {
     }
 
-    /** Test seam: the servlet with its admin token, and hosting configured by the test through {@link AuthoritySupport}. */
-    HostedEntityServlet(String adminToken) {
-        this.adminToken = adminToken;
+    /** Test seam: the servlet with its authenticator, and hosting configured by the test through {@link AuthoritySupport}. */
+    HostedEntityServlet(OperatorAuthenticator authenticator) {
+        this.authenticator = authenticator;
     }
 
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
+        ComponentParts.Part part = Startup.begin(Startup.HOSTING, "HostedEntityServlet");
+        this.part = part;
+        part.start(() -> this.init(config, part));
+    }
+
+    /**
+     * The start function: what {@code init} did before S-9, run by {@link ComponentParts.Part#start} at deploy and again
+     * by each supervisor retry after a dependency failure. What it throws is the part's state, never the container's.
+     */
+    private void init(ServletConfig config, ComponentParts.Part part) throws ServletException {
         PfAuditEventSink.install();
         try {
             // Optional at init, not required: enrolment (doPost) needs it, but resolution (doGet) does
             // not, and a servlet that refuses to boot just because enrolment isn't configured would take
             // the read path down with it too — the same fail-soft principle SsfHttp.bootstrap follows.
-            this.adminToken = setting(config::getInitParameter, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
+            OperatorAuthenticator authenticator = OperatorApi.authenticator(config);
             if (!configureAuthority(config::getInitParameter)) {
-                throw new IllegalStateException("HostedEntityServlet requires 'authorityEntityId' (init-param, oidf.authority.entity_id,"
-                        + " or OIDF_AUTHORITY_ENTITY_ID)");
+                // No authority: this deployment hosts nothing - disabled, or FAILED_CONFIG when OIDF_HOSTING_ENABLED=true.
+                part.notConfigured("no authority entity id is set (OIDF_AUTHORITY_ENTITY_ID, oidf.authority.entity_id or the"
+                        + " init-param authorityEntityId)");
+                return;
             }
+            this.authenticator = authenticator;
         } catch (RuntimeException e) {
             throw new ServletException("Failed to initialize HostedEntityServlet", e);
         }
@@ -114,21 +147,43 @@ public class HostedEntityServlet extends RequestScopedServlet {
      * @return false when no authority entity id is configured: this deployment hosts nothing
      */
     static boolean configureAuthority(java.util.function.Function<String, String> initParams) {
-        String authorityEntityId = setting(initParams, "authorityEntityId", "oidf.authority.entity_id", "OIDF_AUTHORITY_ENTITY_ID");
+        return configureAuthorityFrom(initParams == null ? Sources.process() : Sources.process().withInitParams(initParams));
+    }
+
+    /**
+     * {@link #configureAuthority(java.util.function.Function)} from {@code sources}: each setting through its
+     * hosted-entities catalogue entry - the init-param, then the system property, then the environment variable (plan
+     * item ST-5) - as {@link AuthorityDataSource} reads the store for the servlets without init-params.
+     */
+    static boolean configureAuthorityFrom(Sources sources) {
+        Settings settings = AuthorityDataSource.settings(sources);
+        String authorityEntityId = settings.string(AUTHORITY_ENTITY_ID);
         if (authorityEntityId == null) {
             return false;
         }
-        javax.sql.DataSource store = null;
-        String jdbcUrl = setting(initParams, "jdbcUrl", "oidf.authority.jdbc.url", "OIDF_AUTHORITY_JDBC_URL");
-        if (jdbcUrl != null) {
-            store = PfDataSources.direct(jdbcUrl, setting(initParams, "jdbcUsername", "oidf.authority.jdbc.username", "OIDF_AUTHORITY_JDBC_USERNAME"),
-                    setting(initParams, "jdbcPassword", "oidf.authority.jdbc.password", "OIDF_AUTHORITY_JDBC_PASSWORD"));
+        // Everything that can fail is resolved before the registry or the signing is published: the store, the policy
+        // and the signer. A policy that is not one then leaves no registry behind - the authority is configured whole
+        // or not at all - and a later attempt (the supervisor's, or another servlet's) starts from nothing. The policy
+        // alone is harmless: nothing reads it until signing is published, and the next attempt sets it again.
+        // SurfaceGateTest.aStoreIsNotPublishedWhenALaterStepOfTheAuthorityFails pins this order.
+        javax.sql.DataSource store = AuthorityDataSource.from(sources).orElse(null);
+        // PR-2 (Phase 3 plan, decisions 9, 10 and 15): under production a registry in memory needs the in-memory-state
+        // risk, and a store is PostgreSQL; under development each is a WARN.
+        if (store == null) {
+            ProfileRefusals.requireRisk(Startup.HOSTING, AcceptedRisk.IN_MEMORY_STATE, "the hosted-entity registry and its Trust"
+                    + " Mark grants are in memory (neither " + AuthorityDataSource.DATA_STORE_ID_ENV + " nor "
+                    + AuthorityDataSource.JDBC_URL_ENV + " is set)");
         } else {
-            String dataStoreId = setting(initParams, "dataStoreId", "oidf.authority.data_store_id", "OIDF_AUTHORITY_DATA_STORE_ID");
-            if (dataStoreId != null) {
-                store = PfDataSources.pfManaged(dataStoreId);
-            }
+            AuthorityDataSource.requirePostgreSql(Startup.HOSTING, store, "the hosted-entity registry");
         }
+        AuthoritySupport.configureDomainDefaultMetadataPolicy(FederationRuntimeConfig.get().authorityMetadataPolicy());
+        // The servlet's two init-params together, else OIDF_OPENBAO_URL and OIDF_OPENBAO_TOKEN as every reader reads them.
+        String baoUrl = settings.string(OPENBAO_URL_PARAM);
+        Secret baoToken = settings.secret(OPENBAO_TOKEN_PARAM);
+        HostedEntitySigner signer = baoUrl != null && baoToken != null ? new RegistryHostedEntitySigner(baoUrl, baoToken.reveal())
+                : RegistryHostedEntitySigner.fromEnvironment();
+        // The stores come before the signing: hosted lookups begin once signing is published, and one that found no store
+        // would fall back to memory for good.
         if (store != null) {
             AuthoritySupport.configureJdbcRegistry(store);
             // Trust Mark grants live beside the hosted entities they are mostly given to.
@@ -138,35 +193,24 @@ public class HostedEntityServlet extends RequestScopedServlet {
         }
         // Neither set: AuthoritySupport.registry() falls back to an in-memory registry with its own loud warning the first
         // time it is actually used.
-        AuthoritySupport.configureDomainDefaultMetadataPolicy(FederationRuntimeConfig.get().authorityMetadataPolicy());
-        String baoUrl = setting(initParams, "openBaoUrl", "oidf.openbao.url", "OIDF_OPENBAO_URL");
-        String baoToken = setting(initParams, "openBaoToken", "oidf.openbao.token", "OIDF_OPENBAO_TOKEN");
-        AuthoritySupport.configureSigning(baoUrl != null && baoToken != null ? new RegistryHostedEntitySigner(baoUrl, baoToken)
-                : RegistryHostedEntitySigner.fromEnvironment(), authorityEntityId);
+        AuthoritySupport.configureSigning(signer, authorityEntityId);
         return true;
     }
 
-    /** An init-param, else a system property, else an environment variable; blank counts as unset at every level. */
-    private static String setting(java.util.function.Function<String, String> initParams, String initParam, String sysProp, String envVar) {
-        String value = initParams == null ? null : blankToNull(initParams.apply(initParam));
-        if (value == null) {
-            value = blankToNull(System.getProperty(sysProp));
+    @Override
+    protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        if (ComponentGate.federationEndpoint(this.part, resp)) {
+            return;
         }
-        if (value == null) {
-            value = blankToNull(System.getenv(envVar));
-        }
-        return value;
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
+        super.service(req, resp);
     }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         Optional<String> idSegment = parseIdSegment(req.getPathInfo());
         if (idSegment.isEmpty()) {
-            writeError(resp, 404, "not_found", "no such endpoint");
+            // A caller that has not authenticated: the fixed description and a correlation id (H-FED-4).
+            FederationErrors.write(resp, 404, "not_found", "no such endpoint", null);
             return;
         }
 
@@ -177,13 +221,13 @@ public class HostedEntityServlet extends RequestScopedServlet {
             found = registry.find(entityId);
         } catch (Exception e) {
             LOGGER.error("hosted entity lookup failed for " + entityId, e);
-            writeError(resp, 500, "server_error", "the entity configuration could not be produced");
+            FederationErrors.write(resp, 500, "server_error", "the entity configuration could not be produced", null);
             return;
         }
         // A revoked or expired entity is refused identically to one that was never hosted — its status
         // is not something an unauthenticated resolver is entitled to learn.
         if (found.isEmpty() || !found.get().resolvable(Instant.now())) {
-            writeError(resp, 404, "not_found", "unknown entity");
+            FederationErrors.write(resp, 404, "not_found", "unknown entity", null);
             return;
         }
 
@@ -191,11 +235,11 @@ public class HostedEntityServlet extends RequestScopedServlet {
         try {
             jwt = AuthoritySupport.configurationBuilder().buildEntityConfiguration(found.get());
         } catch (HostedEntityConfigurationBuilder.NotPublishedException e) {
-            writeError(resp, 404, "not_found", "entity configuration not published");
+            FederationErrors.write(resp, 404, "not_found", "entity configuration not published", null);
             return;
         } catch (RuntimeException e) {
             LOGGER.error("failed to sign entity configuration for " + entityId, e);
-            writeError(resp, 500, "server_error", "the entity configuration could not be produced");
+            FederationErrors.write(resp, 500, "server_error", "the entity configuration could not be produced", null);
             return;
         }
         resp.setStatus(200);
@@ -224,22 +268,17 @@ public class HostedEntityServlet extends RequestScopedServlet {
      * }
      * }</pre>
      *
-     * <p>Gated by a static bearer token (the {@code adminToken} configured at startup), compared in
-     * constant time — this endpoint creates federation-trusted identities, so unlike the read path it
-     * cannot be left open. Mirrors the shape of the lighthouse trust anchor's own
+     * <p>An operator route ({@link OperatorApi#HOSTED_ENTITIES}): a PingFederate-issued access token with
+     * {@code oidf.admin.entities}, DPoP-bound in production - this endpoint creates federation-trusted
+     * identities, so unlike the read path it cannot be left open. The enrolment's actor is the token's
+     * {@code sub}. Mirrors the shape of the lighthouse trust anchor's own
      * {@code POST /api/v1/admin/subordinates}, which this repo's demo harness already drives
      * programmatically, adapted to this registry's richer, multi-type-metadata model.
      */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        if (!authorized(req)) {
-            resp.setHeader("WWW-Authenticate", "Bearer");
-            writeError(resp, 401, "unauthorized", "missing or invalid admin bearer token");
-            return;
-        }
-        String pathInfo = req.getPathInfo();
-        if (pathInfo != null && !pathInfo.equals("/")) {
-            writeError(resp, 404, "not_found", "POST only the collection root, e.g. /federation/agents");
+        Operator operator = this.operator(req, resp, "POST only the collection root, e.g. /federation/agents");
+        if (operator == null) {
             return;
         }
 
@@ -324,7 +363,7 @@ public class HostedEntityServlet extends RequestScopedServlet {
             return;
         }
 
-        String actor = FederationAdminServlet.actor(this.adminToken, req.getHeader("X-Federation-Actor"));
+        String actor = operator.actor();
         Refusal refusal = askPolicy(FederationPolicySupport.decisionPointFor(DecisionPoint.HOSTED_ENTITY_ENROL), FederationPolicySupport.settings(),
                 entity, AuthoritySupport.authorityEntityId(), actor);
         if (refusal != null) {
@@ -361,13 +400,17 @@ public class HostedEntityServlet extends RequestScopedServlet {
     /**
      * {@code PUT <collection>/<id>/entity-configuration}: a SELF_SIGNED entity publishes the Entity
      * Configuration it signed. No bearer token - the signature, by the federation key the authority
-     * registered for this entity, is the authorisation; see {@link SelfSignedEntityConfigurations}.
+     * registered for this entity, is the authorisation; see {@link SelfSignedEntityConfigurations}. The caller has
+     * not authenticated when it is refused, and the refusal's detail can be its own text - a JWS header's
+     * {@code alg} or {@code kid}, a parser's message about its body - so every refusal here goes through
+     * {@link FederationErrors#write}: the code's fixed description and a reference, the detail on the log line
+     * (plan item H-FED-4).
      */
     @Override
     protected void doPut(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         Optional<String> idSegment = parsePublishSegment(req.getPathInfo());
         if (idSegment.isEmpty()) {
-            writeError(resp, 404, "not_found", "PUT <collection>/<id>/entity-configuration");
+            FederationErrors.write(resp, 404, "not_found", "PUT <collection>/<id>/entity-configuration", null);
             return;
         }
         String entityId = AuthoritySupport.authorityEntityId() + req.getServletPath() + "/" + idSegment.get();
@@ -376,11 +419,11 @@ public class HostedEntityServlet extends RequestScopedServlet {
         try {
             found = registry.find(entityId);
         } catch (Exception e) {
-            writeError(resp, 500, "server_error", e.getMessage());
+            FederationErrors.write(resp, 500, "server_error", "the hosted-entity registry could not be read", e);
             return;
         }
         if (found.isEmpty() || !found.get().resolvable(Instant.now())) {
-            writeError(resp, 404, "not_found", "unknown entity");
+            FederationErrors.write(resp, 404, "not_found", "unknown entity " + entityId, null);
             return;
         }
         String validated;
@@ -388,13 +431,13 @@ public class HostedEntityServlet extends RequestScopedServlet {
             validated = SelfSignedEntityConfigurations.validate(readBody(req), found.get(),
                     AuthoritySupport.authorityEntityId(), Instant.now());
         } catch (SelfSignedEntityConfigurations.InvalidConfigurationException e) {
-            writeError(resp, 400, "invalid_entity_configuration", e.getMessage());
+            FederationErrors.write(resp, 400, "invalid_entity_configuration", e.getMessage(), null);
             return;
         }
         try {
             registry.publishEntityConfiguration(entityId, validated);
         } catch (AuthorityRegistryException e) {
-            writeError(resp, 500, e.reason(), e.getMessage());
+            FederationErrors.write(resp, 500, "server_error", e.reason() + ": " + e.getMessage(), e);
             return;
         }
         LOGGER.info("self-signed entity configuration published for " + entityId);
@@ -402,15 +445,16 @@ public class HostedEntityServlet extends RequestScopedServlet {
     }
 
     /**
-     * {@code DELETE <collection>/<id>}: revoke a hosted entity (admin bearer token). Revocation is
-     * permanent; the entity stops resolving and the authority stops issuing a Subordinate Statement about
-     * it, so every trust chain through it fails at the next resolution.
+     * {@code DELETE <collection>/<id>}: revoke a hosted entity - an operator route with
+     * {@code oidf.admin.entities}, whose actor, the token's {@code sub}, the entity's history and the
+     * {@code federation.hosted_entity.revoked} event record. Revocation is permanent; the entity stops
+     * resolving and the authority stops issuing a Subordinate Statement about it, so every trust chain
+     * through it fails at the next resolution.
      */
     @Override
     protected void doDelete(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        if (!authorized(req)) {
-            resp.setHeader("WWW-Authenticate", "Bearer");
-            writeError(resp, 401, "unauthorized", "missing or invalid admin bearer token");
+        Operator operator = this.operator(req, resp, "DELETE <collection>/<id>");
+        if (operator == null) {
             return;
         }
         String pathInfo = req.getPathInfo();
@@ -421,13 +465,14 @@ public class HostedEntityServlet extends RequestScopedServlet {
         }
         String entityId = AuthoritySupport.authorityEntityId() + req.getServletPath() + "/" + slug;
         try {
-            AuthoritySupport.registry().setStatus(entityId, EntityStatus.REVOKED, "revoked via the hosted-entity API");
+            AuthoritySupport.registry().setStatus(entityId, EntityStatus.REVOKED, REVOKED_REASON, operator.actor());
         } catch (AuthorityRegistryException e) {
             int status = AuthorityRegistryException.NOT_FOUND.equals(e.reason()) ? 404 : 500;
             writeError(resp, status, e.reason(), e.getMessage());
             return;
         }
-        LOGGER.info("hosted entity revoked: " + entityId);
+        FederationEvents.event(FederationEvents.HOSTED_ENTITY_REVOKED).subject(entityId).role("authority").audit()
+                .field("actor", operator.actor()).description(REVOKED_REASON).emit();
         resp.setStatus(204);
     }
 
@@ -489,7 +534,7 @@ public class HostedEntityServlet extends RequestScopedServlet {
      * decision is 503, never a permit (AuthZEN 1.0 §10.1.2), unless the deployment fails open.
      *
      * <p>The PDP hears the entity's identifier, its Entity Types and the metadata it is to be enrolled with, whether it is
-     * listed, and who is enrolling it (the admin token's fingerprint, never the token).
+     * listed, and who is enrolling it (the operator token's {@code sub}, never the token).
      */
     static Refusal askPolicy(FederationPolicyDecisionPoint pdp, PdpSettings settings, HostedEntity entity, String authority, String actor) {
         if (pdp == null) {
@@ -536,20 +581,16 @@ public class HostedEntityServlet extends RequestScopedServlet {
                 : "this deployment's policy does not allow " + entity.entityId() + " to be enrolled");
     }
 
-    /** Constant-time comparison against the configured admin token — a timing side channel on this check
-     *  would leak the token one byte at a time, exactly what {@link MessageDigest#isEqual} exists to prevent. */
-    private boolean authorized(HttpServletRequest req) {
-        return isAuthorized(this.adminToken, req.getHeader("Authorization"));
-    }
-
     /**
-     * The actual bearer-token check, factored out from {@link #authorized(HttpServletRequest)} so it's
-     * testable without a servlet container. Constant-time: a timing side channel on this comparison
-     * would leak the configured token one byte at a time, exactly what {@link MessageDigest#isEqual}
-     * exists to prevent.
+     * The operator this request is from, by its servlet path and path info in {@link OperatorApi#HOSTED_ENTITIES}; null
+     * when the response is written - a 404 naming {@code shape} for a path no route names, or the authenticator's
+     * refusal.
      */
-    static boolean isAuthorized(String configuredAdminToken, String authorizationHeader) {
-        return AdminBearer.isAuthorized(configuredAdminToken, authorizationHeader);
+    private Operator operator(HttpServletRequest req, HttpServletResponse resp, String shape) throws IOException {
+        String pathInfo = req.getPathInfo();
+        String path = req.getServletPath() + (pathInfo == null || "/".equals(pathInfo) ? "" : pathInfo);
+        return OperatorApi.authorise(this.authenticator, OperatorApi.HOSTED_ENTITIES, path, req, resp,
+                r -> writeError(r, 404, "not_found", shape)).orElse(null);
     }
 
     private static String readBody(HttpServletRequest req) throws IOException {
@@ -592,14 +633,11 @@ public class HostedEntityServlet extends RequestScopedServlet {
         return Optional.of(idSegment);
     }
 
+    /**
+     * An operator route's refusal - enrolment and revocation, after the operator authenticated, or a 404 naming the
+     * route's shape - with its detail, except for a server error's ({@link FederationErrors#writeToOperator}).
+     */
     private static void writeError(HttpServletResponse resp, int status, String error, String description) throws IOException {
-        resp.setStatus(status);
-        resp.setContentType("application/json");
-        LinkedHashMap<String, Object> body = new LinkedHashMap<>();
-        body.put("error", error);
-        body.put("error_description", description);
-        try (PrintWriter out = resp.getWriter()) {
-            out.write(JsonUtil.toJson(body));
-        }
+        FederationErrors.writeToOperator(resp, status, error, description, null);
     }
 }

@@ -1,0 +1,27 @@
+id: U-0180
+title: No platform metric has been read through JMX in a running PingFederate, so the per-copy MXBean names are unseen there
+area: platform
+source: design
+status: open
+plan_items: [O-4, F-2]
+prs: [46]
+recorded_in: libs/platform/README.md, metrics
+verify_by: >
+  Once O-4 or C-3 registers the first metric in the image, boot the rig and list
+  `com.pingidentity.ps.oidf:type=Metrics,*` in the running JVM (jcmd or jconsole attached inside the container, or
+  a remote connector if one is configured). Expect one MXBean for the webapp's copy, named from
+  `pf-runtime.war`'s WEB-INF/lib, and one for the engine's, named from server/default/deploy, once a request has
+  run an OGNL criterion that counts; check whether the webapp's name is the same after a restart (a Jetty
+  temporary directory in the path would change it); and, after F-2 has landed, stop the container and check
+  that the webapp's shutdown logged its MXBean unregistered while the engine's stayed to the end.
+verification: ''
+notes: >
+  Package O3 (2026-09-28) tested the naming and the lifecycle with two URLClassLoaders over the same classes in
+  one JVM (ClassLoaderCopiesTest), on JDK 17 and 20 with Maven and on the pinned image's own java 21.0.12.1, not
+  inside PingFederate: nothing on main registers a metric yet, so the rig would show no MXBean. What the names
+  look like there depends on the code source PingFederate's loaders report for the staged jars, which was not
+  read. Whether PingFederate 13.1.3 exposes the platform MBean server remotely was not checked either; its
+  run.properties has `pf.monitor.bind.address`, described as "the IP address over which JMX communicate"
+  (read in the pinned image 2026-09-28). The README's claim that the engine's loader is never discarded short of
+  a restart - so the MXBean that stays registered pins nothing extra - rests on nothing in this repository
+  having seen it discarded.

@@ -4,10 +4,13 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pingidentity.ps.oidf.jose.Claims;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.jose.VerificationPolicy;
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import org.jose4j.jwt.JwtClaims;
 
 /**
@@ -92,10 +95,13 @@ final class ExplicitRegistrationRequest {
     private static JwtClaims verifySelfSigned(String jwt) {
         try {
             JwtCodec.requireType(JwtCodec.getJwtHeaders(jwt), ENTITY_STATEMENT_TYP);
-            JwtClaims unverified = JwtCodec.parseUnverifiedClaims(jwt);
-            String opIssuer = Claims.requireNonBlank(unverified.getIssuer(), "iss");
-            Map<String, Object> jwks = Claims.requiredMap(unverified, "jwks");
-            return JwtCodec.verifyAgainstInlineJwks(jwt, jwks, opIssuer);
+            UnverifiedClaims unverified = JwtCodec.parseUnverifiedClaims(jwt);
+            String opIssuer = Claims.requireNonBlank(unverified.unverifiedIssuer(), "iss");
+            Map<String, Object> jwks = unverified.unverifiedMap("jwks");
+            if (jwks.isEmpty()) {
+                throw new IllegalArgumentException("Required claim 'jwks' is missing or not an object");
+            }
+            return JwtCodec.verifyAgainstInlineJwks(jwt, jwks, opIssuer, Set.of(), VerificationPolicy.legacy());
         }
         catch (IllegalArgumentException e) {
             throw e;
@@ -127,9 +133,20 @@ final class ExplicitRegistrationRequest {
             throw new IllegalArgumentException("trust-chain+json body has " + trustChain.size()
                     + " statements; at most " + MAX_TRUST_CHAIN_LENGTH + " are accepted");
         }
-        JwtClaims leafClaims = TrustChainValidator.selectLeafEntityStatement(trustChain);
-        String rpIssuer = Claims.requireNonBlank(leafClaims.getIssuer(), "iss");
-        String leafSubject = Claims.requireNonBlank(leafClaims.getSubject(), "sub");
+        UnverifiedClaims leafClaims;
+        try {
+            leafClaims = TrustChainValidator.selectLeafEntityStatement(trustChain);
+        }
+        catch (IllegalArgumentException e) {
+            throw e;
+        }
+        catch (Exception e) {
+            // A statement that is not a JWT is a malformed request (400), not a server fault; it was a 500 until
+            // 0.6.0 (F-0317). The description names no statement: the caller chose them.
+            throw new IllegalArgumentException("trust-chain+json body has a statement that is not a JWT", e);
+        }
+        String rpIssuer = Claims.requireNonBlank(leafClaims.unverifiedIssuer(), "iss");
+        String leafSubject = Claims.requireNonBlank(leafClaims.unverifiedSubject(), "sub");
         return new ExplicitRegistrationRequest(rpIssuer, leafSubject, trustChain, Map.of());
     }
 
@@ -162,8 +179,8 @@ final class ExplicitRegistrationRequest {
 
     private boolean isOwnConfiguration(String statement) {
         try {
-            JwtClaims claims = JwtCodec.parseUnverifiedClaims(statement);
-            return Objects.equals(claims.getIssuer(), this.issuer) && Objects.equals(claims.getSubject(), this.issuer);
+            UnverifiedClaims claims = JwtCodec.parseUnverifiedClaims(statement);
+            return Objects.equals(claims.unverifiedIssuer(), this.issuer) && Objects.equals(claims.unverifiedSubject(), this.issuer);
         } catch (Exception e) {
             return false;
         }

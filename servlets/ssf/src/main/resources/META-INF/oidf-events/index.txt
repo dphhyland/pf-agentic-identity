@@ -1,0 +1,4 @@
+# The event catalogues of servlets/ssf, one component per line (platform.events.EventCatalogue).
+ssf-poll
+ssf-receiver
+ssf

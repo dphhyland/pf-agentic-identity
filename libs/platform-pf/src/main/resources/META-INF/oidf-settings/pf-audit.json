@@ -1,0 +1,41 @@
+{
+  "format": 1,
+  "component": "pf-audit",
+  "module": "libs/platform-pf",
+  "package": "com.pingidentity.ps.oidf.platform.pf.audit",
+  "families": ["OIDF_EVENTS_"],
+  "settings": [
+    {
+      "name": "OIDF_EVENTS_AUDIT",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether events marked as audit also go to PingFederate's audit.log; every event goes to server.log either way",
+      "when_wrong": {"effect": "not-checked", "detail": "Neither true nor false, in any case: audit stays on, with a warning"},
+      "profile": "accepted-risk:audit-off",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.events.audit"},
+        {"from": "env", "name": "OIDF_EVENTS_AUDIT"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_EVENTS_MAX_VALUE_LENGTH",
+      "kind": "env",
+      "type": "int",
+      "default": 512,
+      "min": 16,
+      "max": 2147483647,
+      "description": "The longest value an event line carries; a longer one is cut",
+      "when_wrong": {"effect": "not-checked", "detail": "Not a whole number: the default, with a warning. Below 16 means 16"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "env", "name": "OIDF_EVENTS_MAX_VALUE_LENGTH"}],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

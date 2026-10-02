@@ -22,7 +22,9 @@ import com.pingidentity.ps.oidf.federation.policy.PolicyDecision;
 import com.pingidentity.ps.oidf.federation.policy.PolicyDecisionRequest;
 import com.pingidentity.ps.oidf.jose.HttpPostClient;
 import com.pingidentity.ps.oidf.pf.FederationPolicySupport;
+import com.pingidentity.ps.oidf.pf.FederationPolicySupportTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfigTestAccess;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.AutoRegistrationSettings;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.RegistrationSettings;
@@ -66,8 +68,8 @@ class RegistrationTrustMarkRequirementTest {
     @AfterEach
     void tearDown() {
         this.events.close();
-        FederationRuntimeConfig.resetForTests();
-        FederationPolicySupport.resetForTests();
+        FederationRuntimeConfigTestAccess.reset();
+        FederationPolicySupportTestAccess.reset();
     }
 
     private static void configure(String requiredMarks, boolean statusCheck) {

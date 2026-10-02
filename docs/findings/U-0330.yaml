@@ -1,0 +1,31 @@
+id: U-0330
+title: The device grant issues the details its authorization endpoint stored, whatever the token request says
+area: pf-integration
+source: design
+status: open
+plan_items: [S4d]
+prs: [81]
+recorded_in: servlets/pf-integration/README.md, The attestation's authorization_details; docs/attestation-client-auth-design.md, Where the filter runs
+verify_by: >
+  On the rig: an attested POST to /as/device_authz.oauth2 with authorization_details, the user code approved on
+  /as/user_authz.oauth2 (login, then the confirmation page), and the device_code redeemed with narrower details and
+  with none; read what the token carries.
+verification: ''
+notes: >
+  F-0032 names the device grant beside code and CIBA, and S4D1 holds the device authorization endpoint's details to
+  the attestation where they arrive, on the premise that PingFederate issues what that endpoint stored as it does for
+  PAR and CIBA (U-0019, driven for those two). On the rig on 2026-09-30 (pfai-p3-s4d1, 13.1.3) the device endpoint
+  took the bridge assertion and authorization_details (200, device_code), the filter refused details over the ceiling
+  there (400 invalid_authorization_details), and the login on the verification page worked, but the confirmation
+  page's submit was not driven headless (the poll stayed authorization_pending), so the token was never issued.
+  If the premise is false the rewrite still holds what is stored; what is issued is S4D3's belt and criterion.
+
+  Driven further on 2026-10-01 AEST (2026-09-30T21:42Z UTC) by the v0.6.0 release package on the conformance rig
+  (development, attestation on, the RAR plugin lent, modules at origin/main 600fa6b5), confirmation step included: an
+  attested device authorization request with sales_agent [EMEA, AMER] up to 500, approved on the verification page,
+  redeemed with no authorization_details under the same ceiling, issued exactly those details in the token and the
+  response; redeemed under a narrower attestation it was refused 400 invalid_authorization_details by the belt
+  (criterion off) and 400 invalid_grant issued_details_refused by the criterion (on). So the device grant issues what
+  its endpoint stored when the token request names none, and is held to the ceiling. Still not driven: a redemption
+  that sends narrower authorization_details than were stored, which the title's 'whatever the token request says' is
+  about; the item stays open for it.

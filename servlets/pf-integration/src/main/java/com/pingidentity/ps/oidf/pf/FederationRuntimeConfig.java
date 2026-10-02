@@ -1,5 +1,9 @@
 package com.pingidentity.ps.oidf.pf;
 
+import static com.pingidentity.ps.oidf.platform.settings.Parsers.blankToNull;
+
+import java.net.URI;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -11,6 +15,16 @@ import com.pingidentity.ps.oidf.federation.MetadataPolicy;
 import com.pingidentity.ps.oidf.federation.TrustAnchor;
 import com.pingidentity.ps.oidf.federation.TrustAnchorSet;
 import com.pingidentity.ps.oidf.federation.TrustMarkPolicy;
+import com.pingidentity.ps.oidf.federation.FederationConfiguration;
+import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
+import com.pingidentity.ps.oidf.platform.component.ComponentSwitches;
+import com.pingidentity.ps.oidf.platform.json.Json;
+import com.pingidentity.ps.oidf.platform.settings.Parsers;
+import com.pingidentity.ps.oidf.platform.settings.Resolved;
+import com.pingidentity.ps.oidf.platform.settings.Secret;
+import com.pingidentity.ps.oidf.platform.settings.SettingRefused;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkClaims;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkType;
 import org.apache.commons.logging.Log;
@@ -30,8 +44,13 @@ import org.apache.commons.logging.LogFactory;
  * promoted to the only source: computed once, immutable, identical for every reader, and unaffected
  * by initialisation order.
  *
- * <p>Resolution is system property first, then environment variable — the same precedence the rest of
- * the codebase uses, so a JVM flag can override a container variable without a redeploy.
+ * <p>Every value is read through {@code platform.settings} and its catalogue entry ({@value #CATALOGUE}, plan item
+ * ST-5): system property first, then environment variable - the same precedence the rest of the codebase uses, so a
+ * JVM flag can override a container variable without a redeploy - then the superseded names the entry lists, with a
+ * warning; a secret may come from the file its {@code _FILE} variant names; and every value is parsed strictly, a
+ * number within the entry's range. {@link #IGNORE_SSL_ENV} is read from openid-federation's entry, the one the
+ * federation servlet reads, so the two cannot disagree (F-0197). Where each value came from is kept
+ * ({@link #provenance()}) and logged as the configuration's banner.
  */
 public final class FederationRuntimeConfig {
     private static final Log LOGGER = LogFactory.getLog(FederationRuntimeConfig.class);
@@ -53,12 +72,19 @@ public final class FederationRuntimeConfig {
      * change here.
      */
     public static final String SELF_ANCHOR_ENV = "OIDF_FEDERATION_SELF_ANCHOR";
-    public static final String IGNORE_SSL_ENV = "OIDF_FEDERATION_IGNORE_SSL_ERRORS";
-    /** The bridge private JWK: what {@code attest_jwt_client_auth} is translated INTO for PF. */
+    /** {@link FederationConfiguration#IGNORE_SSL_ERRORS}: one Setting for the federation servlet and this class (F-0197). */
+    public static final String IGNORE_SSL_ENV = FederationConfiguration.IGNORE_SSL_ERRORS;
+    /**
+     * The single bridge private JWK, removed in 0.1.2 for per-client keys ({@code OIDF_BRIDGE_SIGNING_KEYS}): the
+     * catalogue lists it as removed, so a deployment that still sets it is refused, naming the replacement.
+     */
     public static final String BRIDGE_KEY_ENV = "OIDF_BRIDGE_PRIVATE_JWK";
-    /** Public half of a superseded bridge key, kept in client JWKS during a rotation overlap. */
+    /** Public half of a superseded bridge key, removed with it: refused when set, as {@link #BRIDGE_KEY_ENV} is. */
     public static final String BRIDGE_PREVIOUS_PUBLIC_KEY_ENV = "OIDF_BRIDGE_PREVIOUS_PUBLIC_JWK";
-    /** Default true: without the bridge key, attestation authentication silently does nothing. */
+    /**
+     * The superseded name of {@code OIDF_ATTESTATION_AUTH_ENABLED} (S9A): {@code false} switches attestation
+     * authentication off. Read as that switch's alias ({@link #requireBridgeKey()}).
+     */
     public static final String REQUIRE_BRIDGE_KEY_ENV = "OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY";
     /**
      * Default true. Whether a client whose bridge-key entry names no {@code attesters} is refused at the
@@ -196,55 +222,19 @@ public final class FederationRuntimeConfig {
     public static final String REGISTRATION_ALLOWED_SCOPES_ENV = "OIDF_REGISTRATION_ALLOWED_SCOPES";
 
     /**
-     * Superseded names for the settings above. The attestation issuer's wallet-provider trust read the same
-     * three concepts under these names, so one deployment could name two different trust controllers without
-     * noticing. They are still accepted, with a warning naming the replacement; setting an old and a new
-     * name to different values refuses to start, because two anchors for one concept is the mistake the
-     * rename exists to prevent.
+     * Superseded names for the settings above, now the catalogue's aliases: the attestation issuer's wallet-provider
+     * trust read the same three concepts under these names, so one deployment could name two different trust
+     * controllers without noticing. They are still read, with a warning naming the replacement; an old and a new name
+     * set to different values is refused, because two anchors for one concept is the mistake the rename exists to
+     * prevent. {@code OIDF_TRUST_CONTROLLER_IGNORE_SSL} is {@link FederationConfiguration#IGNORE_SSL_ERRORS}'s alias,
+     * in openid-federation's catalogue, since the federation servlet reads the same setting (F-0197).
      */
     public static final String DEPRECATED_HOST_ENV = "OIDF_TRUST_CONTROLLER_HOST";
     public static final String DEPRECATED_TRUST_ANCHOR_JWKS_ENV = "OIDF_TRUST_ANCHOR_JWKS";
     public static final String DEPRECATED_IGNORE_SSL_ENV = "OIDF_TRUST_CONTROLLER_IGNORE_SSL";
-    private static final String DEPRECATED_HOST_PROP = "oidf.trust.controller.host";
-    private static final String DEPRECATED_TRUST_ANCHOR_JWKS_PROP = "oidf.trust.anchor.jwks";
-    private static final String DEPRECATED_IGNORE_SSL_PROP = "oidf.trust.controller.ignore.ssl";
 
-    private static final String HOST_PROP = "oidf.federation.trust.controller.host";
-    private static final String BASE_URL_PROP = "oidf.federation.trust.controller.base.url";
-    private static final String TRUST_ANCHOR_JWKS_PROP = "oidf.federation.trust.anchor.jwks";
-    private static final String SELF_ANCHOR_PROP = "oidf.federation.self.anchor";
-    private static final String IGNORE_SSL_PROP = "oidf.federation.ignore.ssl.errors";
-    private static final String BRIDGE_KEY_PROP = "oidf.bridge.private.jwk";
-    private static final String BRIDGE_PREVIOUS_PUBLIC_KEY_PROP = "oidf.bridge.previous.public.jwk";
-    private static final String REQUIRE_BRIDGE_KEY_PROP = "oidf.attestation.require.bridge.key";
-    private static final String REQUIRE_ATTESTER_BINDING_PROP = "oidf.attestation.require.attester.binding";
-    private static final String REQUIRE_METADATA_POLICY_PROP = "oidf.require.metadata.policy";
-    private static final String REGISTRATION_MAX_TTL_PROP = "oidf.registration.max.ttl.seconds";
-    private static final String REGISTRATION_MIN_TTL_PROP = "oidf.registration.min.ttl.seconds";
-    private static final String REGISTRATION_REFRESH_BEFORE_EXPIRY_PROP = "oidf.registration.refresh.before.expiry.seconds";
-    private static final String REGISTRATION_EXPIRY_ENFORCEMENT_PROP = "oidf.registration.expiry.enforcement";
-    private static final String REGISTRATION_SWEEP_INTERVAL_PROP = "oidf.registration.sweep.interval.seconds";
-    private static final String AUTO_REGISTRATION_FAIL_CLOSED_PROP = "oidf.auto.registration.fail.closed";
-    private static final String AUTO_REGISTRATION_FRONT_CHANNEL_PROP = "oidf.auto.registration.front.channel";
-    private static final String AUTO_REGISTRATION_AUTHZ_ERROR_MODE_PROP = "oidf.auto.registration.authz.error.mode";
-    private static final String AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS_PROP = "oidf.auto.registration.encrypted.request.objects";
-    private static final String AUTO_REGISTRATION_DEFAULT_SCOPES_PROP = "oidf.auto.registration.default.scopes";
-    private static final String AUTO_REGISTRATION_REQUIRE_PAR_PROP = "oidf.auto.registration.require.par";
-    private static final String AUTO_REGISTRATION_REQUIRE_PKCE_PROP = "oidf.auto.registration.require.pkce";
-    private static final String AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES_PROP = "oidf.auto.registration.max.request.object.bytes";
-    private static final String AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS_PROP = "oidf.auto.registration.max.concurrent.resolutions";
-    private static final String AUTO_REGISTRATION_LOCK_WAIT_MS_PROP = "oidf.auto.registration.lock.wait.ms";
-    private static final String FEDERATION_ERROR_PAGE_PROP = "oidf.federation.error.page";
-    private static final String REQUIRED_TRUST_MARKS_PROP = "oidf.federation.required.trust.marks";
-    private static final String TRUST_MARK_STATUS_CHECK_PROP = "oidf.federation.trust.mark.status.check";
-    private static final String TRUST_MARK_TYPES_PROP = "oidf.federation.trust.mark.types";
-    private static final String TRUST_MARKS_PROP = "oidf.federation.trust.marks";
-    private static final String TRUST_MARK_ISSUERS_PROP = "oidf.federation.trust.mark.issuers";
-    private static final String TRUST_MARK_OWNERS_PROP = "oidf.federation.trust.mark.owners";
-    private static final String HISTORICAL_KEYS_PROP = "oidf.federation.historical.keys";
-    private static final String KEY_HISTORY_GRACE_PROP = "oidf.federation.key.history.grace.seconds";
-    private static final String AUTHORITY_METADATA_POLICY_PROP = "oidf.authority.metadata.policy";
-    private static final String SUBORDINATE_CONSTRAINTS_PROP = "oidf.federation.subordinate.constraints";
+    /** The settings catalogue this class reads ({@code META-INF/oidf-settings/federation-runtime.json}). */
+    public static final String CATALOGUE = "federation-runtime";
 
     /**
      * What this entity publishes and issues as a Trust Mark Issuer and, when it is one, as a trust anchor.
@@ -405,18 +395,19 @@ public final class FederationRuntimeConfig {
     }
 
     private static volatile FederationRuntimeConfig instance;
+    /** The loaded catalogue, read afresh from each call's sources ({@link #settings(Sources)}). */
+    private static volatile Settings catalogueSettings;
 
     private final String trustControllerHost;
     private final String trustControllerBaseUrl;
     private final String trustAnchorJwks;
     private final String selfAnchor;
     private final boolean ignoreSslErrors;
-    private final String bridgePrivateJwk;
-    private final String bridgePreviousPublicJwk;
     private final boolean requireBridgeKey;
     private final boolean requireMetadataPolicy;
     private final boolean requireAttesterBinding;
     private final List<String> deprecationWarnings;
+    private final List<String> provenance;
     private final RegistrationSettings registration;
     private final AutoRegistrationSettings autoRegistration;
     private final TrustMarkPolicy requiredTrustMarks;
@@ -428,48 +419,62 @@ public final class FederationRuntimeConfig {
     private final PdpSettings pdp;
     private final EndpointAuthPolicy endpointAuth;
 
-    private FederationRuntimeConfig(String trustControllerHost, String trustControllerBaseUrl, String trustAnchorJwks,
-            boolean ignoreSslErrors, String bridgePrivateJwk, String bridgePreviousPublicJwk, boolean requireBridgeKey,
-            boolean requireMetadataPolicy, boolean requireAttesterBinding, List<String> deprecationWarnings,
-            RegistrationSettings registration, AutoRegistrationSettings autoRegistration, TrustMarkPolicy requiredTrustMarks,
-            boolean trustMarkStatusCheck, TrustMarkIssuingSettings trustMarkIssuing, KeyHistorySettings keyHistory,
-            Map<String, Object> authorityMetadataPolicy, Map<String, Object> subordinateConstraints, PdpSettings pdp, String selfAnchor,
-            EndpointAuthPolicy endpointAuth) {
-        this.selfAnchor = selfAnchor;
+    private FederationRuntimeConfig(Read read, RegistrationSettings registration, AutoRegistrationSettings autoRegistration,
+            TrustMarkPolicy requiredTrustMarks, TrustMarkIssuingSettings trustMarkIssuing, KeyHistorySettings keyHistory,
+            Map<String, Object> authorityMetadataPolicy, Map<String, Object> subordinateConstraints, PdpSettings pdp,
+            EndpointAuthPolicy endpointAuth, Values values) {
+        this.selfAnchor = values.selfAnchor;
         this.endpointAuth = Objects.requireNonNull(endpointAuth, "endpointAuth");
-        this.deprecationWarnings = List.copyOf(deprecationWarnings);
+        this.deprecationWarnings = List.copyOf(read.warnings);
+        this.provenance = List.copyOf(read.provenance);
         this.registration = Objects.requireNonNull(registration, "registration");
         this.autoRegistration = Objects.requireNonNull(autoRegistration, "autoRegistration");
         this.requiredTrustMarks = Objects.requireNonNull(requiredTrustMarks, "requiredTrustMarks");
-        this.trustMarkStatusCheck = trustMarkStatusCheck;
+        this.trustMarkStatusCheck = values.trustMarkStatusCheck;
         this.trustMarkIssuing = Objects.requireNonNull(trustMarkIssuing, "trustMarkIssuing");
         this.keyHistory = Objects.requireNonNull(keyHistory, "keyHistory");
         this.authorityMetadataPolicy = Objects.requireNonNull(authorityMetadataPolicy, "authorityMetadataPolicy");
         this.subordinateConstraints = subordinateConstraints;
         this.pdp = Objects.requireNonNull(pdp, "pdp");
-        this.trustAnchorJwks = blankToNull(trustAnchorJwks);
-        this.bridgePrivateJwk = blankToNull(bridgePrivateJwk);
-        this.bridgePreviousPublicJwk = blankToNull(bridgePreviousPublicJwk);
-        this.requireBridgeKey = requireBridgeKey;
-        this.requireMetadataPolicy = requireMetadataPolicy;
-        this.requireAttesterBinding = requireAttesterBinding;
-        this.trustControllerHost = trustControllerHost == null ? "" : trustControllerHost.trim();
-        String base = trustControllerBaseUrl == null ? "" : trustControllerBaseUrl.trim();
+        this.trustAnchorJwks = blankToNull(values.trustAnchorJwks);
+        this.requireBridgeKey = values.requireBridgeKey;
+        this.requireMetadataPolicy = values.requireMetadataPolicy;
+        this.requireAttesterBinding = values.requireAttesterBinding;
+        this.trustControllerHost = values.trustControllerHost == null ? "" : values.trustControllerHost.trim();
+        String base = values.trustControllerBaseUrl == null ? "" : values.trustControllerBaseUrl.trim();
         // The identity and its reachable location are the same thing in most deployments; only a PF
         // serving federation under a context path (e.g. /oidf) needs them to differ.
         this.trustControllerBaseUrl = base.isBlank() ? this.trustControllerHost : base;
-        this.ignoreSslErrors = ignoreSslErrors;
+        this.ignoreSslErrors = values.ignoreSslErrors;
     }
 
-    /** The process-wide configuration, resolved on first use and cached. */
+    /** The plain values {@link #from(Sources)} reads, before the constructor checks and keeps them. */
+    private static final class Values {
+        String trustControllerHost;
+        String trustControllerBaseUrl;
+        String trustAnchorJwks;
+        String selfAnchor;
+        boolean ignoreSslErrors;
+        boolean requireBridgeKey;
+        boolean requireMetadataPolicy;
+        boolean requireAttesterBinding;
+        boolean trustMarkStatusCheck;
+    }
+
+    /**
+     * The process-wide configuration, resolved on first use and cached. The first resolution logs this configuration's
+     * banner at INFO: every federation setting that is set, with the source and the name that supplied it
+     * ({@link #provenance()}), never a value.
+     */
     public static FederationRuntimeConfig get() {
         FederationRuntimeConfig local = instance;
         if (local == null) {
             synchronized (FederationRuntimeConfig.class) {
                 local = instance;
                 if (local == null) {
-                    local = from(System::getenv, System::getProperty);
-                    local.deprecationWarnings().forEach(LOGGER::warn);
+                    local = from(Sources.process());
+                    LOGGER.info("Federation settings (" + CATALOGUE + ", " + FederationConfiguration.CATALOGUE + "): "
+                            + (local.provenance().isEmpty() ? "none set, every one at its default" : String.join("; ", local.provenance())));
                     instance = local;
                 }
             }
@@ -488,198 +493,194 @@ public final class FederationRuntimeConfig {
     }
 
     /** Tests only: forget the resolved configuration so the next {@link #get()} resolves again. */
-    public static void resetForTests() {
+    static void resetForTests() {
         synchronized (FederationRuntimeConfig.class) {
             instance = null;
             ownKeys = FederationRuntimeConfig::pfSigningJwks;
         }
     }
 
-    /**
-     * Test seam: resolve from supplied lookups instead of the real process environment.
-     *
-     * @throws IllegalStateException when a superseded name and its replacement are both set to different values
-     */
+    /** Test seam: {@link #from(Sources)} with this environment and these system properties, and no init-params. */
     public static FederationRuntimeConfig from(Function<String, String> env, Function<String, String> props) {
         Objects.requireNonNull(env, "env");
         Objects.requireNonNull(props, "props");
-        List<String> deprecations = new ArrayList<>();
-        String requireBridge = setting(env, props, REQUIRE_BRIDGE_KEY_PROP, REQUIRE_BRIDGE_KEY_ENV);
-        String requirePolicy = setting(env, props, REQUIRE_METADATA_POLICY_PROP, REQUIRE_METADATA_POLICY_ENV);
-        String requireBinding = setting(env, props, REQUIRE_ATTESTER_BINDING_PROP, REQUIRE_ATTESTER_BINDING_ENV);
-        return new FederationRuntimeConfig(
-                aliased(env, props, HOST_PROP, HOST_ENV, DEPRECATED_HOST_PROP, DEPRECATED_HOST_ENV, deprecations),
-                setting(env, props, BASE_URL_PROP, BASE_URL_ENV),
-                aliased(env, props, TRUST_ANCHOR_JWKS_PROP, TRUST_ANCHOR_JWKS_ENV, DEPRECATED_TRUST_ANCHOR_JWKS_PROP,
-                        DEPRECATED_TRUST_ANCHOR_JWKS_ENV, deprecations),
-                Boolean.parseBoolean(aliased(env, props, IGNORE_SSL_PROP, IGNORE_SSL_ENV, DEPRECATED_IGNORE_SSL_PROP,
-                        DEPRECATED_IGNORE_SSL_ENV, deprecations)),
-                setting(env, props, BRIDGE_KEY_PROP, BRIDGE_KEY_ENV),
-                setting(env, props, BRIDGE_PREVIOUS_PUBLIC_KEY_PROP, BRIDGE_PREVIOUS_PUBLIC_KEY_ENV),
-                // Default TRUE: an absent bridge key makes attestation authentication a no-op, which
-                // is exactly the failure that should be loud rather than silent. Strict, like the three below:
-                // each guards something, and a typo must stop the deployment rather than quietly switch it off.
-                requireBridge == null || requireBridge.isBlank() || strictBoolean(requireBridge, REQUIRE_BRIDGE_KEY_ENV),
-                // Default TRUE for the same reason: a chain with no metadata_policy constrains nothing,
-                // so the leaf's self-published scope and grant_types are simply granted. Silently.
-                requirePolicy == null || requirePolicy.isBlank() || strictBoolean(requirePolicy, REQUIRE_METADATA_POLICY_ENV),
-                // Default TRUE: a client anyone trusted may vouch for is a client anyone trusted may
-                // impersonate at the bridge.
-                requireBinding == null || requireBinding.isBlank() || strictBoolean(requireBinding, REQUIRE_ATTESTER_BINDING_ENV),
-                deprecations,
-                registrationSettings(env, props),
-                autoRegistrationSettings(env, props),
-                requiredTrustMarks(env, props),
-                bool(env, props, TRUST_MARK_STATUS_CHECK_PROP, TRUST_MARK_STATUS_CHECK_ENV, false),
-                new TrustMarkIssuingSettings(
-                        strictly(TRUST_MARK_TYPES_ENV, () -> TrustMarkType.parseAll(setting(env, props, TRUST_MARK_TYPES_PROP, TRUST_MARK_TYPES_ENV))),
-                        strictly(TRUST_MARKS_ENV, () -> TrustMarkClaims.parseMarks(setting(env, props, TRUST_MARKS_PROP, TRUST_MARKS_ENV))),
-                        strictly(TRUST_MARK_ISSUERS_ENV, () -> TrustMarkClaims.parseIssuers(setting(env, props, TRUST_MARK_ISSUERS_PROP,
-                                TRUST_MARK_ISSUERS_ENV))),
-                        strictly(TRUST_MARK_OWNERS_ENV, () -> TrustMarkClaims.parseOwners(setting(env, props, TRUST_MARK_OWNERS_PROP,
-                                TRUST_MARK_OWNERS_ENV)))),
-                new KeyHistorySettings(bool(env, props, HISTORICAL_KEYS_PROP, HISTORICAL_KEYS_ENV, KeyHistorySettings.DEFAULTS.enabled()),
-                        seconds(env, props, KEY_HISTORY_GRACE_PROP, KEY_HISTORY_GRACE_ENV, KeyHistorySettings.DEFAULTS.graceSeconds())),
-                strictly(AUTHORITY_METADATA_POLICY_ENV, () -> metadataPolicyByType(jsonObject(
-                        setting(env, props, AUTHORITY_METADATA_POLICY_PROP, AUTHORITY_METADATA_POLICY_ENV)))),
-                strictly(SUBORDINATE_CONSTRAINTS_ENV, () -> constraints(jsonObject(
-                        setting(env, props, SUBORDINATE_CONSTRAINTS_PROP, SUBORDINATE_CONSTRAINTS_ENV)))),
-                pdpSettings(env, props),
-                selfAnchor(env, props),
-                endpointAuth(env, props));
+        return from(Sources.of(env, props, null));
+    }
+
+    /**
+     * The federation runtime's settings read from {@code sources}, through its catalogue ({@value #CATALOGUE}). The
+     * catalogue is loaded once: BridgeSigners reads through here on every attestation token request, and a load is a
+     * class-loader scan and a parse. Only the catalogue is kept; each call reads its sources afresh.
+     */
+    public static Settings settings(Sources sources) {
+        Settings local = catalogueSettings;
+        if (local == null) {
+            local = Settings.load(FederationRuntimeConfig.class.getClassLoader(), CATALOGUE);
+            catalogueSettings = local;
+        }
+        return local.with(sources);
+    }
+
+    /**
+     * The configuration {@code sources} give (plan item ST-5): every setting through its catalogue entry - the system
+     * property, then the environment variable, then the superseded names the entry lists, with a warning - parsed
+     * strictly, a secret's {@code _FILE} variant read, and where each value came from kept for the banner. Four entries
+     * are other catalogues' and read as their owners read them: {@link FederationConfiguration#IGNORE_SSL_ERRORS}
+     * (openid-federation's, which the federation servlet reads too - F-0197), {@code OIDF_FETCH_ALLOW_HTTP}
+     * (oidf-jose's) and {@code OIDF_ATTESTATION_AUTH_ENABLED} (platform's switch, whose superseded name is
+     * {@link #REQUIRE_BRIDGE_KEY_ENV}).
+     *
+     * @throws com.pingidentity.ps.oidf.platform.settings.SettingRefused naming the setting, for a value its entry refuses,
+     *                                                                   or a superseded name and its replacement set to
+     *                                                                   different values; an {@link IllegalStateException}
+     *                                                                   for settings that disagree with each other
+     */
+    public static FederationRuntimeConfig from(Sources sources) {
+        Objects.requireNonNull(sources, "sources");
+        Read read = new Read();
+        Settings runtime = settings(sources);
+        Settings entity = FederationConfiguration.settings(sources);
+        Settings fetch = OutboundUrlPolicy.settings(sources);
+        Settings switches = Settings.load(ComponentSwitches.class.getClassLoader(), ComponentSwitches.CATALOGUE).with(sources);
+        Values v = new Values();
+        v.trustControllerHost = (String) read.from(runtime).resolve(HOST_ENV);
+        v.trustControllerBaseUrl = (String) read.from(runtime).resolve(BASE_URL_ENV);
+        v.trustAnchorJwks = json(read.from(runtime).resolve(TRUST_ANCHOR_JWKS_ENV));
+        v.ignoreSslErrors = (Boolean) read.from(entity).resolve(FederationConfiguration.IGNORE_SSL_ERRORS);
+        // OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY is the switch's superseded name (S9A): false says attestation authentication
+        // is off, which is what requireBridgeKey() has always answered for it.
+        v.requireBridgeKey = !"false".equals(read.from(switches).resolve(ComponentSwitches.ATTESTATION_AUTH));
+        // Default true: a chain with no metadata_policy constrains nothing, so the leaf's self-published scope and
+        // grant_types would simply be granted.
+        v.requireMetadataPolicy = (Boolean) read.from(runtime).resolve(REQUIRE_METADATA_POLICY_ENV);
+        // Default true: a client anyone trusted may vouch for is a client anyone trusted may impersonate at the bridge.
+        v.requireAttesterBinding = (Boolean) read.from(runtime).resolve(REQUIRE_ATTESTER_BINDING_ENV);
+        v.trustMarkStatusCheck = (Boolean) read.from(runtime).resolve(TRUST_MARK_STATUS_CHECK_ENV);
+        URI self = (URI) read.from(runtime).resolve(SELF_ANCHOR_ENV);
+        v.selfAnchor = self == null ? null : self.toString();
+        boolean allowHttp = (Boolean) read.from(fetch).resolve(OutboundUrlPolicy.ALLOW_HTTP_ENV);
+        Read r = read.from(runtime);
+        TrustMarkIssuingSettings marks = new TrustMarkIssuingSettings(
+                strictly(TRUST_MARK_TYPES_ENV, () -> TrustMarkType.parseAll(json(r.resolve(TRUST_MARK_TYPES_ENV)))),
+                strictly(TRUST_MARKS_ENV, () -> TrustMarkClaims.parseMarks((String) r.resolve(TRUST_MARKS_ENV))),
+                strictly(TRUST_MARK_ISSUERS_ENV, () -> TrustMarkClaims.parseIssuers(json(r.resolve(TRUST_MARK_ISSUERS_ENV)))),
+                strictly(TRUST_MARK_OWNERS_ENV, () -> TrustMarkClaims.parseOwners(json(r.resolve(TRUST_MARK_OWNERS_ENV)))));
+        return new FederationRuntimeConfig(read,
+                registrationSettings(r),
+                autoRegistrationSettings(r),
+                strictly(REQUIRED_TRUST_MARKS_ENV, () -> TrustMarkPolicy.parse(json(r.resolve(REQUIRED_TRUST_MARKS_ENV)))),
+                marks,
+                new KeyHistorySettings((Boolean) r.resolve(HISTORICAL_KEYS_ENV), seconds(r.resolve(KEY_HISTORY_GRACE_ENV))),
+                strictly(AUTHORITY_METADATA_POLICY_ENV, () -> metadataPolicyByType(object(r.resolve(AUTHORITY_METADATA_POLICY_ENV)))),
+                strictly(SUBORDINATE_CONSTRAINTS_ENV, () -> constraints(object(r.resolve(SUBORDINATE_CONSTRAINTS_ENV)))),
+                pdpSettings(r, allowHttp),
+                endpointAuth(r),
+                v);
+    }
+
+    /**
+     * The settings {@link #from(Sources)} read, and what their resolution said: the warnings (a superseded name in use, a
+     * legacy spelling under development) and, for each setting that was set, where its value came from.
+     */
+    private static final class Read {
+        final List<String> warnings = new ArrayList<>();
+        final List<String> provenance = new ArrayList<>();
+        private Settings settings;
+
+        /** These reads, from {@code settings}. */
+        Read from(Settings settings) {
+            this.settings = settings;
+            return this;
+        }
+
+        /** {@code name}'s value, typed as its entry says; its warnings and, when it was set, its provenance kept. */
+        Object resolve(String name) {
+            Resolved resolved = this.settings.resolve(name);
+            this.warnings.addAll(resolved.warnings());
+            if (!resolved.provenance().isDefault()) {
+                this.provenance.add(name + " from " + resolved.provenance());
+            }
+            return resolved.value();
+        }
+    }
+
+    /** A {@code json-object} entry's value as JSON text for the parsers that read text, or null when unset. */
+    private static String json(Object value) {
+        return value == null ? null : Json.write(value);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> object(Object value) {
+        return (Map<String, Object>) value;
+    }
+
+    /** A {@code seconds} or {@code millis} entry's value in its own unit. */
+    private static long seconds(Object value) {
+        return ((Duration) value).toSeconds();
+    }
+
+    private static long millis(Object value) {
+        return ((Duration) value).toMillis();
     }
 
     /** {@link #ENDPOINT_AUTH_ENV} with the algorithms {@link #ENDPOINT_AUTH_SIGNING_ALGS_ENV} accepts. */
-    private static EndpointAuthPolicy endpointAuth(Function<String, String> env, Function<String, String> props) {
-        java.util.Set<String> named = words(ENDPOINT_AUTH_SIGNING_ALGS_ENV, setting(env, props, prop(ENDPOINT_AUTH_SIGNING_ALGS_ENV),
-                ENDPOINT_AUTH_SIGNING_ALGS_ENV));
-        List<String> algorithms = named == null ? DEFAULT_ENDPOINT_AUTH_SIGNING_ALGS
-                : strictly(ENDPOINT_AUTH_SIGNING_ALGS_ENV, () -> EndpointAuthPolicy.asymmetric(List.copyOf(named)));
-        return strictly(ENDPOINT_AUTH_ENV, () -> EndpointAuthPolicy.parse(setting(env, props, prop(ENDPOINT_AUTH_ENV), ENDPOINT_AUTH_ENV),
-                algorithms));
+    private static EndpointAuthPolicy endpointAuth(Read r) {
+        @SuppressWarnings("unchecked")
+        java.util.Set<String> named = (java.util.Set<String>) r.resolve(ENDPOINT_AUTH_SIGNING_ALGS_ENV);
+        List<String> algorithms = strictly(ENDPOINT_AUTH_SIGNING_ALGS_ENV, () -> EndpointAuthPolicy.asymmetric(List.copyOf(named)));
+        return strictly(ENDPOINT_AUTH_ENV, () -> EndpointAuthPolicy.parse(json(r.resolve(ENDPOINT_AUTH_ENV)), algorithms));
     }
 
-    /** {@link #SELF_ANCHOR_ENV}: an https Entity Identifier (OpenID Federation 1.0 §1.2), or null. */
-    private static String selfAnchor(Function<String, String> env, Function<String, String> props) {
-        String entityId = blankToNull(setting(env, props, SELF_ANCHOR_PROP, SELF_ANCHOR_ENV));
-        if (entityId != null && !(entityId.startsWith("https://") && hasHost(entityId))) {
-            throw new IllegalStateException(SELF_ANCHOR_ENV + " must be this deployment's Entity Identifier, an https URL"
-                    + " (OpenID Federation 1.0 §1.2), not " + entityId);
-        }
-        return entityId;
-    }
-
-    private static PdpSettings pdpSettings(Function<String, String> env, Function<String, String> props) {
-        PdpSettings d = PdpSettings.DEFAULTS;
-        String unknownContext = choice(env, props, PDP_UNKNOWN_CONTEXT_ENV, "ignore", "ignore", "reject");
+    @SuppressWarnings("unchecked")
+    private static PdpSettings pdpSettings(Read r, boolean allowHttp) {
         // AuthZEN 1.0 §10.1: "All API requests within this binding are made via an HTTPS POST request"; §11.1: the PEP-PDP
         // connection "MUST be secured ... (e.g. TLS for HTTP REST)". A decision - and the token that asks for it - is not
         // sent in the clear unless the deployment allows plaintext fetches at all.
-        boolean allowHttp = "true".equalsIgnoreCase(blankToNull(env.apply(com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.ALLOW_HTTP_ENV)));
-        for (String var : List.of(PDP_URL_ENV, PDP_EVALUATION_URL_ENV)) {
-            String url = blankToNull(setting(env, props, prop(var), var));
-            if (url == null) {
-                continue;
-            }
-            if (!url.startsWith("https://") && !(allowHttp && url.startsWith("http://"))) {
-                throw new IllegalStateException(var + " must be an https URL (AuthZEN 1.0 §10.1, §11.1), not " + url + "; set "
-                        + com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.ALLOW_HTTP_ENV + "=true for a plaintext development PDP");
-            }
-            if (!hasHost(url)) {
-                throw new IllegalStateException(var + " is not a URL with a host: " + url);
-            }
-        }
+        String url = pdpUrl(PDP_URL_ENV, (URI) r.resolve(PDP_URL_ENV), allowHttp);
+        String evaluationUrl = pdpUrl(PDP_EVALUATION_URL_ENV, (URI) r.resolve(PDP_EVALUATION_URL_ENV), allowHttp);
+        Secret token = (Secret) r.resolve(PDP_AUTH_TOKEN_ENV);
         return new PdpSettings(
-                PdpMode.valueOf(choice(env, props, PDP_MODE_ENV, "local", "off", "local", "authzen").toUpperCase(java.util.Locale.ROOT)),
-                blankToNull(setting(env, props, prop(PDP_URL_ENV), PDP_URL_ENV)),
-                blankToNull(setting(env, props, prop(PDP_EVALUATION_URL_ENV), PDP_EVALUATION_URL_ENV)),
-                bool(env, props, prop(PDP_DISCOVER_ENV), PDP_DISCOVER_ENV, d.discover()),
-                PdpAuth.valueOf(choice(env, props, PDP_AUTH_ENV, "none", "none", "bearer", "header").toUpperCase(java.util.Locale.ROOT)),
-                blankToNull(setting(env, props, prop(PDP_AUTH_TOKEN_ENV), PDP_AUTH_TOKEN_ENV)),
-                java.util.Optional.ofNullable(blankToNull(setting(env, props, prop(PDP_AUTH_HEADER_ENV), PDP_AUTH_HEADER_ENV))).orElse(d.authHeader()),
-                bool(env, props, prop(PDP_FAIL_OPEN_ENV), PDP_FAIL_OPEN_ENV, d.failOpen()),
-                "reject".equals(unknownContext),
-                seconds(env, props, prop(PDP_CACHE_TTL_ENV), PDP_CACHE_TTL_ENV, d.cacheTtlSeconds()),
-                seconds(env, props, prop(PDP_CONNECT_TIMEOUT_ENV), PDP_CONNECT_TIMEOUT_ENV, d.connectTimeoutMs()),
-                seconds(env, props, prop(PDP_REQUEST_TIMEOUT_ENV), PDP_REQUEST_TIMEOUT_ENV, d.requestTimeoutMs()),
-                bool(env, props, prop(PDP_SURFACE_USER_REASON_ENV), PDP_SURFACE_USER_REASON_ENV, d.surfaceUserReason()),
-                words(REGISTRATION_ALLOWED_SCOPES_ENV, setting(env, props, prop(REGISTRATION_ALLOWED_SCOPES_ENV), REGISTRATION_ALLOWED_SCOPES_ENV)),
-                decisionPoints(setting(env, props, prop(PDP_DECISION_POINTS_ENV), PDP_DECISION_POINTS_ENV), d.decisionPoints()));
+                PdpMode.valueOf(((String) r.resolve(PDP_MODE_ENV)).toUpperCase(java.util.Locale.ROOT)),
+                url,
+                evaluationUrl,
+                (Boolean) r.resolve(PDP_DISCOVER_ENV),
+                PdpAuth.valueOf(((String) r.resolve(PDP_AUTH_ENV)).toUpperCase(java.util.Locale.ROOT)),
+                token == null ? null : token.reveal(),
+                (String) r.resolve(PDP_AUTH_HEADER_ENV),
+                (Boolean) r.resolve(PDP_FAIL_OPEN_ENV),
+                "reject".equals(r.resolve(PDP_UNKNOWN_CONTEXT_ENV)),
+                seconds(r.resolve(PDP_CACHE_TTL_ENV)),
+                millis(r.resolve(PDP_CONNECT_TIMEOUT_ENV)),
+                millis(r.resolve(PDP_REQUEST_TIMEOUT_ENV)),
+                (Boolean) r.resolve(PDP_SURFACE_USER_REASON_ENV),
+                (java.util.Set<String>) r.resolve(REGISTRATION_ALLOWED_SCOPES_ENV),
+                decisionPoints((java.util.Set<String>) r.resolve(PDP_DECISION_POINTS_ENV)));
     }
 
-    private static boolean hasHost(String url) {
-        try {
-            return java.net.URI.create(url).getHost() != null;
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
-    }
-
-    /** The system property for an {@code OIDF_...} variable: lower case, underscores as dots. */
-    private static String prop(String var) {
-        return var.toLowerCase(java.util.Locale.ROOT).replace('_', '.');
-    }
-
-    /** One of {@code allowed}, any case; unset is {@code fallback}; anything else stops the deployment starting. */
-    private static String choice(Function<String, String> env, Function<String, String> props, String var, String fallback, String... allowed) {
-        String value = blankToNull(setting(env, props, prop(var), var));
-        if (value == null) {
-            return fallback;
-        }
-        for (String option : allowed) {
-            if (option.equalsIgnoreCase(value)) {
-                return option;
-            }
-        }
-        throw new IllegalStateException(var + " must be one of " + String.join(", ", allowed) + ", not " + value);
-    }
-
-    /** Space- or comma-separated words; unset is null, "no list", and a list of nothing is refused as a likely slip. */
-    private static java.util.Set<String> words(String var, String value) {
-        if (value == null || value.isBlank()) {
+    /** A PDP URL, https unless {@code OIDF_FETCH_ALLOW_HTTP} allows plaintext; null when unset. */
+    private static String pdpUrl(String var, URI url, boolean allowHttp) {
+        if (url == null) {
             return null;
         }
-        java.util.Set<String> words = new java.util.LinkedHashSet<>();
-        for (String word : value.split("[\\s,]+")) {
-            if (!word.isEmpty()) {
-                words.add(word);
-            }
+        if (!"https".equalsIgnoreCase(url.getScheme()) && !allowHttp) {
+            throw new SettingRefused(var, var + " must be an https URL (AuthZEN 1.0 §10.1, §11.1), not " + url + "; set "
+                    + OutboundUrlPolicy.ALLOW_HTTP_ENV + "=true for a plaintext development PDP");
         }
-        if (words.isEmpty()) {
-            throw new IllegalStateException(var + " lists nothing; leave it unset instead");
-        }
-        return words;
+        return url.toString();
     }
 
-    private static java.util.Set<com.pingidentity.ps.oidf.federation.policy.DecisionPoint> decisionPoints(String value,
-            java.util.Set<com.pingidentity.ps.oidf.federation.policy.DecisionPoint> fallback) {
-        java.util.Set<String> names = words(PDP_DECISION_POINTS_ENV, value);
-        if (names == null) {
-            return fallback;
-        }
+    private static java.util.Set<com.pingidentity.ps.oidf.federation.policy.DecisionPoint> decisionPoints(java.util.Set<String> names) {
         java.util.Set<com.pingidentity.ps.oidf.federation.policy.DecisionPoint> points = java.util.EnumSet.noneOf(
                 com.pingidentity.ps.oidf.federation.policy.DecisionPoint.class);
         for (String name : names) {
             try {
                 points.add(com.pingidentity.ps.oidf.federation.policy.DecisionPoint.valueOf(name.toUpperCase(java.util.Locale.ROOT)));
             } catch (IllegalArgumentException e) {
-                throw new IllegalStateException(PDP_DECISION_POINTS_ENV + " names " + name + ", which is not a decision this deployment asks for");
+                throw new SettingRefused(PDP_DECISION_POINTS_ENV, PDP_DECISION_POINTS_ENV + " names " + name
+                        + ", which is not a decision this deployment asks for");
             }
         }
         return points;
-    }
-
-    /** A JSON object, or null when blank. */
-    private static Map<String, Object> jsonObject(String json) {
-        if (json == null || json.isBlank()) {
-            return null;
-        }
-        try {
-            return new com.fasterxml.jackson.databind.ObjectMapper().readValue(json,
-                    new com.fasterxml.jackson.core.type.TypeReference<java.util.LinkedHashMap<String, Object>>() {});
-        } catch (Exception e) {
-            throw new IllegalArgumentException("not a JSON object");
-        }
     }
 
     /** One {@code metadata_policy} per Entity Type, each one a policy {@link MetadataPolicy} can apply. */
@@ -707,124 +708,37 @@ public final class FederationRuntimeConfig {
         return constraints == null ? null : Map.copyOf(constraints);
     }
 
-    /** A setting parsed by {@code parse}; one it refuses stops the deployment, naming the setting. */
+    /** A setting parsed by {@code parse}; one it refuses stops the deployment, naming the setting ({@link Parsers#strictly}). */
     private static <T> T strictly(String var, java.util.function.Supplier<T> parse) {
-        try {
-            return parse.get();
-        } catch (IllegalArgumentException e) {
-            throw new IllegalStateException(var + ": " + e.getMessage());
-        }
+        return Parsers.strictly(var, parse);
     }
 
-    private static TrustMarkPolicy requiredTrustMarks(Function<String, String> env, Function<String, String> props) {
-        return strictly(REQUIRED_TRUST_MARKS_ENV, () -> TrustMarkPolicy.parse(setting(env, props, REQUIRED_TRUST_MARKS_PROP, REQUIRED_TRUST_MARKS_ENV)));
-    }
-
-    private static AutoRegistrationSettings autoRegistrationSettings(Function<String, String> env, Function<String, String> props) {
-        AutoRegistrationSettings d = AutoRegistrationSettings.DEFAULTS;
-        String errorMode = blankToNull(setting(env, props, AUTO_REGISTRATION_AUTHZ_ERROR_MODE_PROP, AUTO_REGISTRATION_AUTHZ_ERROR_MODE_ENV));
-        if (errorMode != null && !errorMode.equalsIgnoreCase("page") && !errorMode.equalsIgnoreCase("passthrough")) {
-            throw new IllegalStateException(AUTO_REGISTRATION_AUTHZ_ERROR_MODE_ENV + " must be page or passthrough, not " + errorMode);
-        }
-        String encrypted = blankToNull(setting(env, props, AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS_PROP, AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS_ENV));
-        if (encrypted != null && !encrypted.equalsIgnoreCase("allow") && !encrypted.equalsIgnoreCase("refuse")) {
-            throw new IllegalStateException(AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS_ENV + " must be allow or refuse, not " + encrypted);
-        }
+    @SuppressWarnings("unchecked")
+    private static AutoRegistrationSettings autoRegistrationSettings(Read r) {
+        java.nio.file.Path errorPage = (java.nio.file.Path) r.resolve(FEDERATION_ERROR_PAGE_ENV);
         return new AutoRegistrationSettings(
-                bool(env, props, AUTO_REGISTRATION_FRONT_CHANNEL_PROP, AUTO_REGISTRATION_FRONT_CHANNEL_ENV, d.frontChannel()),
-                errorMode == null ? d.pageOnAuthorizationError() : errorMode.equalsIgnoreCase("page"),
-                encrypted == null ? d.allowEncryptedRequestObjects() : encrypted.equalsIgnoreCase("allow"),
-                blankToNull(setting(env, props, AUTO_REGISTRATION_DEFAULT_SCOPES_PROP, AUTO_REGISTRATION_DEFAULT_SCOPES_ENV)),
-                bool(env, props, AUTO_REGISTRATION_REQUIRE_PAR_PROP, AUTO_REGISTRATION_REQUIRE_PAR_ENV, d.requirePar()),
-                bool(env, props, AUTO_REGISTRATION_REQUIRE_PKCE_PROP, AUTO_REGISTRATION_REQUIRE_PKCE_ENV, d.requirePkce()),
-                (int) seconds(env, props, AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES_PROP, AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES_ENV,
-                        d.maxRequestObjectBytes()),
-                (int) seconds(env, props, AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS_PROP, AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS_ENV,
-                        d.maxConcurrentResolutions()),
-                seconds(env, props, AUTO_REGISTRATION_LOCK_WAIT_MS_PROP, AUTO_REGISTRATION_LOCK_WAIT_MS_ENV, d.lockWaitMillis()),
-                blankToNull(setting(env, props, FEDERATION_ERROR_PAGE_PROP, FEDERATION_ERROR_PAGE_ENV)));
+                (Boolean) r.resolve(AUTO_REGISTRATION_FRONT_CHANNEL_ENV),
+                "page".equals(r.resolve(AUTO_REGISTRATION_AUTHZ_ERROR_MODE_ENV)),
+                "allow".equals(r.resolve(AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS_ENV)),
+                String.join(" ", (java.util.Set<String>) r.resolve(AUTO_REGISTRATION_DEFAULT_SCOPES_ENV)),
+                (Boolean) r.resolve(AUTO_REGISTRATION_REQUIRE_PAR_ENV),
+                (Boolean) r.resolve(AUTO_REGISTRATION_REQUIRE_PKCE_ENV),
+                // Read as ints with the catalogue's range (1 to 2147483647), so a number past an int is refused rather
+                // than wrapped to one the check below accepts (F-0198).
+                (Integer) r.resolve(AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES_ENV),
+                (Integer) r.resolve(AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS_ENV),
+                millis(r.resolve(AUTO_REGISTRATION_LOCK_WAIT_MS_ENV)),
+                errorPage == null ? null : errorPage.toString());
     }
 
-    private static boolean bool(Function<String, String> env, Function<String, String> props, String prop, String var, boolean fallback) {
-        String value = blankToNull(setting(env, props, prop, var));
-        return value == null ? fallback : strictBoolean(value, var);
-    }
-
-    private static RegistrationSettings registrationSettings(Function<String, String> env, Function<String, String> props) {
-        RegistrationSettings d = RegistrationSettings.DEFAULTS;
-        String enforcement = blankToNull(setting(env, props, REGISTRATION_EXPIRY_ENFORCEMENT_PROP, REGISTRATION_EXPIRY_ENFORCEMENT_ENV));
-        ExpiryEnforcement parsed;
-        try {
-            parsed = enforcement == null ? d.expiryEnforcement() : ExpiryEnforcement.valueOf(enforcement.toUpperCase(java.util.Locale.ROOT));
-        } catch (IllegalArgumentException e) {
-            throw new IllegalStateException(REGISTRATION_EXPIRY_ENFORCEMENT_ENV + " must be refuse, disable or log, not " + enforcement);
-        }
-        String failClosed = blankToNull(setting(env, props, AUTO_REGISTRATION_FAIL_CLOSED_PROP, AUTO_REGISTRATION_FAIL_CLOSED_ENV));
+    private static RegistrationSettings registrationSettings(Read r) {
         return new RegistrationSettings(
-                seconds(env, props, REGISTRATION_MAX_TTL_PROP, REGISTRATION_MAX_TTL_ENV, d.maxTtlSeconds()),
-                seconds(env, props, REGISTRATION_MIN_TTL_PROP, REGISTRATION_MIN_TTL_ENV, d.minTtlSeconds()),
-                seconds(env, props, REGISTRATION_REFRESH_BEFORE_EXPIRY_PROP, REGISTRATION_REFRESH_BEFORE_EXPIRY_ENV, d.refreshBeforeExpirySeconds()),
-                parsed,
-                seconds(env, props, REGISTRATION_SWEEP_INTERVAL_PROP, REGISTRATION_SWEEP_INTERVAL_ENV, d.sweepIntervalSeconds()),
-                failClosed == null || strictBoolean(failClosed, AUTO_REGISTRATION_FAIL_CLOSED_ENV));
-    }
-
-    /** {@code true} or {@code false}, any case; anything else is refused rather than read as {@code false}. */
-    private static boolean strictBoolean(String value, String var) {
-        if ("true".equalsIgnoreCase(value.trim())) {
-            return true;
-        }
-        if ("false".equalsIgnoreCase(value.trim())) {
-            return false;
-        }
-        throw new IllegalStateException(var + " must be true or false, not " + value);
-    }
-
-    private static long seconds(Function<String, String> env, Function<String, String> props, String prop, String var, long fallback) {
-        String value = blankToNull(setting(env, props, prop, var));
-        if (value == null) {
-            return fallback;
-        }
-        try {
-            return Long.parseLong(value);
-        } catch (NumberFormatException e) {
-            throw new IllegalStateException(var + " must be a whole number, not " + value);
-        }
-    }
-
-    /**
-     * {@link #setting} for a name with a superseded spelling: the new name wins; the old one is used only
-     * when the new one is unset, and leaves a warning; both set to different values is a refusal.
-     */
-    private static String aliased(Function<String, String> env, Function<String, String> props, String prop, String var,
-            String oldProp, String oldVar, List<String> deprecations) {
-        String current = blankToNull(setting(env, props, prop, var));
-        String old = blankToNull(setting(env, props, oldProp, oldVar));
-        if (old == null) {
-            return current;
-        }
-        if (current == null) {
-            deprecations.add(oldVar + " is deprecated; set " + var + " instead (the value was taken from " + oldVar + ")");
-            return old;
-        }
-        if (!current.equals(old)) {
-            throw new IllegalStateException(var + " and its superseded name " + oldVar + " are both set, to different values."
-                    + " They name one thing - set only " + var);
-        }
-        deprecations.add(oldVar + " is deprecated and redundant beside " + var + "; remove it");
-        return current;
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
-    }
-
-    private static String setting(Function<String, String> env, Function<String, String> props, String prop, String var) {
-        String value = props.apply(prop);
-        if (value == null || value.isBlank()) {
-            value = env.apply(var);
-        }
-        return value;
+                seconds(r.resolve(REGISTRATION_MAX_TTL_ENV)),
+                seconds(r.resolve(REGISTRATION_MIN_TTL_ENV)),
+                seconds(r.resolve(REGISTRATION_REFRESH_BEFORE_EXPIRY_ENV)),
+                ExpiryEnforcement.valueOf(((String) r.resolve(REGISTRATION_EXPIRY_ENFORCEMENT_ENV)).toUpperCase(java.util.Locale.ROOT)),
+                seconds(r.resolve(REGISTRATION_SWEEP_INTERVAL_ENV)),
+                (Boolean) r.resolve(AUTO_REGISTRATION_FAIL_CLOSED_ENV));
     }
 
     public String trustControllerHost() {
@@ -937,23 +851,22 @@ public final class FederationRuntimeConfig {
         return this.trustAnchorJwks != null || this.selfAnchor != null;
     }
 
-    /** Warnings about superseded setting names in use, for logging once at start-up. */
+    /**
+     * What resolving the settings warned about: a superseded name in use, or a legacy spelling read under development.
+     * {@code platform.settings} logs each one once, when it is first resolved.
+     */
     public List<String> deprecationWarnings() {
         return this.deprecationWarnings;
     }
 
     /**
-     * Raw superseded bridge private JWK JSON, or null. Retained ONLY so {@code BridgeSigners} can
-     * refuse to start when it is still set - bridge signing is per client now, and a key here signs
-     * nothing.
+     * Where each setting that is set came from, as {@code NAME from <source> <name>} - {@code env
+     * OIDF_FEDERATION_IGNORE_SSL_ERRORS}, {@code system-property oidf.federation.ignore.ssl.errors}, a superseded name, a
+     * {@code _FILE} variant with its file - in the order they were read, never with a value. {@link #get()} logs it as the
+     * configuration's banner.
      */
-    public String bridgePrivateJwk() {
-        return this.bridgePrivateJwk;
-    }
-
-    /** Raw public JWK JSON of a superseded bridge key during rotation, or null. */
-    public String bridgePreviousPublicJwk() {
-        return this.bridgePreviousPublicJwk;
+    public List<String> provenance() {
+        return this.provenance;
     }
 
     public boolean requireBridgeKey() {

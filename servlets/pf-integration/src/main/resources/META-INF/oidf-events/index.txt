@@ -1,0 +1,3 @@
+# The event catalogues of servlets/pf-integration, one component per line (platform.events.EventCatalogue).
+attestation
+fapi

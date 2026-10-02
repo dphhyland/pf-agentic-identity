@@ -25,7 +25,7 @@ class AksWorkloadIdentityValidatorTest {
             "https://australiaeast.oic.prod-aks.azure.com/00000000-0000-0000-0000-000000000000/EXAMPLE/";
     private static final String TRUST_DOMAIN = "aks.demo.azure";
 
-    private final AksWorkloadIdentityValidator validator = new AksWorkloadIdentityValidator();
+    private final AksWorkloadIdentityValidator validator = new AksWorkloadIdentityValidator(CloudPolicies.development());
     private PublicJsonWebKey clusterKey;
     private List<JsonWebKey> bundle;
     private AttestationIssuanceConfig config;

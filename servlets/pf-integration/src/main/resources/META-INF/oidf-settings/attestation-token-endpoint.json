@@ -1,0 +1,70 @@
+{
+  "format": 1,
+  "component": "attestation-token-endpoint",
+  "module": "servlets/pf-integration",
+  "package": "com.pingidentity.ps.oidf.servlet.clientregistration",
+  "families": [],
+  "settings": [
+    {
+      "name": "OIDF_ATTESTATION_REQUIRE_HOSTED_AGENT",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether an attested agent this authority does not host is refused (401); a hosted agent must be active and inside its notAfter whatever this says",
+      "when_wrong": {"effect": "not-checked", "detail": "Anything but true, in any case, means false"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.attestation.require_hosted_agent"},
+        {"from": "env", "name": "OIDF_ATTESTATION_REQUIRE_HOSTED_AGENT"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "oidf.mock.attesters",
+      "kind": "system-property",
+      "type": "path",
+      "default": null,
+      "description": "A JWKS file of attester keys trusted directly, with no federation trust chain: a development and demo hook. The image no longer sets it from a file in the build context; a development deployment mounts the file and sets the property itself",
+      "when_wrong": {"effect": "not-checked", "detail": "A file that cannot be read is ignored; one that can is trusted, with a warning"},
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [{"from": "system-property", "name": "oidf.mock.attesters"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "oidf.attestation.required.claims",
+      "kind": "system-property",
+      "type": "words",
+      "default": null,
+      "description": "The top-level claims every client attestation must carry, comma-separated, at the token-endpoint filter and the OGNL criterion alike (until 0.6.0 only the criterion read it); a client's attestation_required_claims adds to them. The image set workload until 0.6.0; set OIDF_ATTESTATION_REQUIRED_CLAIMS=workload to keep that",
+      "when_wrong": {"effect": "not-checked", "detail": "Read as given; a claim no attester sends refuses every such client"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.attestation.required.claims"},
+        {"from": "env", "name": "OIDF_ATTESTATION_REQUIRED_CLAIMS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_ATTESTATION_REDECIDE_ON_REFRESH_TYPES",
+      "kind": "env",
+      "type": "words",
+      "default": "payment_initiation,account_information",
+      "description": "The authorization_details types, comma-separated, whose refresh must repeat its authorization_details: the issued-details criterion (IssuedDetailsCriterion.withinCeiling on an access-token mapping) refuses a refresh that sends none for a grant holding a detail of one of them, so the client asks again with its details and PingFederate calls the RAR processor's enrich, and so the PDP, again. PingFederate reissues a bare refresh's stored details without asking (F-0105). Only mappings that carry the criterion apply it; blank sends no refresh back",
+      "when_wrong": {"effect": "not-checked", "detail": "Read as given; a type no grant holds sends nothing back"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "env", "name": "OIDF_ATTESTATION_REDECIDE_ON_REFRESH_TYPES"}
+      ],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

@@ -3,15 +3,36 @@
  */
 package com.pingidentity.ps.oidf.rar;
 
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.Set;
+
 /**
  * Immutable settings for the {@link GovernanceEngineClient} / {@link GovernanceEngineRequestBuilder}.
  *
  * <p>Mirrors the field set of the reference {@code RARAuthDetailsProcessor} (PDP URL, domain/service/action,
  * attribute prefix, shared-secret header) and adds the enforcement knobs the reference lacked:
- * {@code denyOnNonPermit} (honour the decision, not just enrich), {@code failOpenOnError}, and
- * {@code insecureTls} (a scoped dev flag instead of an always-on trust-all manager).
+ * {@code failOpenOnError} (fail open when the PDP is unreachable, and only then), the types that need an
+ * authenticated principal, and {@code insecureTls} (a development-only flag instead of an always-on
+ * trust-all manager). The decision is always deny-unless-PERMIT; the switch that once turned that off is gone.
  */
 public final class GovernanceEngineConfig {
+
+    /** The deployment profile that relaxes the development-only rules. Anything else is production. */
+    public static final String PROFILE_DEVELOPMENT = "development";
+    public static final String PROFILE_PRODUCTION = "production";
+    /** The environment variable the profile is read from, as platform names it. */
+    static final String PROFILE_ENV = DeploymentProfile.SETTING;
+
+    /**
+     * The detail types that need an authenticated principal before the PDP is asked: a payment or an
+     * account query decided about a client, or about nobody, is a decision about the wrong party.
+     */
+    public static final Set<String> DEFAULT_AUTHENTICATED_PRINCIPAL_TYPES =
+            Collections.unmodifiableSet(new LinkedHashSet<>(Arrays.asList("payment_initiation", "account_information")));
+
     private final String pdpUrl;
     private final String domainPrefix;
     private final String service;
@@ -20,12 +41,13 @@ public final class GovernanceEngineConfig {
     private final boolean prefixAttributesWithType;
     private final String secretHeader;
     private final String secret;
-    private final boolean denyOnNonPermit;
     private final boolean failOpenOnError;
     private final boolean allowClientAssertedPrincipal;
     private final boolean trustAgentMarker;
     private final boolean insecureTls;
     private final int timeoutMillis;
+    private final Set<String> authenticatedPrincipalTypes;
+    private final String deploymentProfile;
 
     private GovernanceEngineConfig(Builder b) {
         this.pdpUrl = b.pdpUrl;
@@ -36,12 +58,13 @@ public final class GovernanceEngineConfig {
         this.prefixAttributesWithType = b.prefixAttributesWithType;
         this.secretHeader = b.secretHeader;
         this.secret = b.secret;
-        this.denyOnNonPermit = b.denyOnNonPermit;
         this.failOpenOnError = b.failOpenOnError;
         this.allowClientAssertedPrincipal = b.allowClientAssertedPrincipal;
         this.trustAgentMarker = b.trustAgentMarker;
         this.insecureTls = b.insecureTls;
         this.timeoutMillis = b.timeoutMillis;
+        this.authenticatedPrincipalTypes = b.authenticatedPrincipalTypes;
+        this.deploymentProfile = b.deploymentProfile;
     }
 
     public String getPdpUrl() { return pdpUrl; }
@@ -52,26 +75,74 @@ public final class GovernanceEngineConfig {
     public boolean isPrefixAttributesWithType() { return prefixAttributesWithType; }
     public String getSecretHeader() { return secretHeader; }
     public String getSecret() { return secret; }
-    public boolean isDenyOnNonPermit() { return denyOnNonPermit; }
+
+    /**
+     * Whether an unreachable PDP grants the request as asked. Only a transport failure counts as
+     * unreachable ({@link PdpUnavailableException}); a PDP that answers, and answers badly, is refused
+     * whatever this says. Default false.
+     */
     public boolean isFailOpenOnError() { return failOpenOnError; }
 
     /**
-     * Whether a principal the CALLER asserted may be used as the decision subject. Default false.
-     *
-     * <p>PingFederate's {@code AuthorizationDetailContext} carries no resource owner that holds in every flow
-     * (13.1's {@code getUserKey()} is the client id under client credentials), so the principal is read
-     * out-of-band. One source is trustworthy - a request attribute an authn hook
-     * set server-side - and two are not: the {@code login_hint} request parameter and the
-     * {@code _principal_sub} marker inside {@code authorization_details}. Both are simply what the
-     * caller sent. Treating them as the principal lets a client name whoever it likes and have the PDP
-     * decide about that person.
+     * Whether a principal the CALLER asserted may be used as the decision subject: the {@code login_hint}
+     * request parameter and the {@code _principal_sub} marker inside {@code authorization_details}. Both are
+     * simply what the caller sent, so this is a development-only escape hatch: it takes effect only under
+     * {@link #PROFILE_DEVELOPMENT} ({@link #isClientAssertedPrincipalHonoured()}) and goes at 1.0. Default
+     * false.
      */
     public boolean isAllowClientAssertedPrincipal() { return allowClientAssertedPrincipal; }
     public boolean isTrustAgentMarker() { return trustAgentMarker; }
+
+    /** The "Skip TLS verification" switch as stored; {@link #isInsecureTlsHonoured()} is what takes effect. */
     public boolean isInsecureTls() { return insecureTls; }
     public int getTimeoutMillis() { return timeoutMillis; }
 
+    /** The detail types refused before any PDP call unless the principal is a person PingFederate knows. */
+    public Set<String> getAuthenticatedPrincipalTypes() { return authenticatedPrincipalTypes; }
+
+    /** {@code OIDF_DEPLOYMENT_PROFILE} as read at configure time; unset reads as production. */
+    public String getDeploymentProfile() { return deploymentProfile; }
+
+    public boolean isDevelopment() { return PROFILE_DEVELOPMENT.equals(deploymentProfile); }
+
+    /** The switch, AND the profile that lets it mean anything. */
+    public boolean isClientAssertedPrincipalHonoured() { return allowClientAssertedPrincipal && isDevelopment(); }
+
+    /**
+     * Whether the PDP's certificate goes unchecked: the switch AND the development profile. Outside development
+     * the PDP URL must be https ({@link PdpUrlPolicy}), and https to a server whose certificate nobody checks
+     * would meet that rule in name only, so the switch is inert there and configure says so.
+     */
+    public boolean isInsecureTlsHonoured() { return insecureTls && isDevelopment(); }
+
     public static Builder builder() { return new Builder(); }
+
+    /**
+     * The profile a value of {@code OIDF_DEPLOYMENT_PROFILE} names, as platform's {@link DeploymentProfile} reads
+     * it (plan item PR-1): {@code development} for exactly that (trimmed, any case), production for anything else
+     * including unset. There is no third profile.
+     */
+    public static String profileOf(String value) {
+        return DeploymentProfile.parse(value).value();
+    }
+
+    /**
+     * The type list a field holds: comma- or whitespace-separated, blanks dropped, order kept. A null or
+     * blank field is the default list; a field that names no type at all after trimming is an empty set,
+     * which an operator writes deliberately as a single {@code -}.
+     */
+    public static Set<String> authenticatedPrincipalTypesOf(String field) {
+        if (field == null || field.isBlank()) {
+            return DEFAULT_AUTHENTICATED_PRINCIPAL_TYPES;
+        }
+        Set<String> types = new LinkedHashSet<>();
+        for (String type : field.split("[,\\s]+")) {
+            if (!type.isBlank() && !"-".equals(type)) {
+                types.add(type.trim());
+            }
+        }
+        return Collections.unmodifiableSet(types);
+    }
 
     /** Mutable builder with sensible defaults matching the reference plugin's conventions. */
     public static final class Builder {
@@ -83,12 +154,13 @@ public final class GovernanceEngineConfig {
         private boolean prefixAttributesWithType = true;
         private String secretHeader = "CLIENT-TOKEN";
         private String secret;
-        private boolean denyOnNonPermit = true;
         private boolean failOpenOnError = false;
         private boolean allowClientAssertedPrincipal = false;
         private boolean trustAgentMarker = false;
         private boolean insecureTls = false;
-        private int timeoutMillis = 10_000;
+        private int timeoutMillis = PdpTransport.DEFAULT_TOTAL_MILLIS;
+        private Set<String> authenticatedPrincipalTypes = DEFAULT_AUTHENTICATED_PRINCIPAL_TYPES;
+        private String deploymentProfile = PROFILE_PRODUCTION;
 
         public Builder pdpUrl(String v) { this.pdpUrl = v; return this; }
         public Builder domainPrefix(String v) { if (v != null) this.domainPrefix = v; return this; }
@@ -98,12 +170,16 @@ public final class GovernanceEngineConfig {
         public Builder prefixAttributesWithType(boolean v) { this.prefixAttributesWithType = v; return this; }
         public Builder secretHeader(String v) { if (v != null && !v.isBlank()) this.secretHeader = v; return this; }
         public Builder secret(String v) { this.secret = v; return this; }
-        public Builder denyOnNonPermit(boolean v) { this.denyOnNonPermit = v; return this; }
         public Builder failOpenOnError(boolean v) { this.failOpenOnError = v; return this; }
         public Builder allowClientAssertedPrincipal(boolean v) { this.allowClientAssertedPrincipal = v; return this; }
         public Builder trustAgentMarker(boolean v) { this.trustAgentMarker = v; return this; }
         public Builder insecureTls(boolean v) { this.insecureTls = v; return this; }
         public Builder timeoutMillis(int v) { if (v > 0) this.timeoutMillis = v; return this; }
+        public Builder authenticatedPrincipalTypes(Set<String> v) {
+            if (v != null) this.authenticatedPrincipalTypes = Collections.unmodifiableSet(new LinkedHashSet<>(v));
+            return this;
+        }
+        public Builder deploymentProfile(String v) { this.deploymentProfile = profileOf(v); return this; }
 
         public GovernanceEngineConfig build() {
             if (pdpUrl == null || pdpUrl.isBlank()) {

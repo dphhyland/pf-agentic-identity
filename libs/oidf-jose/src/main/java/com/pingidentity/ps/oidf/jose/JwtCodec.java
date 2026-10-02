@@ -47,25 +47,25 @@ public final class JwtCodec {
     private JwtCodec() {
     }
 
-    public static JwtClaims parseUnverifiedClaims(String jwt) throws Exception {
+    /**
+     * The claims of {@code jwt} read without checking its signature, typed so they cannot be passed where verified
+     * claims are expected ({@link UnverifiedClaims}). For choosing which key or registration to look up - the verified
+     * value is then compared with it - or for a log line; never for a decision on its own (RFC 8725 §3.1-3.2). The
+     * oidf-jose README lists every caller and which of those it is.
+     *
+     * @throws JwtVerificationException {@code MALFORMED} when it is not a compact JWS with a JSON claims set
+     */
+    public static UnverifiedClaims parseUnverifiedClaims(String jwt) throws JwtVerificationException {
         JwtConsumer consumer = new JwtConsumerBuilder()
                 .setSkipAllValidators()
                 .setDisableRequireSignature()
                 .setSkipSignatureVerification()
                 .build();
         try {
-            return consumer.processToClaims(jwt);
+            return new UnverifiedClaims(consumer.processToClaims(jwt));
         } catch (InvalidJwtException e) {
             throw translate(e);
         }
-    }
-
-    public static JwtClaims verifyAgainstInlineJwks(String jwt, Map<String, Object> jwks, String expectedIssuer) throws JwtVerificationException {
-        return verifyAgainstInlineJwks(jwt, jwks, expectedIssuer, Set.of());
-    }
-
-    public static JwtClaims verifyAgainstInlineJwks(String jwt, Map<String, Object> jwks, String expectedIssuer, Set<String> acceptedAlgorithms) throws JwtVerificationException {
-        return verifyAgainstInlineJwks(jwt, jwks, expectedIssuer, acceptedAlgorithms, VerificationPolicy.legacy());
     }
 
     /**
@@ -91,25 +91,20 @@ public final class JwtCodec {
      * Verifies a self-contained statement JWT (entity statement, client attestation, ...) against a
      * resolved set of issuer keys. Requires {@code iss}/{@code sub}/{@code exp} (as entity statements
      * and client attestations do) and applies a 60s clock skew. Audience is not validated here.
-     */
-    public static JwtClaims verifyAgainstKeys(String jwt, List<JsonWebKey> keys, String expectedIssuer, Set<String> acceptedAlgorithms) throws JwtVerificationException {
-        return verifyAgainstKeys(jwt, keys, expectedIssuer, acceptedAlgorithms, VerificationPolicy.legacy());
-    }
-
-    /**
-     * As {@link #verifyAgainstKeys(String, List, String, Set)}, plus the {@link VerificationPolicy}:
-     * when it requires {@code kid} the key is selected by an exact match before any verification is
-     * attempted (never by jose4j's key-type heuristics); when it requires {@code iat}, a missing or
-     * future {@code iat} is refused; when it names a {@code typ}, any other type is refused before the
-     * signature is looked at.
+     *
+     * <p>The {@link VerificationPolicy} ({@link VerificationPolicy#legacy()} when null): when it requires {@code kid}
+     * the key is selected by an exact match before any verification is attempted (never by jose4j's key-type
+     * heuristics); when it requires {@code iat}, a missing or future {@code iat} is refused; when it names a
+     * {@code typ}, any other type is refused before the signature is looked at.
+     *
+     * <p>Whatever the policy, the verifier chooses the algorithm and the key, never the token (RFC 8725 §3.1, §3.2):
+     * {@code none} and the MAC algorithms are refused even when {@code acceptedAlgorithms} names them, and only an
+     * asymmetric key that is not marked {@code "use": "enc"} is ever tried.
      */
     public static JwtClaims verifyAgainstKeys(String jwt, List<JsonWebKey> keys, String expectedIssuer,
             Set<String> acceptedAlgorithms, VerificationPolicy policy) throws JwtVerificationException {
         VerificationPolicy effective = policy == null ? VerificationPolicy.legacy() : policy;
-        Map<String, Object> headers = null;
-        if (effective.expectedTyp() != null || effective.requireKid()) {
-            headers = getJwtHeaders(jwt);
-        }
+        Map<String, Object> headers = getJwtHeaders(jwt);
         if (effective.expectedTyp() != null) {
             try {
                 requireType(headers, effective.expectedTyp());
@@ -117,6 +112,7 @@ public final class JwtCodec {
                 throw new JwtVerificationException(JwtVerificationException.Reason.TYP, "expected " + effective.expectedTyp());
             }
         }
+        String[] permitted = permittedAlgorithms(headers, acceptedAlgorithms);
         JwtConsumerBuilder builder = new JwtConsumerBuilder()
                 .setRequireExpirationTime()
                 .setAllowedClockSkewInSeconds(effective.clockSkewSeconds())
@@ -130,14 +126,12 @@ public final class JwtCodec {
             JsonWebKey selected = selectByKid(keys, requireKid(headers));
             builder.setVerificationKey(verificationKeyOf(selected));
         } else {
-            builder.setVerificationKeyResolver(new JwksVerificationKeyResolver(keys == null ? List.of() : keys));
+            builder.setVerificationKeyResolver(new JwksVerificationKeyResolver(signingKeys(keys)));
         }
         if (effective.requireIssuedAt()) {
             builder.setRequireIssuedAt();
         }
-        if (acceptedAlgorithms != null && !acceptedAlgorithms.isEmpty()) {
-            builder.setJwsAlgorithmConstraints(new AlgorithmConstraints(AlgorithmConstraints.ConstraintType.PERMIT, acceptedAlgorithms.toArray(new String[0])));
-        }
+        builder.setJwsAlgorithmConstraints(new AlgorithmConstraints(AlgorithmConstraints.ConstraintType.PERMIT, permitted));
         JwtClaims claims;
         try {
             claims = builder.build().processToClaims(jwt);
@@ -160,25 +154,14 @@ public final class JwtCodec {
      */
     public static JwtClaims verifySignature(String jwt, List<JsonWebKey> keys, Set<String> acceptedAlgorithms) throws JwtVerificationException {
         Map<String, Object> headers = getJwtHeaders(jwt);
-        Object alg = headers.get("alg");
-        if (!(alg instanceof String algorithm) || algorithm.isBlank() || "none".equalsIgnoreCase(algorithm)
-                || algorithm.toUpperCase(java.util.Locale.ROOT).startsWith("HS")
-                || acceptedAlgorithms != null && !acceptedAlgorithms.isEmpty() && !acceptedAlgorithms.contains(algorithm)) {
-            throw new JwtVerificationException(JwtVerificationException.Reason.ALGORITHM);
-        }
         JwtConsumerBuilder builder = new JwtConsumerBuilder()
                 .setSkipAllDefaultValidators()
-                .setJwsAlgorithmConstraints(new AlgorithmConstraints(AlgorithmConstraints.ConstraintType.PERMIT, algorithm));
+                .setJwsAlgorithmConstraints(new AlgorithmConstraints(AlgorithmConstraints.ConstraintType.PERMIT,
+                        permittedAlgorithms(headers, acceptedAlgorithms)));
         if (headers.get("kid") != null) {
             builder.setVerificationKey(verificationKeyOf(selectByKid(keys, requireKid(headers))));
         } else {
-            List<JsonWebKey> asymmetric = new ArrayList<>();
-            for (JsonWebKey key : keys == null ? List.<JsonWebKey>of() : keys) {
-                if (key instanceof PublicJsonWebKey) {
-                    asymmetric.add(key);
-                }
-            }
-            JwksVerificationKeyResolver resolver = new JwksVerificationKeyResolver(asymmetric);
+            JwksVerificationKeyResolver resolver = new JwksVerificationKeyResolver(signingKeys(keys));
             resolver.setDisambiguateWithVerifySignature(true);
             builder.setVerificationKeyResolver(resolver);
         }
@@ -193,8 +176,8 @@ public final class JwtCodec {
      * Verifies a Client Attestation PoP JWT against the public key bound in the attestation's
      * {@code cnf} claim. Per draft-ietf-oauth-attestation-based-client-auth, a PoP JWT carries
      * {@code aud}, {@code jti} and {@code iat} (but no {@code exp}); freshness of {@code iat} is the
-     * caller's responsibility. The signing algorithm is constrained to the supplied asymmetric set,
-     * which excludes {@code none} and MACs.
+     * caller's responsibility. The signing algorithm is constrained to the supplied set, and
+     * {@code none} and MACs are refused whatever it names.
      */
     public static JwtClaims verifyAttestationPop(String jwt, Key popPublicKey, Set<String> acceptedAlgorithms, Set<String> acceptedAudiences, int allowedClockSkewSeconds) throws Exception {
         JwtConsumerBuilder builder = new JwtConsumerBuilder()
@@ -207,9 +190,8 @@ public final class JwtCodec {
         } else {
             builder.setSkipDefaultAudienceValidation();
         }
-        if (acceptedAlgorithms != null && !acceptedAlgorithms.isEmpty()) {
-            builder.setJwsAlgorithmConstraints(new AlgorithmConstraints(AlgorithmConstraints.ConstraintType.PERMIT, acceptedAlgorithms.toArray(new String[0])));
-        }
+        builder.setJwsAlgorithmConstraints(new AlgorithmConstraints(AlgorithmConstraints.ConstraintType.PERMIT,
+                permittedAlgorithms(getJwtHeaders(jwt), acceptedAlgorithms)));
         try {
             return builder.build().processToClaims(jwt);
         } catch (InvalidJwtException e) {
@@ -334,7 +316,42 @@ public final class JwtCodec {
             // A symmetric key selected by kid would let whoever can read the key set sign as the issuer.
             throw new JwtVerificationException(JwtVerificationException.Reason.KEY, "only asymmetric keys verify here");
         }
+        if (!isSigningUse(key)) {
+            throw new JwtVerificationException(JwtVerificationException.Reason.KEY, "the key is for encryption");
+        }
         return ((PublicJsonWebKey) key).getPublicKey();
+    }
+
+    /**
+     * The algorithm the token's header names, when this verifier accepts it: never {@code none} or a MAC algorithm
+     * (RFC 8725 §3.1: "Libraries MUST enable the caller to specify a supported set of algorithms and MUST NOT use any
+     * other algorithms"), and only one of {@code acceptedAlgorithms} when that is not empty. A MAC algorithm would let
+     * anyone who can read a public key set use a key in it as the MAC secret.
+     */
+    static String[] permittedAlgorithms(Map<String, Object> headers, Set<String> acceptedAlgorithms) throws JwtVerificationException {
+        Object alg = headers == null ? null : headers.get("alg");
+        if (!(alg instanceof String algorithm) || algorithm.isBlank() || "none".equalsIgnoreCase(algorithm)
+                || algorithm.toUpperCase(java.util.Locale.ROOT).startsWith("HS")
+                || acceptedAlgorithms != null && !acceptedAlgorithms.isEmpty() && !acceptedAlgorithms.contains(algorithm)) {
+            throw new JwtVerificationException(JwtVerificationException.Reason.ALGORITHM);
+        }
+        return new String[] {algorithm};
+    }
+
+    /** The keys a signature may be checked with: asymmetric ones not marked for encryption. */
+    static List<JsonWebKey> signingKeys(List<JsonWebKey> keys) {
+        List<JsonWebKey> signing = new ArrayList<>();
+        for (JsonWebKey key : keys == null ? List.<JsonWebKey>of() : keys) {
+            if (key instanceof PublicJsonWebKey && isSigningUse(key)) {
+                signing.add(key);
+            }
+        }
+        return signing;
+    }
+
+    /** RFC 7517 §4.2: {@code "use": "enc"} marks a key for encryption; absent or {@code "sig"} may sign. */
+    private static boolean isSigningUse(JsonWebKey key) {
+        return key.getUse() == null || !"enc".equals(key.getUse());
     }
 
     /**

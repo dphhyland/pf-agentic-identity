@@ -1,0 +1,39 @@
+id: F-0121
+title: Documentation that later changes made false, found by PR #33 outside what it fixed
+severity: low
+area: docs
+source: pr-review
+status: open
+plan_items: [D-8]
+prs: []
+verification: ''
+target_release: 1.0.0
+notes: |
+  Found while PR #33 re-read the showcase and the device READMEs on 2026-09-27, and left for the packages that
+  own the code, so that parallel pull requests do not collide:
+  - showcase DATA, modules[13] (libs/conformance): the statusNote says CI "fails when the committed copy is
+    stale", and the dashboard has not been committed since PR #15 (plan decision 18); features[0] counts 192
+    @Requirement uses in 52 test files across 14 modules and facts[3] 14 dependent poms, where a grep on
+    2026-09-27 finds 721 @Requirement uses in 134 test files under 16 module directories, and 16 module poms
+    that depend on it at test scope (the BOM also manages its version).
+  - showcase DATA, modules[6] (instance-registry-datasource) facts[5], the PF-INF/custom-drivers settings row
+    and the SDK plugins page's intro call the descriptor name unverified (item 9), where docs/unverified.md
+    item 9 now says item 4 settled it.
+  - javadoc: servlets/ssf InstanceRegistryReceiverHandler and services/device-enrolment CaepEventHandler still
+    describe device-enrolment's direct compliance endpoint, which PR #28 removed; nothing calls
+    CaepEventHandler any more, and X-A18 retires it.
+  - CONTRIBUTING.md's generated-files paragraph still says the move out of git is a concurrent pull request
+    "until it merges"; PR #15 merged on 2026-09-27. Its local-build section puts CI's Postgres service
+    container in Phase 2 (R-CI5), where build.yml's java job has run one since PR #15, and PR #33 adds Redis.
+
+  Retargeted from 0.5.0 to 0.6.0 on 2026-09-29, still open for the showcase: on origin/main 4b1fd979 the showcase DATA
+  line's modules[13] still says CI fails when the committed dashboard is stale and counts 192 @Requirement uses in 52
+  test files across 14 modules, and modules[6]'s PF-INF/custom-drivers row still calls the descriptor name unverified
+  (item 9). The javadoc item is half gone: servlets/ssf no longer has an InstanceRegistryReceiverHandler, while
+  services/device-enrolment's CaepEventHandler is still there for X-A18. The showcase is one line of JSON that every
+  package edits by JSON path; its corrections belong to a pull request that owns it (plan item D-8), not to the
+  release.
+
+  Retargeted from 0.6.0 to 1.0.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  the stale sentences left are in the showcase's DATA and in javadoc, which the release package does not edit, and
+  D-8 (Phase 7) is the plan item that owns documentation drift.

@@ -45,17 +45,7 @@ class LocalFirstTrustControllerGatewayTest {
         passThrough.bindTrustAnchors(f.trustAnchors(), Set.of());
         passThrough.bindTrustAnchor(f.trustAnchor(TA), Set.of());
         assertEquals(f.entityConfiguration(TA), passThrough.anchorConfiguration(f.trustAnchor(TA), Set.of(), null));
-        assertEquals(TA, passThrough.fetchEntityConfiguration().getSubject(), "the wrapped gateway's own trust controller");
         passThrough.evictCachedStatement(TA, LEAF);
         assertEquals(0, passThrough.newPendingWrites().stagedCount());
-    }
-
-    @Test
-    void membersComeFromTheWrappedGateway() throws Exception {
-        Federation f = Federation.builder().anchor(TA).leaf(LEAF, TA).build();
-        f.http().put(TA + "/list", "[\"" + LEAF + "\"]");
-        HttpTrustControllerGateway http = f.gateway(TA);
-
-        assertEquals(List.of(LEAF), new LocalFirstTrustControllerGateway(http, answering(Map.of(), Map.of())).fetchMembers());
     }
 }

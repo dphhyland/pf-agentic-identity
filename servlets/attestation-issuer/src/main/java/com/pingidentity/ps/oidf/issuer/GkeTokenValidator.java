@@ -3,65 +3,46 @@
  */
 package com.pingidentity.ps.oidf.issuer;
 
-import java.security.Key;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.jose4j.jwa.AlgorithmConstraints;
-import org.jose4j.jwk.JsonWebKey;
-import org.jose4j.jws.JsonWebSignature;
 import org.jose4j.jwt.JwtClaims;
-import org.jose4j.jwt.NumericDate;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
 
 /**
- * The {@code gke-sa-token} evidence type: a Kubernetes service-account token projected by GKE with a
- * custom audience (a pod {@code serviceAccountToken} volume), validated against the cluster's public OIDC
- * JWKS. The token's {@code sub} is Kubernetes-shaped ({@code system:serviceaccount:<ns>:<sa>}), not a
- * SPIFFE ID, so after verification it is mapped onto Google's canonical SPIFFE identifier for GKE
- * workloads — {@code spiffe://PROJECT_ID.svc.id.goog/ns/<ns>/sa/<sa>} — using the client's pinned
- * {@code attestation_trust_domain} as the trust domain. Everything downstream (bindings, minting) then
- * works on the same identifiers Google documents for the workload.
+ * The {@code gke-sa-token} evidence type: a Kubernetes service-account token projected by GKE with a custom audience
+ * (a pod {@code serviceAccountToken} volume), verified against the cluster's JWKS. Its {@code sub},
+ * {@code system:serviceaccount:<ns>:<sa>}, maps onto Google's identifier for the workload,
+ * {@code spiffe://<attestation_trust_domain>/ns/<ns>/sa/<sa>} (the trust domain {@code PROJECT_ID.svc.id.goog}).
  *
- * <p>Checks mirror {@link SpiffeSvidValidator}: signature under an asymmetric-only constraint with the
- * bundle key selected by {@code kid}; {@code exp} required and unexpired; {@code aud} must include the
- * attester issuer (the audience the pod volume projects); optionally {@code iss} must equal the client's
- * pinned {@code attestation_evidence_issuer} (the GKE cluster issuer URL). The trust domain is required in
- * this mode — enforced at config parse — because it names the identifier namespace the mapping mints into.
- * Failures throw {@code invalid_svid}, matching the SPIFFE path.
+ * <p>Beyond {@link CloudTokenValidator}'s checks: when {@code OIDF_ATTESTER_GCP_PROJECTS} is set, the project in the
+ * cluster's issuer ({@code https://container.googleapis.com/v1/projects/PROJECT_ID/locations/LOCATION/clusters/CLUSTER},
+ * Google's identifier for "all Pods in a specific cluster") is one of them, and so is the project of a trust domain
+ * of the form {@code PROJECT_ID.svc.id.goog}; and the client's bindings follow {@link GcpSaTokenValidator#checkWorkloadBindings}.
  */
-public final class GkeTokenValidator implements InstanceAttestationValidator {
+public final class GkeTokenValidator extends CloudTokenValidator {
 
-    /** Kubernetes service-account subject shape: {@code system:serviceaccount:<namespace>:<name>}. */
-    private static final Pattern KSA_SUBJECT = Pattern.compile("system:serviceaccount:([^:]+):([^:]+)");
-
-    private static final Set<String> PERMITTED_ALGORITHMS = ClientAttestationConfig.DEFAULT_ASYMMETRIC_ALGORITHMS;
-
-    private final long allowedClockSkewSeconds;
+    /** A GKE cluster's issuer; group 1 is the project. Development's default when no issuer is pinned. */
+    static final Pattern CLUSTER_ISSUER = Pattern.compile(
+            "https://container\\.googleapis\\.com/v1/projects/([a-z][a-z0-9-]{4,28}[a-z0-9])/locations/[a-z0-9-]+/clusters/[a-z0-9-]+");
 
     public GkeTokenValidator() {
-        this(ClientAttestationConfig.DEFAULT_CLOCK_SKEW_SECONDS);
+        this(ClientAttestationConfig.DEFAULT_CLOCK_SKEW_SECONDS, Policy::process);
     }
 
-    public GkeTokenValidator(long allowedClockSkewSeconds) {
-        this.allowedClockSkewSeconds = allowedClockSkewSeconds;
+    public GkeTokenValidator(Policy policy) {
+        this(ClientAttestationConfig.DEFAULT_CLOCK_SKEW_SECONDS, () -> policy);
+    }
+
+    GkeTokenValidator(long allowedClockSkewSeconds, Supplier<Policy> policy) {
+        super(allowedClockSkewSeconds, policy);
     }
 
     @Override
     public String id() {
         return AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN;
-    }
-
-    @Override
-    public String format() {
-        return SpiffeInstanceAttestationValidator.FORMAT;
-    }
-
-    /** The SPIFFE ID is built from the token's namespace/service-account, namespaced by the trust domain. */
-    @Override
-    public boolean requiresTrustDomain() {
-        return true;
     }
 
     @Override
@@ -76,116 +57,32 @@ public final class GkeTokenValidator implements InstanceAttestationValidator {
     }
 
     @Override
-    public InstanceIdentity validate(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
-            throws IssuanceException {
-        return InstanceIdentity.ofSpiffe(validateSvid(evidence, bundleKeys, config));
+    public List<String> selectorNames() {
+        return KUBERNETES_SELECTORS;
     }
 
-    /**
-     * The SPIFFE-typed validation, kept public so the mapping detail (trust domain, path, raw token) stays
-     * independently assertable; {@link #validate} adapts the result to an {@link InstanceIdentity}.
-     */
-    public SpiffeSvid validateSvid(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
-            throws IssuanceException {
-        if (evidence == null || evidence.isBlank()) {
-            throw IssuanceException.invalidSvid("no service-account token presented");
-        }
-        if (bundleKeys == null || bundleKeys.isEmpty()) {
-            throw IssuanceException.invalidSvid("no trust bundle configured for this client");
-        }
-        String trustDomain = config.expectedTrustDomain();
-        if (trustDomain == null || trustDomain.isBlank()) {
-            throw IssuanceException.invalidClient(
-                    AttestationIssuanceConfig.P_TRUST_DOMAIN + " is required for gke-sa-token evidence");
-        }
+    @Override
+    protected Pattern developmentIssuer() {
+        return CLUSTER_ISSUER;
+    }
 
-        JsonWebSignature jws = new JsonWebSignature();
-        String kid;
-        String alg;
-        try {
-            jws.setCompactSerialization(evidence);
-            kid = jws.getKeyIdHeaderValue();
-            alg = jws.getAlgorithmHeaderValue();
-        } catch (Exception e) {
-            throw IssuanceException.invalidSvid("token is not a well-formed compact JWS");
+    @Override
+    protected void checkBindings(AttestationIssuanceConfig config, Policy policy) throws IssuanceException {
+        String problem = GcpSaTokenValidator.checkWorkloadBindings(config, policy.gcpProjects());
+        if (problem != null) {
+            throw misconfigured("binding_pattern", problem);
         }
-        if (alg == null || !PERMITTED_ALGORITHMS.contains(alg)) {
-            throw IssuanceException.invalidSvid("token uses an unsupported signing algorithm: " + alg);
-        }
+    }
 
-        Key verificationKey = SpiffeSvidValidator.selectKey(bundleKeys, kid);
-        jws.setKey(verificationKey);
-        jws.setAlgorithmConstraints(new AlgorithmConstraints(AlgorithmConstraints.ConstraintType.PERMIT, alg));
-        try {
-            if (!jws.verifySignature()) {
-                throw IssuanceException.invalidSvid("token signature did not verify against the trust bundle");
+    @Override
+    protected Mapped map(JwtClaims claims, Policy policy, AttestationIssuanceConfig config) throws IssuanceException {
+        Set<String> projects = policy.gcpProjects();
+        if (projects != null) {
+            Matcher cluster = CLUSTER_ISSUER.matcher(claims.getClaimValueAsString("iss"));
+            if (!cluster.matches() || !projects.contains(cluster.group(1))) {
+                throw refused("project", "token's cluster is not in a project " + Policy.GCP_PROJECTS + " lists");
             }
-        } catch (IssuanceException e) {
-            throw e;
-        } catch (Exception e) {
-            throw IssuanceException.invalidSvid("token signature verification failed");
         }
-
-        JwtClaims claims;
-        try {
-            claims = JwtClaims.parse(jws.getPayload());
-        } catch (Exception e) {
-            throw IssuanceException.invalidSvid("token payload is not valid JWT claims");
-        }
-
-        String expectedIssuer = config.evidenceIssuer();
-        String issuer = claims.getClaimValueAsString("iss");
-        if (expectedIssuer != null && !expectedIssuer.equals(issuer)) {
-            throw IssuanceException.invalidSvid(
-                    "token issuer '" + issuer + "' does not match expected '" + expectedIssuer + "'");
-        }
-
-        String subject = claims.getClaimValueAsString("sub");
-        if (subject == null || subject.isBlank()) {
-            throw IssuanceException.invalidSvid("token has no 'sub'");
-        }
-        Matcher matcher = KSA_SUBJECT.matcher(subject);
-        if (!matcher.matches()) {
-            throw IssuanceException.invalidSvid("token 'sub' is not a Kubernetes service account: " + subject);
-        }
-
-        long now = NumericDate.now().getValue();
-        long exp;
-        try {
-            if (!claims.hasClaim("exp")) {
-                throw IssuanceException.invalidSvid("token has no 'exp'");
-            }
-            exp = claims.getExpirationTime().getValue();
-        } catch (IssuanceException e) {
-            throw e;
-        } catch (Exception e) {
-            throw IssuanceException.invalidSvid("token 'exp' is malformed");
-        }
-        if (exp + this.allowedClockSkewSeconds < now) {
-            throw IssuanceException.invalidSvid("token has expired");
-        }
-        long iat = 0L;
-        try {
-            if (claims.hasClaim("iat")) {
-                iat = claims.getIssuedAt().getValue();
-            }
-        } catch (Exception ignored) {
-            iat = 0L;
-        }
-
-        List<String> audiences;
-        try {
-            audiences = claims.getAudience();
-        } catch (Exception e) {
-            throw IssuanceException.invalidSvid("token 'aud' is malformed");
-        }
-        if (audiences == null || !audiences.contains(config.issuer())) {
-            throw IssuanceException.invalidSvid("token audience does not include this issuer: " + config.issuer());
-        }
-
-        // Google's canonical SPIFFE identifier for a GKE workload identity.
-        String path = "/ns/" + matcher.group(1) + "/sa/" + matcher.group(2);
-        String spiffeId = "spiffe://" + trustDomain + path;
-        return new SpiffeSvid(spiffeId, trustDomain, path, audiences, exp, iat, evidence);
+        return this.kubernetes(claims);
     }
 }

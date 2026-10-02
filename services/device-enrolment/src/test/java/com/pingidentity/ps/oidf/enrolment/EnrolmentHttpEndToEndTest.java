@@ -15,6 +15,7 @@ import com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationReplayCache
 import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.LocalJwkSigner;
+import com.pingidentity.ps.oidf.device.CaepSignalApplier;
 import com.pingidentity.ps.oidf.device.ComplianceState;
 import com.pingidentity.ps.oidf.device.DeviceAttestationMinter;
 import com.pingidentity.ps.oidf.device.InMemoryInstanceRegistry;
@@ -210,15 +211,26 @@ class EnrolmentHttpEndToEndTest {
         assertFalse(response.body().contains("Exception"), response.body());
     }
 
+    /**
+     * B4, mitigated by M-2 (0.4.0): {@code POST /compliance} took a device id and a status from anyone who
+     * could reach the port. It is gone from the surface. A compliance change still suspends the instance and
+     * the next re-mint still fails - but the change arrives through {@code CaepSignalApplier}, behind a
+     * verified SET at PingFederate's SSF receiver, never through this service's HTTP surface.
+     */
     @Test
-    void aComplianceSignalSuspendsTheInstanceOverHttp() throws Exception {
+    void thereIsNoComplianceRouteAndASuspendedInstanceStillCannotRemintOverHttp() throws Exception {
         String nonce = json(post("/enrol/challenge", "{}")).get("challenge").asText();
         String instanceId = json(post("/enrol", enrolBody(nonce, enclavePublicJwk)))
                 .get("instance_id").asText();
         String deviceId = registry.findInstance(instanceId).orElseThrow().deviceId();
 
-        assertEquals(200, post("/compliance",
-                "{\"device_id\":\"" + deviceId + "\",\"current_status\":\"not-compliant\"}").statusCode());
+        assertEquals(404, post("/compliance",
+                "{\"device_id\":\"" + deviceId + "\",\"current_status\":\"not-compliant\"}").statusCode(),
+                "nothing answers at /compliance");
+        assertEquals(ComplianceState.UNKNOWN,
+                registry.findDevice(deviceId).orElseThrow().complianceState(), "and nothing was applied");
+
+        new CaepSignalApplier(registry).deviceComplianceChange(deviceId, "not-compliant");
         assertEquals(ComplianceState.NOT_COMPLIANT,
                 registry.findDevice(deviceId).orElseThrow().complianceState());
 

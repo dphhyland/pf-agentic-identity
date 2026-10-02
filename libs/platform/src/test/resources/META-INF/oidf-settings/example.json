@@ -1,0 +1,146 @@
+{
+  "format": 1,
+  "component": "example",
+  "module": "libs/platform",
+  "package": "com.pingidentity.ps.oidf.platform.settings",
+  "families": ["OIDF_EXAMPLE_"],
+  "settings": [
+    {
+      "name": "OIDF_EXAMPLE_FAIL_CLOSED",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether a request whose check fails is refused, rather than passed on",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Anything but true or false"},
+      "profile": "accepted-risk:example-fail-open",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.example.fail.closed"},
+        {"from": "env", "name": "OIDF_EXAMPLE_FAIL_CLOSED"}
+      ],
+      "aliases": [
+        {"name": "OIDF_EXAMPLE_REFUSE_ON_FAILURE", "sources": [
+          {"from": "system-property", "name": "oidf.example.refuse.on.failure"},
+          {"from": "env", "name": "OIDF_EXAMPLE_REFUSE_ON_FAILURE"}
+        ]}
+      ],
+      "file": false
+    },
+    {
+      "name": "OIDF_EXAMPLE_TIMEOUT_MS",
+      "kind": "env",
+      "type": "millis",
+      "min": 1,
+      "max": 60000,
+      "default": 2000,
+      "description": "How long a call to the example service may take",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number from 1 to 60000"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.example.timeout.ms"},
+        {"from": "env", "name": "OIDF_EXAMPLE_TIMEOUT_MS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_EXAMPLE_MODE",
+      "kind": "env",
+      "type": "choice",
+      "choices": ["off", "local", "remote"],
+      "default": "local",
+      "description": "Who decides: nobody, this deployment, or the remote service",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Anything else"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.example.mode"},
+        {"from": "env", "name": "OIDF_EXAMPLE_MODE"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_EXAMPLE_URL",
+      "kind": "env",
+      "type": "https-url",
+      "default": null,
+      "description": "The remote service's base URL",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not an https URL with a host"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.example.url"},
+        {"from": "env", "name": "OIDF_EXAMPLE_URL"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_EXAMPLE_TOKEN",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The bearer token sent to the remote service",
+      "when_wrong": {"effect": "per-request", "detail": "The remote service refuses every call"},
+      "profile": "required-in-production",
+      "security": true,
+      "sources": [
+        {"from": "env", "name": "OIDF_EXAMPLE_TOKEN"}
+      ],
+      "aliases": [],
+      "file": true
+    },
+    {
+      "name": "exampleCorsOrigins",
+      "kind": "init-param",
+      "type": "words",
+      "default": null,
+      "description": "The origins a browser may call the example servlet from",
+      "when_wrong": {"effect": "not-checked", "detail": "Not checked: a misspelt origin is refused by the browser"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "init-param", "name": "exampleCorsOrigins"},
+        {"from": "env", "name": "OIDF_EXAMPLE_CORS_ORIGINS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "Request timeout (ms)",
+      "kind": "plugin-field",
+      "type": "int",
+      "min": 1,
+      "max": 60000,
+      "default": "10000",
+      "description": "The example plugin's timeout, set on its configuration screen",
+      "when_wrong": {"effect": "doesnt-start", "detail": "PingFederate refuses the configuration on save"},
+      "profile": "any",
+      "security": false,
+      "sources": [],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "example_max_age",
+      "kind": "extended-property",
+      "type": "seconds",
+      "min": 0,
+      "max": 86400,
+      "default": null,
+      "description": "A client's own limit on how old its example evidence may be",
+      "when_wrong": {"effect": "per-request", "detail": "The client's token requests fail"},
+      "profile": "any",
+      "security": true,
+      "sources": [],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": [
+    {"name": "OIDF_EXAMPLE_STRICT", "from": "env", "replacement": "OIDF_EXAMPLE_FAIL_CLOSED", "release": "0.4.0"},
+    {"name": "OIDF_EXAMPLE_LEGACY_CACHE", "from": "env", "replacement": null, "release": "0.3.0"}
+  ]
+}

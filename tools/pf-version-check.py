@@ -14,14 +14,20 @@ What is checked, and against which key:
                                          PF_VERSION.0, the Terraform version is its major.minor, the
                                          digest is a sha256)
   bom/pom.xml                            <version.pingfederate>            = PF_SDK_MAVEN_VERSION
-  services/gm-api/servlet/pom.xml        <pingfederate.version>            = PF_VERSION
+  services/gm-api/servlet/pom.xml        no <pingfederate.version> of its own: it takes the SDK
+                                         version from the BOM, like every other module
   build/pingfederate/Dockerfile          FROM                              = PF_IMAGE@PF_IMAGE_DIGEST
                                          (a literal, so Dependabot can bump it; pf-version-sync.py
-                                         then rewrites the env file from it)
+                                         then rewrites the env file from it); a FROM naming an
+                                         earlier stage is a stage, not an image
   .github/actions/pf-provided-jars       sources the env file; no image or version literal of its own
   .github/workflows/*.yml                append the env file to $GITHUB_ENV; no image literal
-  conformance/author.sh                  sources the env file; no image literal
-  conformance/apply.sh                   exports TF_VAR_pf_product_version from PF_TERRAFORM_PRODUCT_VERSION
+  conformance/author.sh                  sources $PFAI_VERSION_ENV from conformance/layout.sh; no image
+                                         literal
+  conformance/apply.sh                   sources $PFAI_VERSION_ENV from conformance/layout.sh, and exports
+                                         TF_VAR_pf_product_version from PF_TERRAFORM_PRODUCT_VERSION
+  conformance/layout.sh                  resolves PFAI_VERSION_ENV to build/pf-version.env in this repository
+                                         (the image directory's copy is the public tree's)
   conformance/terraform/provider.tf      product_version = var.pf_product_version
   conformance/terraform/variables.tf     pf_product_version's default      = PF_TERRAFORM_PRODUCT_VERSION
   every other file                       any pingidentity/pingfederate:<tag> reference matches PF_IMAGE,
@@ -104,14 +110,24 @@ def check_files(root, env, problems):
 
     gm = _read(root, "services/gm-api/servlet/pom.xml")
     got = _xml_text(gm, "pingfederate.version")
-    if got != env["PF_VERSION"]:
-        problems.append(f"services/gm-api/servlet/pom.xml: <pingfederate.version> is {got}, PF_VERSION is {env['PF_VERSION']}")
+    if gm is None:
+        problems.append("services/gm-api/servlet/pom.xml: missing")
+    elif got is not None:
+        problems.append(f"services/gm-api/servlet/pom.xml: carries <pingfederate.version> {got}; "
+                        f"it imports the BOM, whose <version.pingfederate> is the one")
 
     df = _read(root, "build/pingfederate/Dockerfile")
-    froms = re.findall(r"^FROM\s+(\S+)", df or "", re.M)
-    if not froms:
+    # A FROM names an image or a stage an earlier FROM named with AS (the builder, capability and deployment
+    # targets start from the one image FROM); every image FROM must be the pinned one, and there must be one.
+    stages, images = set(), []
+    for ref, name in re.findall(r"^FROM\s+(\S+)(?:\s+[Aa][Ss]\s+(\S+))?", df or "", re.M):
+        if ref not in stages:
+            images.append(ref)
+        if name:
+            stages.add(name)
+    if not images:
         problems.append("build/pingfederate/Dockerfile: no FROM line")
-    for f in froms:
+    for f in images:
         if f != image_ref:
             problems.append(f"build/pingfederate/Dockerfile: FROM {f} is not {image_ref}")
 
@@ -132,9 +148,19 @@ def check_files(root, env, problems):
         if not re.search(r"pf-version\.env.*>>\s*\"?\$GITHUB_ENV", wf):
             problems.append(f".github/workflows/{name}: does not append {ENV_FILE} to $GITHUB_ENV")
 
-    author = _read(root, "conformance/author.sh")
-    if author is None or "pf-version.env" not in author:
-        problems.append(f"conformance/author.sh: does not source {ENV_FILE}")
+    # The rig's scripts run in this repository and in the public tree, so they take the env file's path
+    # from conformance/layout.sh; the check is in two halves: each script sources layout.sh and then
+    # $PFAI_VERSION_ENV, and layout.sh resolves that to build/pf-version.env here.
+    layout = _read(root, "conformance/layout.sh")
+    if layout is None or not re.search(r'^\s*PFAI_VERSION_ENV="\$[A-Za-z_]+/build/pf-version\.env"', layout, re.M):
+        problems.append(f"conformance/layout.sh: does not resolve PFAI_VERSION_ENV to {ENV_FILE}")
+    sources_layout = re.compile(r'^\s*(?:\.|source)\s+"\$HERE/layout\.sh"', re.M)
+    sources_env = re.compile(r'^\s*(?:\.|source)\s+"\$PFAI_VERSION_ENV"', re.M)
+    for name in ("author.sh", "apply.sh"):
+        script = _read(root, f"conformance/{name}")
+        if script is None or not sources_layout.search(script) or not sources_env.search(script) \
+                or sources_env.search(script).start() < sources_layout.search(script).start():
+            problems.append(f"conformance/{name}: does not source $PFAI_VERSION_ENV from conformance/layout.sh")
 
     apply_sh = _read(root, "conformance/apply.sh")
     if apply_sh is None or not re.search(r"TF_VAR_pf_product_version=\"?\$\{?PF_TERRAFORM_PRODUCT_VERSION", apply_sh):

@@ -1,0 +1,607 @@
+{
+  "component": "federation",
+  "module": "libs/openid-federation",
+  "description": "OpenID Federation: trust chains, registration, hosted entities, Trust Marks, key history and the policy decision point. The codes are FederationEvents' constants; pf-integration emits most of them.",
+  "logger": "com.pingidentity.ps.oidf.federation.event",
+  "auditProtocol": "OpenID Federation",
+  "fields": {
+    "action": {
+      "pii": "OPERATIONAL",
+      "description": "What the policy decision point was asked about: the action of the decision point (registration, token issuance, hosted-entity enrolment)."
+    },
+    "actor": {
+      "pii": "PSEUDONYMOUS_ID",
+      "description": "Who made an administrative change: the operator's access-token sub - for a client-credentials token, the operator client's id - or, with the development static bearer, admin: and the first eight hex digits of its SHA-256. Never a header: what a caller sends in X-Federation-Actor is only the operator events' claimed_label."
+    },
+    "changed": {
+      "pii": "OPERATIONAL",
+      "description": "What an update changed: metadata or metadata_policy."
+    },
+    "decision": {
+      "pii": "OPERATIONAL",
+      "description": "The policy decision point's answer: permit or deny."
+    },
+    "endpoint": {
+      "pii": "OPERATIONAL",
+      "description": "Where it happened: the registration endpoint, the token endpoint, a front-channel endpoint, or a federation endpoint's name."
+    },
+    "enforcement": {
+      "pii": "OPERATIONAL",
+      "description": "What OIDF_REGISTRATION_EXPIRY_ENFORCEMENT said to do with an expired registration."
+    },
+    "entity_type": {
+      "pii": "OPERATIONAL",
+      "description": "The Entity Type the client registered as (openid_relying_party, oauth_client)."
+    },
+    "exp": {
+      "pii": "OPERATIONAL",
+      "description": "When a signed statement or a retired key expires, in seconds since the epoch."
+    },
+    "expires_at": {
+      "pii": "OPERATIONAL",
+      "description": "When a registration ends, in seconds since the epoch."
+    },
+    "ignored_context": {
+      "pii": "OPERATIONAL",
+      "description": "The request-context keys the policy decision point said it ignored."
+    },
+    "keys_changed": {
+      "pii": "OPERATIONAL",
+      "description": "Whether a refreshed registration's keys differ from the ones it replaced."
+    },
+    "kid": {
+      "pii": "OPERATIONAL",
+      "description": "The key id of one of this PingFederate's own signing keys."
+    },
+    "latency_ms": {
+      "pii": "OPERATIONAL",
+      "description": "How long the policy decision point took to answer, in milliseconds."
+    },
+    "listable": {
+      "pii": "OPERATIONAL",
+      "description": "Whether an enrolled hosted entity is listed at the list endpoint."
+    },
+    "missing_trust_marks": {
+      "pii": "OPERATIONAL",
+      "description": "The Trust Mark types a registration lacked."
+    },
+    "new_kid": {
+      "pii": "OPERATIONAL",
+      "description": "The key id of the signing key that replaced a retired one."
+    },
+    "not_after": {
+      "pii": "OPERATIONAL",
+      "description": "When a Trust Mark grant ends, in seconds since the epoch."
+    },
+    "obligation": {
+      "pii": "OPERATIONAL",
+      "description": "The permit's obligation a token did not meet: scope, grant_types or require_trust_mark."
+    },
+    "obligations": {
+      "pii": "OPERATIONAL",
+      "description": "The obligations a permit carried, by name."
+    },
+    "pdp_request_id": {
+      "pii": "OPERATIONAL",
+      "description": "The policy decision point's own id for the request, for finding it in its logs."
+    },
+    "presented": {
+      "pii": "OPERATIONAL",
+      "description": "How many statements the presented trust chain held."
+    },
+    "previous_expires_at": {
+      "pii": "OPERATIONAL",
+      "description": "When the registration a refresh replaced would have ended, in seconds since the epoch."
+    },
+    "reason": {
+      "pii": "OPERATIONAL",
+      "description": "Why a retired key was revoked: unspecified, compromised or superseded."
+    },
+    "trust_anchor": {
+      "pii": "PSEUDONYMOUS_ID",
+      "description": "The Entity Identifier of the trust anchor a Trust Mark was checked against."
+    },
+    "trust_mark_type": {
+      "pii": "OPERATIONAL",
+      "description": "The Trust Mark type."
+    },
+    "type": {
+      "pii": "OPERATIONAL",
+      "description": "How the client registered: explicit or automatic."
+    }
+  },
+  "events": {
+    "federation.chain.validated": {
+      "description": "The OGNL criterion checked a client's trust chain at token issuance and it validated.",
+      "audit": false,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "endpoint",
+        "presented"
+      ],
+      "declaredOnly": false
+    },
+    "federation.chain.refused": {
+      "description": "The OGNL criterion checked a client's trust chain at token issuance and refused it; reason says why.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "endpoint"
+      ],
+      "declaredOnly": false
+    },
+    "federation.constraints.failed": {
+      "description": "A trust chain broke a Subordinate Statement's constraints. Declared; nothing emits it yet.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [],
+      "declaredOnly": true
+    },
+    "federation.policy.applied": {
+      "description": "A trust chain's metadata policy was applied to a leaf's metadata. Declared; nothing emits it yet.",
+      "audit": false,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [],
+      "declaredOnly": true
+    },
+    "federation.policy.conflict": {
+      "description": "Two metadata policies in a trust chain could not be combined. Declared; nothing emits it yet.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [],
+      "declaredOnly": true
+    },
+    "federation.statement.served": {
+      "description": "An Entity Configuration or Subordinate Statement was served. Declared; nothing emits it yet.",
+      "audit": false,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [],
+      "declaredOnly": true
+    },
+    "federation.request.refused": {
+      "description": "A request to a federation endpoint was refused. Declared; nothing emits it yet - a refusal at a federation endpoint is a FederationErrors log line.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [],
+      "declaredOnly": true
+    },
+    "federation.resolve.served": {
+      "description": "The resolve endpoint answered. Declared; nothing emits it yet.",
+      "audit": false,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [],
+      "declaredOnly": true
+    },
+    "federation.resolve.refused": {
+      "description": "The resolve endpoint refused a request. Declared; nothing emits it yet.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [],
+      "declaredOnly": true
+    },
+    "federation.hosted_entity.enrolled": {
+      "description": "A hosted agent was enrolled, and by whom.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "actor",
+        "listable"
+      ],
+      "declaredOnly": false
+    },
+    "federation.hosted_entity.suspended": {
+      "description": "A hosted agent was suspended, and by whom; the description is the reason given.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "actor"
+      ],
+      "declaredOnly": false
+    },
+    "federation.hosted_entity.reactivated": {
+      "description": "A suspended hosted agent was reactivated, and by whom.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "actor"
+      ],
+      "declaredOnly": false
+    },
+    "federation.hosted_entity.revoked": {
+      "description": "A hosted agent was revoked, permanently, and by whom.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "actor"
+      ],
+      "declaredOnly": false
+    },
+    "federation.hosted_entity.rotated": {
+      "description": "A hosted agent was moved to another hosting key, and by whom.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "actor"
+      ],
+      "declaredOnly": false
+    },
+    "federation.hosted_entity.updated": {
+      "description": "A hosted agent's metadata or metadata policy was changed, and by whom.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "actor",
+        "changed"
+      ],
+      "declaredOnly": false
+    },
+    "federation.hosted_entity.resolved": {
+      "description": "A hosted agent's statement was resolved. Declared; nothing emits it yet.",
+      "audit": false,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [],
+      "declaredOnly": true
+    },
+    "federation.hosted_entity.refused": {
+      "description": "The policy decision point refused an enrolment.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "actor"
+      ],
+      "declaredOnly": false
+    },
+    "federation.registration.created": {
+      "description": "A client was registered - explicit or automatic, at which endpoint, and until when.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "type",
+        "endpoint",
+        "entity_type",
+        "expires_at",
+        "previous_expires_at",
+        "keys_changed"
+      ],
+      "declaredOnly": false
+    },
+    "federation.registration.refreshed": {
+      "description": "A registration was renewed or replaced, until when, and whether its keys changed.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "type",
+        "endpoint",
+        "entity_type",
+        "expires_at",
+        "previous_expires_at",
+        "keys_changed"
+      ],
+      "declaredOnly": false
+    },
+    "federation.registration.refused": {
+      "description": "A registration was refused: the chain, a missing metadata policy, a missing Trust Mark, the policy decision point, or PingFederate dropping the extended properties.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "endpoint",
+        "entity_type",
+        "missing_trust_marks"
+      ],
+      "declaredOnly": false
+    },
+    "federation.registration.expired": {
+      "description": "A request found a registration past its end and not renewed; what happened next follows OIDF_REGISTRATION_EXPIRY_ENFORCEMENT.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "enforcement"
+      ],
+      "declaredOnly": false
+    },
+    "federation.registration.expired_at_issuance": {
+      "description": "The OGNL criterion found an expired registration at token issuance.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "enforcement",
+        "expires_at"
+      ],
+      "declaredOnly": false
+    },
+    "federation.registration.refresh_deferred": {
+      "description": "A due renewal failed but the registration has not expired, so it stands for now.",
+      "audit": false,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "endpoint"
+      ],
+      "declaredOnly": false
+    },
+    "federation.registration.disabled": {
+      "description": "An expired client was disabled, by the request that found it or by the sweeper.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "expires_at"
+      ],
+      "declaredOnly": false
+    },
+    "federation.trust_mark.granted": {
+      "description": "A Trust Mark grant was made, until when, and by whom.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "trust_mark_type",
+        "actor",
+        "not_after"
+      ],
+      "declaredOnly": false
+    },
+    "federation.trust_mark.issued": {
+      "description": "PingFederate signed a Trust Mark.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "trust_mark_type",
+        "exp"
+      ],
+      "declaredOnly": false
+    },
+    "federation.trust_mark.refused": {
+      "description": "A Trust Mark was refused. Declared; nothing emits it yet.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [],
+      "declaredOnly": true
+    },
+    "federation.trust_mark.revoked": {
+      "description": "A Trust Mark grant was revoked, and by whom; the description is the reason given.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "trust_mark_type",
+        "actor"
+      ],
+      "declaredOnly": false
+    },
+    "federation.trust_mark.verified": {
+      "description": "Another issuer's Trust Mark checked out.",
+      "audit": false,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "trust_mark_type",
+        "trust_anchor"
+      ],
+      "declaredOnly": false
+    },
+    "federation.pdp.consulted": {
+      "description": "The policy decision point answered (read decision), or gave no answer (reason no_decision).",
+      "audit": true,
+      "outcomes": [
+        "success",
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "action",
+        "actor",
+        "decision",
+        "endpoint",
+        "ignored_context",
+        "latency_ms",
+        "obligations",
+        "pdp_request_id"
+      ],
+      "declaredOnly": false
+    },
+    "federation.token.refused": {
+      "description": "Token issuance was refused by the policy decision point, or for an obligation the token does not meet.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "obligation"
+      ],
+      "declaredOnly": false
+    },
+    "federation.pdp.failopen": {
+      "description": "The policy decision point gave no answer and OIDF_PDP_FAIL_OPEN=true let the request through.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "action"
+      ],
+      "declaredOnly": false
+    },
+    "federation.anchor.loaded": {
+      "description": "A trust anchor's keys were loaded. Declared; nothing emits it yet.",
+      "audit": false,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [],
+      "declaredOnly": true
+    },
+    "federation.fetch.made": {
+      "description": "A statement was fetched from another entity. Declared; nothing emits it yet. Chatty, so written at DEBUG.",
+      "audit": false,
+      "outcomes": [
+        "success",
+        "failure"
+      ],
+      "level": "debug",
+      "fields": [],
+      "declaredOnly": true
+    },
+    "federation.key.retired": {
+      "description": "PingFederate's signing key changed since it last started: the old key was retired.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "kid",
+        "new_kid",
+        "exp"
+      ],
+      "declaredOnly": false
+    },
+    "federation.key.revoked": {
+      "description": "A retired signing key was revoked, why, and by whom.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "kid",
+        "reason",
+        "actor"
+      ],
+      "declaredOnly": false
+    },
+    "federation.client.authenticated": {
+      "description": "A client authenticated at a federation endpoint.",
+      "audit": false,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "endpoint"
+      ],
+      "declaredOnly": false
+    },
+    "federation.client.refused": {
+      "description": "A client was refused at a federation endpoint.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "endpoint"
+      ],
+      "declaredOnly": false
+    },
+    "attestation.client.verified": {
+      "description": "A client's attestation was verified: by the token-endpoint filter, or by the OGNL issuance criterion (its own verification, or the filter's reused under the same policy). The subject is the client, the partner its attester.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "endpoint"
+      ],
+      "declaredOnly": false
+    },
+    "attestation.client.refused": {
+      "description": "A client's attestation was refused, or a client that authenticates only with one sent none, by the token-endpoint filter or the OGNL issuance criterion. The reason is the OAuth error the filter answers with (the criterion's refusal is PingFederate's configured Error Result).",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "endpoint"
+      ],
+      "declaredOnly": false
+    }
+  }
+}

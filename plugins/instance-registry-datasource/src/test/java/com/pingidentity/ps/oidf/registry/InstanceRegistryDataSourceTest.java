@@ -126,12 +126,20 @@ class InstanceRegistryDataSourceTest {
         }
     }
 
-    private static SimpleFieldList filterOn(String instanceId) {
+    /**
+     * The driver with a plain text field standing in for the SDK's data store selector, whose constructor asks
+     * PingFederate's service registry for its data stores and so cannot run outside PingFederate.
+     */
+    static InstanceRegistryDataSource driver() {
+        return new InstanceRegistryDataSource(System::getenv, org.sourceid.saml20.adapter.gui.TextFieldDescriptor::new);
+    }
+
+    static SimpleFieldList filterOn(String instanceId) {
         return new SimpleFieldList(List.of(new Field(InstanceRegistryDataSource.FILTER_INSTANCE_ID, instanceId)));
     }
 
     private static InstanceRegistryDataSource shellWith(InstanceLookup lookup) {
-        InstanceRegistryDataSource ds = new InstanceRegistryDataSource();
+        InstanceRegistryDataSource ds = driver();
         ds.setLookup(lookup);
         return ds;
     }
@@ -163,7 +171,7 @@ class InstanceRegistryDataSourceTest {
     @Test
     @Requirement("PF-SDK §CustomDataSourceDriver.retrieveValues")
     void retrievingBeforeConfigurationFailsRatherThanNpeOrPassingSilently() {
-        InstanceRegistryDataSource ds = new InstanceRegistryDataSource(); // never configured, no setLookup
+        InstanceRegistryDataSource ds = driver(); // never configured, no setLookup
 
         // requireLookup()'s IllegalStateException is caught by retrieveValues' own fail-closed handling
         // and re-wrapped the same way a registry fault is - one consistent thrown-exception contract for
@@ -213,13 +221,15 @@ class InstanceRegistryDataSourceTest {
     }
 
     /** A tiny in-memory registry, local to this test so it does not depend on the device module's test double. */
-    private static final class InMemoryStyleFixture {
+    static final class InMemoryStyleFixture {
         final InstanceLookup lookup;
         final String instanceId;
+        final InstanceRegistry registry;
 
-        private InMemoryStyleFixture(InstanceLookup lookup, String instanceId) {
+        private InMemoryStyleFixture(InstanceLookup lookup, String instanceId, InstanceRegistry registry) {
             this.lookup = lookup;
             this.instanceId = instanceId;
+            this.registry = registry;
         }
 
         static InMemoryStyleFixture withOneHealthyInstance() throws Exception {
@@ -317,7 +327,7 @@ class InstanceRegistryDataSourceTest {
                     throw new UnsupportedOperationException();
                 }
             };
-            return new InMemoryStyleFixture(new InstanceLookup(registry, UV_WINDOW), instanceId);
+            return new InMemoryStyleFixture(new InstanceLookup(registry, UV_WINDOW), instanceId, registry);
         }
     }
 }

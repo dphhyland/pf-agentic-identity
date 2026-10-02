@@ -1,0 +1,35 @@
+id: F-0325
+title: A token exchange that requests an ID-JAG copies the request's authorization_details into it, and PingFederate calls neither validate nor enrich
+severity: high
+area: rar-paz-plugin, pf-integration
+source: pr-review
+status: open
+plan_items: [S-1, S4d]
+prs: [79]
+verification: ""
+target_release: 0.7.0
+notes: >
+  Found by S4D2's adversarial review on 2026-09-30 (PR #79) and read again the same day with javap -c of
+  pf-protocolengine 13.1.3.0. On a token exchange (grant_type urn:ietf:params:oauth:grant-type:token-exchange)
+  whose requested_token_type is urn:ietf:params:oauth:token-type:id-jag, all four steps skip the RAR processor.
+  (1) TokenEndpointRequestHandler.validateParametersAgainstClient compares grant_type with token-exchange and the
+  requested_token_type parameter with id-jag (offsets 77-184) and skips checkAuthorizationDetails for that request.
+  (2) TokenExchangeRequestValidator.validate stores requestedTokenType.equals(id-jag) in local 7 (offsets 219-228)
+  and calls AuthorizationDetailsUtil.validate only when it is false (offsets 360-375). (3) The TokenExchangeRequest
+  constructor reads the authorization_details parameter and calls AuthorizationDetailsUtil.enrich only when the
+  requested token type is not id-jag (offsets 232-278). (4) SpConnectionOutputGenerationStrategy.generate, when the requested
+  token type is id-jag and the mapped claims hold no authorization_details, writes the request's
+  authorization_details into the ID-JAG's claims (offsets 56-72 and 200-255). So PingFederate 13.1.3 signs an ID-JAG
+  carrying whatever authorization_details the client asked for - payment_initiation or any other type bound to the
+  "Attestation-aware RAR to PingAuthorize" processor - held to neither the containment model nor the PDP. The
+  audience must be an SP connection whose OAuth token exchange settings enable ID-JAG (isIdJagEnabled, filtered in
+  TokenExchangeRequestValidator.validate), and the client must be confidential. High: this authorization server
+  signs authorization_details its PDP never decided, for any downstream authorization server that trusts its ID-JAGs
+  - the JWT-bearer ID-JAG profile F-0108 closes on the receiving side. The plugin cannot reach it: PingFederate calls
+  none of its methods on this path, so route (a) of F-0108 and the new field do not bound it, and S4D3's issuance
+  criterion is an access-token mapping, not SP-connection output. Not driven on the rig (U-0335). Until it is fixed,
+  do not enable ID-JAG on an SP connection's token exchange settings while a client that may send these types can use
+  token exchange. Candidate fixes, for David to schedule: the token-endpoint filter refuses a token exchange that
+  requests an ID-JAG and carries authorization_details of a type bound to this processor; or the SP connection's
+  ID-JAG claim mapping writes authorization_details itself (step 4 copies the request's only when the mapped claims
+  hold none) from a source the PDP decided.

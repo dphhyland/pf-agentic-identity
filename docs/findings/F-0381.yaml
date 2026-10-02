@@ -1,0 +1,19 @@
+id: F-0381
+title: Listing a hosted-only Trust Mark type, or filtering /federation/list by a mark, checks each subject one lookup at a time
+severity: low
+area: openid-federation, pf-integration
+source: design
+status: open
+plan_items: [H-FED-9]
+prs: [88]
+verification: ''
+target_release: 0.7.0
+notes: >
+  From 0.6.0 (package HFEDL, 2026-09-30) TrustMarkIssuer.marked reads the grants of a type in one query. For a type
+  issued to hosted entities only it then checks each subject returned against the hosted-entity registry, through
+  the per-entity predicate OpenIdFederationServlet's init passes (AuthoritySupport::isActiveHostedEntity): one query
+  per standing grant for the Trust Marked Entities Listing (§8.5) without a sub. FederationService.listSubordinates'
+  trust_marked and trust_mark_type filters call isMarked once per subordinate, a grant read each. Closing it needs a
+  batch check - a registry read of the active hosted entities among a set of ids - wired where the servlet builds
+  the issuer, and the list filter answered from one marked() read; both sit in code other packages own this wave
+  (the servlet's init, the list path).

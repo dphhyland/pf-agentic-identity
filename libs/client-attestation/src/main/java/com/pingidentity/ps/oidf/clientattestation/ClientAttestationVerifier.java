@@ -3,8 +3,8 @@
  */
 package com.pingidentity.ps.oidf.clientattestation;
 
+import com.pingidentity.ps.oidf.jose.UnverifiedClaims;
 import java.security.Key;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -17,8 +17,13 @@ import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwt.JwtClaims;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.jose.VerificationPolicy;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.jose.Claims;
+import com.pingidentity.ps.oidf.jose.dpop.DpopProof;
+import com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator;
+import com.pingidentity.ps.oidf.rar.model.Omission;
+import com.pingidentity.ps.oidf.rar.model.RarModels;
 
 /**
  * Verifies an attestation-based client authentication ({@code attest_jwt_client_auth}), in either
@@ -48,13 +53,40 @@ public final class ClientAttestationVerifier {
     private final ClientAttestationConfig config;
     private final AttestationReplayCache replayCache;
     private final AttestationChallengeService challengeService;
+    private final RarModels rarModels;
 
+    /**
+     * A verifier that checks {@code authorization_details} with this classloader's model set
+     * ({@link AttestationRarModels}).
+     *
+     * @throws IllegalStateException when that model set could not be loaded
+     */
     public ClientAttestationVerifier(AttesterKeyResolver attesterKeyResolver, ClientAttestationConfig config,
                                      AttestationReplayCache replayCache, AttestationChallengeService challengeService) {
+        this(attesterKeyResolver, config, replayCache, challengeService, AttestationRarModels.require());
+    }
+
+    private ClientAttestationVerifier(AttesterKeyResolver attesterKeyResolver, ClientAttestationConfig config,
+                                      AttestationReplayCache replayCache, AttestationChallengeService challengeService,
+                                      RarModels rarModels) {
         this.attesterKeyResolver = Objects.requireNonNull(attesterKeyResolver, "attesterKeyResolver");
         this.config = Objects.requireNonNull(config, "config");
         this.replayCache = Objects.requireNonNull(replayCache, "replayCache");
         this.challengeService = challengeService;
+        this.rarModels = Objects.requireNonNull(rarModels, "rarModels");
+    }
+
+    /**
+     * A verifier that checks {@code authorization_details} with the model set given: the one a component loaded
+     * at start-up, so a request never meets a model set it could not load. A factory rather than a second public
+     * constructor, because the flow harness builds a verifier from {@code getConstructors()[0]}.
+     */
+    public static ClientAttestationVerifier withRarModels(AttesterKeyResolver attesterKeyResolver,
+                                                          ClientAttestationConfig config,
+                                                          AttestationReplayCache replayCache,
+                                                          AttestationChallengeService challengeService,
+                                                          RarModels rarModels) {
+        return new ClientAttestationVerifier(attesterKeyResolver, config, replayCache, challengeService, rarModels);
     }
 
     /**
@@ -64,7 +96,10 @@ public final class ClientAttestationVerifier {
      * @param popHeader          the {@code OAuth-Client-Attestation-PoP} value (PoP-JWT mode), or null
      * @param dpopHeader         the {@code DPoP} value (combined mode), or null
      * @param requestMethod      the HTTP method of the token request (for DPoP {@code htm}), or null
-     * @param requestUri         the HTTP target URI of the token request (for DPoP {@code htu}), or null
+     * @param requestUri         the URL of the endpoint the request was sent to, as this server's configuration
+     *                           gives it - never one rebuilt from the {@code Host} header - for the DPoP
+     *                           {@code htu} when the config names no {@link ClientAttestationConfig#expectedHtu()};
+     *                           with neither, DPoP combined mode is refused
      * @param requestedClientId  the {@code client_id} request parameter, if any, to cross-check {@code sub}
      * @return the authenticated client identity and confirmed key
      * @throws ClientAttestationException with the appropriate OAuth error code on any failure
@@ -76,11 +111,12 @@ public final class ClientAttestationVerifier {
     }
 
     /**
-     * As {@link #verify(String, String, String, String, String, String)}, additionally authorizing the
-     * token request's RFC 9396 {@code authorization_details} against the entitlement the attestation
-     * asserts. Authentication (attestation + proof of possession) is verified first; only then is the
-     * requested access authorized. The returned result carries both the attested entitlement and the
-     * granted (authorized) details.
+     * As {@link #verify(String, String, String, String, String, String)}, additionally checking the request's
+     * RFC 9396 {@code authorization_details} against the attestation's own, strictly
+     * ({@link AuthorizationDetailsGate}: CAS §7.1). Authentication (attestation + proof of possession) is verified
+     * first; only then is the requested access checked. The returned result carries the attestation's details,
+     * the granted ones (the request's own, without this repository's two markers) and the fingerprint of the
+     * model set that checked them.
      *
      * @param requestedAuthorizationDetailsJson the {@code authorization_details} request parameter (JSON array), or null
      */
@@ -88,6 +124,25 @@ public final class ClientAttestationVerifier {
                                           String requestMethod, String requestUri, String requestedClientId,
                                           String requestedAuthorizationDetailsJson)
             throws ClientAttestationException {
+        return this.verify(attestationHeader, popHeader, dpopHeader, requestMethod, requestUri, requestedClientId,
+                requestedAuthorizationDetailsJson, Omission.STRICT);
+    }
+
+    /**
+     * As {@link #verify(String, String, String, String, String, String, String)}, with the reading of a field the
+     * attestation constrains and the request leaves out ({@link Omission}). {@link Omission#STRICT} is the check of
+     * details that reach PingFederate as the client sent them: the omission is not within. {@link Omission#INHERIT}
+     * is for a caller that forwards the granted details in place of the request's (the token-endpoint filter at PAR,
+     * CIBA, the device authorization endpoint and the token endpoint, plan item S4d): the granted detail carries the
+     * attestation's value for the field, and is within the attestation's details by the model's own post-condition.
+     *
+     * @param omission how an omitted constrained field is read; never null
+     */
+    public ClientAttestationResult verify(String attestationHeader, String popHeader, String dpopHeader,
+                                          String requestMethod, String requestUri, String requestedClientId,
+                                          String requestedAuthorizationDetailsJson, Omission omission)
+            throws ClientAttestationException {
+        Objects.requireNonNull(omission, "omission");
         try {
             if (attestationHeader == null || attestationHeader.isBlank()) {
                 throw ClientAttestationException.invalidClient("Missing OAuth-Client-Attestation header");
@@ -129,13 +184,13 @@ public final class ClientAttestationVerifier {
                     ? this.verifyPopMode(attestation, popHeader)
                     : this.verifyDpopMode(attestation, dpopHeader, requestMethod, requestUri);
 
-            // ... then authorize the requested access against the attested RFC 9396 entitlement.
-            List<Map<String, Object>> entitled = attestation.authorizationDetails();
-            List<Map<String, Object>> granted =
-                    RarEntitlement.authorize(RarEntitlement.parseArray(requestedAuthorizationDetailsJson), entitled);
+            // ... then check the requested access against the attestation's own (CAS §7.1).
+            List<Map<String, Object>> granted = AuthorizationDetailsGate.check(this.rarModels,
+                    requestedAuthorizationDetailsJson, attestationHeader, omission);
             return new ClientAttestationResult(authenticated.clientId(), authenticated.cnfJwk(),
-                    authenticated.mode(), authenticated.attesterIssuer(), authenticated.proofJti(), entitled, granted,
-                    attestation.workload(), attestation.agentId());
+                    authenticated.mode(), authenticated.attesterIssuer(), authenticated.proofJti(),
+                    attestation.authorizationDetails(), granted, attestation.workload(), attestation.agentId(),
+                    this.rarModels.fingerprint());
         } catch (ClientAttestationException e) {
             throw e;
         } catch (Exception e) {
@@ -204,15 +259,16 @@ public final class ClientAttestationVerifier {
     private ClientAttestation verifyAttestation(String attestationHeader) throws Exception {
         Map<String, Object> headers = JwtCodec.getJwtHeaders(attestationHeader);
         JwtCodec.requireType(headers, ATTESTATION_TYP);
-        JwtClaims unverified = JwtCodec.parseUnverifiedClaims(attestationHeader);
-        String attesterIssuer = Claims.requireNonBlank(unverified.getIssuer(), "iss");
+        UnverifiedClaims unverified = JwtCodec.parseUnverifiedClaims(attestationHeader);
+        String attesterIssuer = Claims.requireNonBlank(unverified.unverifiedIssuer(), "iss");
         List<String> trustChain = ClientAttestationVerifier.trustChainHeader(headers);
 
         List<JsonWebKey> attesterKeys = this.attesterKeyResolver.resolve(attesterIssuer, trustChain);
 
         JwtClaims verified;
         try {
-            verified = JwtCodec.verifyAgainstKeys(attestationHeader, attesterKeys, attesterIssuer, this.config.attestationAlgorithms());
+            verified = JwtCodec.verifyAgainstKeys(attestationHeader, attesterKeys, attesterIssuer, this.config.attestationAlgorithms(),
+                    VerificationPolicy.legacy());
         } catch (JwtVerificationException e) {
             if (e.isExpired()) {
                 throw ClientAttestationException.useFreshAttestation("Client Attestation has expired");
@@ -255,7 +311,8 @@ public final class ClientAttestationVerifier {
     }
 
     private ClientAttestationResult verifyPopMode(ClientAttestation attestation, String popHeader) throws Exception {
-        if (this.config.acceptedAudiences().isEmpty()) {
+        String expectedAudience = this.config.expectedAudience();
+        if (expectedAudience == null) {
             throw ClientAttestationException.invalidClient("Server misconfigured: no expected PoP audience");
         }
         Map<String, Object> headers = JwtCodec.getJwtHeaders(popHeader);
@@ -265,10 +322,16 @@ public final class ClientAttestationVerifier {
         JwtClaims pop;
         try {
             pop = JwtCodec.verifyAttestationPop(popHeader, cnfKey, this.config.popAlgorithms(),
-                    this.config.acceptedAudiences(), this.config.allowedClockSkewSeconds());
+                    Set.of(expectedAudience), this.config.allowedClockSkewSeconds());
         } catch (JwtVerificationException e) {
+            if (e.reason() == JwtVerificationException.Reason.AUDIENCE) {
+                throw ClientAttestationException.invalidClient(WRONG_POP_AUDIENCE, e);
+            }
             throw ClientAttestationException.invalidClient("Client Attestation PoP verification failed: " + e.getMessage(), e);
         }
+        // jose4j accepts an aud that CONTAINS an expected value, so ["<this issuer>", "<anyone>"] got through
+        // it. The draft allows one audience, and it is this server.
+        ClientAttestationVerifier.requireSoleAudience(pop, expectedAudience);
 
         String popIssuer = pop.hasClaim("iss") ? pop.getIssuer() : null;
         if (popIssuer != null && !popIssuer.equals(attestation.clientId())) {
@@ -281,7 +344,7 @@ public final class ClientAttestationVerifier {
         this.enforceChallenge(challenge);
 
         String jti = pop.getJwtId();
-        this.enforceNoReplay(attestation.clientId(), jti, this.config.popMaxAgeSeconds());
+        this.enforceNoReplay(attestation.clientId(), jti, iat, this.config.popMaxAgeSeconds());
 
         LOGGER.debug((Object) ("attestation PoP verified for client_id=" + attestation.clientId()));
         return new ClientAttestationResult(attestation.clientId(), attestation.cnfJwk(),
@@ -289,25 +352,63 @@ public final class ClientAttestationVerifier {
                 java.util.List.of(), java.util.List.of(), attestation.workload(), attestation.agentId());
     }
 
+    /**
+     * Refuses a PoP whose {@code aud} is anything but {@code expected} alone.
+     *
+     * <p>draft-ietf-oauth-attestation-based-client-auth-10 §5.1: "aud: REQUIRED. The aud (audience) claim MUST
+     * specify a value that identifies the intended audience of the JWT. When the JWT is presented to an
+     * Authorization Server, the [RFC8414] issuer identifier URL of the Authorization Server MUST be used. [...]
+     * A Client Attestation PoP JWT is intended for a single audience, Clients MUST generate JWTs for each
+     * target." §7.2, item 7: "The audience claim in the Client Attestation PoP JWT identifies the receiving
+     * server: when validated by an Authorization Server, it MUST be the issuer identifier URL of the
+     * Authorization Server as described in [RFC8414]".
+     *
+     * <p>What that leaves: the issuer as a string, or as the one member of an array. The draft asks for "a
+     * value" and never says "as a string", and RFC 7519 §4.1.3 writes one audience either way: "In the general
+     * case, the "aud" value is an array of case-sensitive strings [...] In the special case when the JWT has
+     * one audience, the "aud" value MAY be a single case-sensitive string". An array with a second member,
+     * even a second copy of the issuer, is not a single audience; the token endpoint URL is not the issuer
+     * identifier. The comparison is exact: RFC 7519 compares StringOrURI values "as case-sensitive strings
+     * with no transformations or canonicalizations applied" (§2), so a trailing slash or a change of case is
+     * another audience.
+     */
+    static void requireSoleAudience(JwtClaims pop, String expected) throws Exception {
+        List<String> audiences = pop.getAudience();
+        if (audiences.size() != 1 || !expected.equals(audiences.get(0))) {
+            throw ClientAttestationException.invalidClient(WRONG_POP_AUDIENCE);
+        }
+    }
+
+    /** Every refusal of a PoP's {@code aud} says the same thing, whichever check found it. */
+    static final String WRONG_POP_AUDIENCE =
+            "Client Attestation PoP 'aud' must be this server's issuer identifier and nothing else";
+
     private ClientAttestationResult verifyDpopMode(ClientAttestation attestation, String dpopHeader,
                                                    String requestMethod, String requestUri) throws Exception {
         DpopProofValidator validator = new DpopProofValidator(this.config.dpopAlgorithms(),
                 this.config.allowedClockSkewSeconds(), this.config.dpopMaxAgeSeconds());
         String expectedHtm = requestMethod != null && !requestMethod.isBlank() ? requestMethod : this.config.expectedHtm();
         String expectedHtu = this.config.expectedHtu() != null ? this.config.expectedHtu() : requestUri;
+        // DpopProofValidator skips the htu comparison when it is given no URL. That skip is a caller's choice
+        // there; here it would let a proof minted for any server authenticate at this one, so no URL is a
+        // misconfiguration, as no audience is in PoP mode.
+        if (expectedHtu == null || expectedHtu.isBlank()) {
+            throw ClientAttestationException.invalidClient("Server misconfigured: no expected DPoP htu");
+        }
 
         DpopProof proof;
         try {
             proof = validator.validate(dpopHeader, expectedHtm, expectedHtu);
-        } catch (ClientAttestationException e) {
-            throw e;
         } catch (Exception e) {
             throw ClientAttestationException.invalidClient("DPoP proof verification failed: " + e.getMessage(), e);
         }
 
         Jwks.assertSameKey(attestation.cnfJwk(), proof.jwk());
+        // The validator judged the proof's age by the system clock; the retention below is judged by this config's
+        // clock, and the two must agree on the window, so the age is held to that clock as well.
+        this.assertFresh(proof.iatEpochSeconds(), this.config.dpopMaxAgeSeconds(), "DPoP");
         this.enforceChallenge(proof.nonce());
-        this.enforceNoReplay(attestation.clientId(), proof.jti(), this.config.dpopMaxAgeSeconds());
+        this.enforceNoReplay(attestation.clientId(), proof.jti(), proof.iatEpochSeconds(), this.config.dpopMaxAgeSeconds());
 
         LOGGER.debug((Object) ("attestation DPoP (combined) verified for client_id=" + attestation.clientId()));
         return new ClientAttestationResult(attestation.clientId(), attestation.cnfJwk(),
@@ -315,14 +416,24 @@ public final class ClientAttestationVerifier {
                 java.util.List.of(), java.util.List.of(), attestation.workload(), attestation.agentId());
     }
 
+    /**
+     * Refuses a proof whose {@code iat} is more than the clock skew ahead of this server, or more than
+     * {@code maxAgeSeconds} plus the skew behind it. The limit is always applied: the config holds every max age
+     * positive (plan item S4c), because the replay retention below is derived from this window and a proof with no
+     * window has no retention that covers it.
+     */
     private void assertFresh(long iat, long maxAgeSeconds, String label) throws ClientAttestationException {
-        long now = Instant.now().getEpochSecond();
+        long now = this.nowEpochSeconds();
         if (iat - now > this.config.allowedClockSkewSeconds()) {
             throw ClientAttestationException.invalidClient(label + " 'iat' is in the future");
         }
-        if (maxAgeSeconds > 0L && now - iat > maxAgeSeconds + this.config.allowedClockSkewSeconds()) {
+        if (now - iat > maxAgeSeconds + this.config.allowedClockSkewSeconds()) {
             throw ClientAttestationException.invalidClient(label + " is stale (older than " + maxAgeSeconds + "s)");
         }
+    }
+
+    private long nowEpochSeconds() {
+        return this.config.clock().millis() / 1000L;
     }
 
     /** Applies challenge policy: required-but-missing or invalid challenge yields {@code use_attestation_challenge}. */
@@ -334,15 +445,64 @@ public final class ClientAttestationVerifier {
             }
             return;
         }
-        if (this.challengeService == null || !this.challengeService.consume(presentedChallenge)) {
+        if (this.challengeService == null) {
             throw ClientAttestationException.useChallenge("Unknown or expired attestation challenge");
+        }
+        switch (this.challengeService.consumeChallenge(presentedChallenge)) {
+            case CONSUMED:
+                return;
+            case STORE_UNAVAILABLE:
+                // An outage of ours, not a stale challenge of theirs: 503, so the client retries the same
+                // challenge later instead of fetching a new one that would meet the same store.
+                throw ClientAttestationException.temporarilyUnavailable("The attestation challenge store is unavailable");
+            default:
+                throw ClientAttestationException.useChallenge("Unknown or expired attestation challenge");
         }
     }
 
-    private void enforceNoReplay(String clientId, String jti, long maxAgeSeconds) throws ClientAttestationException {
-        long ttl = maxAgeSeconds + this.config.allowedClockSkewSeconds();
-        if (!this.replayCache.firstSeen(clientId, jti, ttl)) {
-            throw ClientAttestationException.invalidClient("Replay detected for proof jti");
+    /**
+     * Records the proof's {@code jti} until the proof can no longer be accepted (plan item S4c, F-0036).
+     *
+     * <p>A PoP or DPoP proof is accepted while {@code now - iat <= maxAge + skew} on this server's clock, and another
+     * node's clock may be up to the skew behind it, so the {@code jti} is remembered until
+     * {@code iat + maxAge + 2 x skew}: a proof accepted at the edge of its window stays remembered until no node can
+     * accept it. The retention is never shorter than the one used before S4c ({@code maxAge + skew} from now), so a
+     * proof whose {@code iat} is behind the clock loses nothing. That floor also means the retention is never past
+     * on this server's clock; a store whose clock disagrees answers {@code STALE} without recording anything, and
+     * the proof is refused as stale.
+     */
+    private void enforceNoReplay(String clientId, String jti, long iat, long maxAgeSeconds)
+            throws ClientAttestationException {
+        long retainUntil = retentionFor(iat, maxAgeSeconds, this.config.allowedClockSkewSeconds(), this.nowEpochSeconds());
+        switch (this.replayCache.recordUntil(clientId, jti, retainUntil)) {
+            case FIRST_USE:
+                return;
+            case STORE_UNAVAILABLE:
+                throw ClientAttestationException.temporarilyUnavailable("The attestation replay store is unavailable");
+            case STALE:
+                throw ClientAttestationException.invalidClient("Proof is stale");
+            default:
+                throw ClientAttestationException.invalidClient("Replay detected for proof jti");
+        }
+    }
+
+    /**
+     * The last second a PoP or DPoP proof's {@code jti} is remembered: {@code max(iat + maxAge + 2 x skew,
+     * now + maxAge + skew)}, saturating rather than overflowing for an {@code iat} no proof that passed
+     * {@link #assertFresh} can carry.
+     */
+    static long retentionFor(long iat, long maxAgeSeconds, long skewSeconds, long now) {
+        long fromWindow = saturatingAdd(iat, saturatingAdd(maxAgeSeconds, 2L * skewSeconds));
+        long fromNow = saturatingAdd(now, saturatingAdd(maxAgeSeconds, skewSeconds));
+        return Math.max(fromWindow, fromNow);
+    }
+
+    /** {@code a + b} for a {@code b} that is never negative here (an age and skews), held at the maximum. */
+    private static long saturatingAdd(long a, long b) {
+        try {
+            return Math.addExact(a, b);
+        } catch (ArithmeticException e) {
+            return Long.MAX_VALUE;
         }
     }
 

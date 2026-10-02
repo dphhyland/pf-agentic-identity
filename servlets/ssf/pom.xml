@@ -6,7 +6,7 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>ssf</artifactId>
-    <version>0.4.0-SNAPSHOT</version>
+    <version>0.7.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>ssf</name>
@@ -26,18 +26,23 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.4.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.7.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
     <dependencies>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
+        <!-- The SET model, minting, verification, subjects and event types, without PingFederate (plan item X-A14). -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>shared-signals</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-integration</artifactId></dependency>
         <!-- The agent instance registry: CAEP inbound signals suspend/revoke instances there. Dependency
              direction is one-way (servlets/ssf -> libs/device-instance) — device-instance and
@@ -55,17 +60,20 @@
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.mockito</groupId><artifactId>mockito-junit-jupiter</artifactId><scope>test</scope></dependency>
+        <!-- The tables and ldm stores' whole contract against a real Postgres, a database per test class
+             (libs/testkit: OIDF_TEST_JDBC_URL, CI's service container, or Testcontainers). -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>testkit</artifactId><scope>test</scope></dependency>
     </dependencies>
 
     <build>
         <plugins>
-            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
-            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.16.0</version></plugin>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.6.0</version></plugin>
 
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.12</version>
+                <version>0.8.15</version>
                 <executions>
                     <execution>
                         <id>prepare-agent</id>
@@ -89,10 +97,10 @@
                       The methods listed here are the ones reachable from a plain unit test, and every one
                       of them measured clean before it was added - the gate went in green, not aspirational.
 
-                      LogoutEventFilter.extractSubject is absent on a technicality worth knowing: its
-                      one-arg overload is clean, its two-arg overload is not, and an include pattern cannot
-                      tell them apart. Every other omission is a real coverage gap - a queue of tests to
-                      write, not a reason to lower the limit. Add a method here only after measuring it
+                      An include pattern names a method, not an overload: LogoutEventFilter's hint rule is
+                      readVerifiedHint, not a readHint overload, so it can be gated while the one-argument
+                      readHint, which asks the running PingFederate for its keys, is not. Every omission is a
+                      real coverage gap - a queue of tests to write, not a reason to lower the limit. Add a method here only after measuring it
                       clean; a gate that lands red is a gate someone switches off.
                     -->
                     <execution>
@@ -128,18 +136,84 @@
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.backoffSeconds(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.evictExpired(*</include>
 
-                                        <!-- Inbound signals: which subject a received SET acts on. -->
-                                        <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.onSet(*</include>
-                                        <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.deviceIdOf(*</include>
+                                        <!-- One loop for every stream (B5, the S10-0 stopgap): which SETs a tick reads (isPushEnabled is the
+                                             rule the stores select by and runOnce re-checks), a failing stream held whole until its oldest SET
+                                             is due again (runOnce, oldestIsBackingOff), and a POST that ends at its deadline whatever the
+                                             receiver does, each answer and failure mapped to a delivery, a retry or a drop (deliver). -->
+                                        <include>com.pingidentity.ps.oidf.ssf.Stream.isPushEnabled(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.runOnce(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.oldestIsBackingOff(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.deliver(*</include>
 
-                                        <!-- Outbound signals: which PF audit events become SETs, and their signing. -->
+                                        <!-- Start-up never throws and publishes all or nothing (S-9, ST-5): configure() builds the whole state
+                                             before its one write; the start functions turn every outcome into the part's state - a setting
+                                             refused (from(), read strictly through the catalogue) is FAILED_CONFIG, a store down is
+                                             FAILED_DEPENDENCY for the supervisor (dependency()), an in-memory or non-PostgreSQL store is
+                                             REFUSED in production (refuseTheStore(), checkDatabase()); logBootFailure() and describe() keep
+                                             the jdbcUrl, which can carry a password, out of the log; gate() closes the transmitter's servlets
+                                             while it is not serving. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.start(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.configure(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.logBootFailure(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.describe(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfConfiguration.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfComponents.transmitter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfComponents.receiver(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfComponents.receiverAllowed(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfComponents.refuseTheStore(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfComponents.dependency(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.PfJdbcStoreFactory.checkDatabase(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.PfJdbcStoreFactory.refuseDroppedProduct(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfHttp.gate(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.LogoutEventFilter.allowSubParameter(*</include>
+
+                                        <!-- Inbound signals: which subject a received SET acts on. receiverVerifier() keeps an inbound
+                                             sub_id to SsfSubjects' receiver formats, and parse() and fromCanonicalKey() keep every
+                                             other door to the transmitter's five. userKey() and deviceId() are H-SSF-1's mapping (an
+                                             iss_sub honoured only for its issuer, aliases by preference, complex by member), and the
+                                             handlers act on nothing a subject does not map to. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.receiverVerifier(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSubjects.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSubjects.fromCanonicalKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSubjects.userKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSubjects.deviceId(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSubjects.firstOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSubjects.simpleUserKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.onSet(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.sessionRevoked(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ReceiverActionHandler.onSet(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ReceiverActionHandler.issuers(*</include>
+
+                                        <!-- H-SSF-1: which SETs the receiver refuses (exp, sub - F-0246) or discards (a critical subject
+                                             member), the token it presents and when it is replaced, and the stream it will accept at the
+                                             transmitter (issuer, aud, and a stream it created deleted again). -->
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfReceiverService.receive(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfReceiverService.refuseForbiddenClaims(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfReceiverService.unprocessedCriticalMembers(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ClientCredentialsToken.token(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ClientCredentialsToken.rejected(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ClientCredentialsToken.privateKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ReceiverStreamClient.ensure(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ReceiverStreamClient.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PollReceiverClient.runOnce(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfComponents.receiverStream(*</include>
+
+                                        <!-- H-SSF-2: what a poll returns and what it releases - the cap, setErrs, a stream that is not
+                                             enabled, and a long poll answered once. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.poll(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.recordSetErrors(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfPollServlet.parseSetErrs(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.LongPolls.tick(*</include>
+
+                                        <!-- Outbound signals: which PF audit events become SETs (their signing is
+                                             libs/shared-signals' SetMinter.sign, gated there). -->
                                         <include>com.pingidentity.ps.oidf.ssf.AuditEventMapper.map(*</include>
-                                        <include>com.pingidentity.ps.oidf.ssf.SetMinter.sign(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.ssf.SsfAuditLogSource.attachTo(*</include>
 
-                                        <!-- SCIM subject lifecycle: which stream a subject is added to or removed from. -->
-                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.assign(*</include>
-                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.deprovision(*</include>
+                                        <!-- SCIM subject lifecycle: which stream a subject is added to or removed from.
+                                             assign and deprovision became apply and deactivate in 0.6.0 (H-SSF-4). -->
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.apply(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.deactivate(*</include>
 
                                         <!-- What the transmitter will sign, and for whom. provisions() is who may have an
                                              account-disabled raised (SCIM - never a receiver); mayAddress() and
@@ -149,6 +223,9 @@
                                         <include>com.pingidentity.ps.oidf.ssf.StreamAccess.mayAddress(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.requireProvisioner(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.resolveAudience(*</include>
+                                        <!-- S8b: the SSF token rule over TokenIntrospector (active, exp, nbf, client_id, aud, cnf). -->
+                                        <include>com.pingidentity.ps.oidf.ssf.PfIntrospectionReceiverAuthenticator.refusal(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PfIntrospectionReceiverAuthenticator.authenticate(*</include>
 
                                         <!-- Raising an event: subscribes() is the one rule every emission path applies
                                              (membership, or default_subjects ALL); emit() is who may raise one (a provisioner);
@@ -167,6 +244,68 @@
                                         <!-- Receiver fail-closed: no audience or no endpoint token, no receiver. -->
                                         <include>com.pingidentity.ps.oidf.ssf.SsfConfiguration.receiverMissingRequirements(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.SsfSupport.receiverMayRun(*</include>
+
+                                        <!-- H-SSF-3 (0.6.0): the cap on streams per receiver, the verification interval
+                                             (429), the Transmitter-Supplied members a receiver may only echo, and the
+                                             https issuer SSF 1.0 §7.1 requires. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.requireRoomForAnotherStream(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.admitVerification(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.effectiveMinVerificationInterval(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.requireNumberMatch(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.parseDescription(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.description(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfComponents.issuerProblem(*</include>
+
+                                        <!-- H-SSF-4 (0.6.0): SCIM - who may provision, which subject a request names, when
+                                             account-disabled and account-enabled are signed, and the filter language. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.create(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.query(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.replace(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.patch(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.delete(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.subjectOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.isActive(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.requireFits(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.Working.attribute(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.Working.booleanValue(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfScimSubjectServlet.authorize(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimFilter.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimFilter.matches(*</include>
+
+                                        <!-- H-SSF-5, H-SSF-6, H-SSF-7 and PR-2 (0.6.0, HSSF3): the txn and the CAEP payloads, the
+                                             audit vocabulary and the source's reconfigure, the logout signal's rules, the
+                                             push header sealed at rest, and Kafka's transport, JAAS and refusal. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfEventEmitter.emit(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfEventEmitter.credentialChange(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfEventEmitter.assuranceLevelPayload(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.AuditEventMapper.parseRule(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfEventBridge.emit(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfEventBridge.onCredentialChange(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfAuditLogSource.reattach(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfAuditLogSource.hook(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfAuditLogSource.unhook(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfAuditLogSource.registerForUndeploy(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.LogoutEventFilter.readVerifiedHint(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.LogoutEventFilter.signal(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.LogoutEventFilter.failed(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.LogoutEventFilter.maxAgeSeconds(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.LogoutEventFilter.Replay.firstUse(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.PfIdTokenVerifier.verify(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.PfIdTokenVerifier.isIdToken(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushHeaderCipher.seal(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushHeaderCipher.open(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushHeaderCipher.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushHeaderCipher.key(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushHeaderCipher.refuseWithoutKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushHeaderCipher.keep(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfConfiguration.checkSecretKeys(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.KafkaSetPublisher.producerProps(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.KafkaSetPublisher.publish(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.KafkaSetPublisher.callback(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.KafkaSetPublisher.jaasConfig(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.KafkaSetPublisher.jaasQuote(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.KafkaSetPublisher.refuseClearTransport(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

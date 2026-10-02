@@ -1,39 +1,38 @@
 package com.pingidentity.ps.oidf.pf;
 
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import org.sourceid.oauth20.domain.Client;
-import org.sourceid.saml20.domain.mgmt.MgmtFactory;
 
 /**
  * {@link ClientStore} backed by the PingFederate management API. Delegates add,
- * lookup and disable operations to the runtime {@code ClientManager} obtained
- * from {@link MgmtFactory}.
+ * lookup and disable operations to the runtime {@code ClientManager}, through
+ * {@link PfInternals}.
  */
 public final class PfMgmtClientStore
 implements ClientStore {
     @Override
     public void add(Client client) {
-        MgmtFactory.getClientManager().addClient(client);
+        PfInternals.addClient(client);
     }
 
     @Override
     public void update(Client client) {
-        MgmtFactory.getClientManager().updateClient(client);
+        PfInternals.updateClient(client);
     }
 
     @Override
     public Client get(String clientId) {
-        return MgmtFactory.getClientManager().getClient(clientId);
+        return PfInternals.getClient(clientId);
     }
 
     @Override
     public java.util.Collection<Client> getAll() {
-        return MgmtFactory.getClientManager().getClients();
+        return PfInternals.getClients();
     }
 
     @Override
     public void disable(Client client) {
         client.setEnabled(false);
-        MgmtFactory.getClientManager().updateClient(client);
+        PfInternals.updateClient(client);
     }
 }
-

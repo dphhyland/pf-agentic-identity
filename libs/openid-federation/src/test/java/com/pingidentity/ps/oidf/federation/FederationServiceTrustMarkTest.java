@@ -61,7 +61,7 @@ class FederationServiceTrustMarkTest {
     }
 
     private static FederationConfiguration configuration(List<String> authorityHints) {
-        return new FederationConfiguration(authorityHints, List.of(RP), null, false, false, null, null, null, 0, "RS256",
+        return new FederationConfiguration(authorityHints, List.of(RP), false, false, null, null, null, 0, "RS256",
                 AttestationMetadataConfig.defaults(), null, null, FederationConfiguration.DEFAULT_CLIENT_REGISTRATION_TYPES,
                 FederationConfiguration.ResolveDiscovery.KNOWN);
     }
@@ -98,8 +98,10 @@ class FederationServiceTrustMarkTest {
         return spec.sign(RP_KEY, this.clock);
     }
 
+    /** The claims of a JWT the service under test signed, read without checking the signature. */
     private static JwtClaims claims(String jwt) throws Exception {
-        return JwtCodec.parseUnverifiedClaims(jwt);
+        return JwtClaims.parse(new String(java.util.Base64.getUrlDecoder().decode(jwt.split("\\.")[1]),
+                java.nio.charset.StandardCharsets.UTF_8));
     }
 
     private static Map<?, ?> federationEntity(FederationService service) throws Exception {
@@ -253,9 +255,9 @@ class FederationServiceTrustMarkTest {
         this.registry.revoke(OPEN, "https://gone.example", "withdrawn", null);
         FederationService service = this.pf();
 
-        assertEquals(List.of(RP, HOSTED), service.trustMarkedEntities(OPEN, null));
+        assertEquals(List.of(HOSTED, RP), service.trustMarkedEntities(OPEN, null), "in subject order, as the store reads them");
         assertEquals(List.of(HOSTED), service.trustMarkedEntities(OPEN, HOSTED));
-        assertEquals(List.of(RP, HOSTED), service.trustMarkedEntities(OPEN, " "));
+        assertEquals(List.of(HOSTED, RP), service.trustMarkedEntities(OPEN, " "));
         refusal(FederationError.INVALID_REQUEST, () -> service.trustMarkedEntities(null, RP));
         refusal(FederationError.INVALID_REQUEST, () -> service.trustMarkedEntities(" ", RP));
         refusal(FederationError.NOT_FOUND, () -> this.pf(List.of(PF)).trustMarkIssuing(null).build().trustMarkedEntities(OPEN, null));

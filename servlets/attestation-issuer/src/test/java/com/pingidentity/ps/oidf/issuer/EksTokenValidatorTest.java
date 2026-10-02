@@ -23,7 +23,7 @@ class EksTokenValidatorTest {
     private static final String CLUSTER_ISSUER = "https://oidc.eks.us-west-2.amazonaws.com/id/EXAMPLED539D4633E53DE1B71EXAMPLE";
     private static final String TRUST_DOMAIN = "eks.demo.aws";
 
-    private final EksTokenValidator validator = new EksTokenValidator();
+    private final EksTokenValidator validator = new EksTokenValidator(CloudPolicies.development());
     private PublicJsonWebKey clusterKey;
     private List<JsonWebKey> bundle;
     private AttestationIssuanceConfig config;

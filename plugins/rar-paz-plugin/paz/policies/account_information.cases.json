@@ -1,0 +1,12 @@
+{
+  "description": "Decision tests for account_information: each request is the governance-engine request the processor sends for the detail (GovernanceEngineRequestBuilder, default fields), and the answer the reference policy must give.",
+  "cases": [
+    {"name": "permit: a person reads balances", "attributes": {"idp.account_information.datatypes": "[\"balances\"]", "req_datatypes": "balances", "UserID": "alice", "principal_source": "authenticated", "client_id": "budget-agent"}, "expect": {"decision": "PERMIT", "statements": []}},
+    {"name": "deny: transactions alone", "attributes": {"idp.account_information.datatypes": "[\"transactions\"]", "req_datatypes": "transactions", "UserID": "alice", "principal_source": "authenticated", "client_id": "budget-agent"}, "expect": {"decision": "DENY", "statements": []}},
+    {"name": "deny: a datatype other than balances", "attributes": {"idp.account_information.datatypes": "[\"beneficiaries\"]", "req_datatypes": "beneficiaries", "UserID": "alice", "principal_source": "authenticated", "client_id": "budget-agent"}, "expect": {"decision": "DENY", "statements": []}},
+    {"name": "deny: a word that contains balances", "attributes": {"idp.account_information.datatypes": "[\"balances_history\"]", "req_datatypes": "balances_history", "UserID": "alice", "principal_source": "authenticated", "client_id": "budget-agent"}, "expect": {"decision": "DENY", "statements": []}},
+    {"name": "deny: no person PingFederate authenticated", "attributes": {"idp.account_information.datatypes": "[\"balances\"]", "req_datatypes": "balances", "UserID": "budget-agent", "principal_source": "client", "client_id": "budget-agent"}, "expect": {"decision": "DENY", "statements": []}},
+    {"name": "narrowing: balances and transactions is held to balances", "attributes": {"idp.account_information.datatypes": "[\"balances\", \"transactions\"]", "req_datatypes": "balances transactions", "UserID": "alice", "principal_source": "authenticated", "client_id": "budget-agent"}, "expect": {"decision": "PERMIT", "statements": [{"name": "datatypes", "payload": ["balances"]}]}},
+    {"name": "narrowing: beneficiaries and balances is held to balances", "attributes": {"idp.account_information.datatypes": "[\"beneficiaries\", \"balances\"]", "req_datatypes": "beneficiaries balances", "UserID": "alice", "principal_source": "authenticated", "client_id": "budget-agent"}, "expect": {"decision": "PERMIT", "statements": [{"name": "datatypes", "payload": ["balances"]}]}}
+  ]
+}

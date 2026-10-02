@@ -1,0 +1,20 @@
+id: U-0081
+title: PingOne answers the kit's sign-in with the auth_time, acr and nonce the enrolment service needs
+area: ios-client, device-enrolment
+source: design
+status: open
+plan_items: [X-I01a, X-A05]
+prs: []
+recorded_in: docs/device/ios-client-contract.md, What is not yet known, item 4
+verify_by: >
+  Sign in from clients/ios/SampleApp against the PingOne staging environment with the application
+  services/device-enrolment/README.md names (a public client, PKCE S256) and a user who already has a passkey, and
+  decode the ID token (redacted, kept as evidence): auth_time present and within seconds of the sign-in although a
+  session existed (max_age=0), acr the sign-on policy name the service's PINGONE_ACR_AAL2 lists, with and without
+  acr_values naming it, and nonce the one sent. Then an enrolment against a rig with that PINGONE_ISSUER and
+  PINGONE_CLIENT_ID answers 200 rather than user_authentication_failed or insufficient_assurance.
+verification: ''
+notes: >
+  The environment's discovery document lists auth_time and acr under claims_supported, claims_parameter_supported
+  false, no acr_values_supported, RS256 only (fetched 2026-09-27), and OpenID Connect Core 1.0 section 3.1.2.1 makes
+  auth_time required when max_age is sent. Neither shows what the tenant does; no sign-in has been run from the kit.

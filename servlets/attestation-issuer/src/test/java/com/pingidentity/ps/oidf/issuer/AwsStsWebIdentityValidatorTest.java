@@ -23,7 +23,7 @@ class AwsStsWebIdentityValidatorTest {
     private static final String ACCOUNT_ISSUER = "https://a1b2c3d4-e5f6-7890-abcd-ef1234567890.tokens.sts.global.api.aws";
     private static final String TRUST_DOMAIN = "123456789012.aws.demo";
 
-    private final AwsStsWebIdentityValidator validator = new AwsStsWebIdentityValidator();
+    private final AwsStsWebIdentityValidator validator = new AwsStsWebIdentityValidator(CloudPolicies.development());
     private PublicJsonWebKey awsKey;
     private List<JsonWebKey> bundle;
     private AttestationIssuanceConfig config;

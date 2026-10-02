@@ -18,6 +18,11 @@ import java.util.Objects;
  * and poll endpoints will admit to it. It is not {@code audience}: a receiver may still choose its own
  * {@code aud}, so that value says who a SET is addressed to and nothing about who may manage the stream.
  * {@code null} means the stream pre-dates ownership; see {@code SsfConfiguration#unownedStreamOwner}.
+ *
+ * <p>The three optional members of SSF 1.0 §8.1.1 (plan item H-SSF-3): {@code description}, which the receiver
+ * supplies, and {@code minVerificationInterval} and {@code inactivityTimeout}, which the transmitter supplies when the
+ * stream is created. Each is {@code null} when the stream has none - a stream stored before 0.6.0, or a transmitter
+ * that sets no interval or timeout.
  */
 public final class Stream {
 
@@ -33,6 +38,9 @@ public final class Stream {
     private final String statusReason;
     private final long createdAt;
     private final long updatedAt;
+    private final String description;
+    private final Integer minVerificationInterval;
+    private final Long inactivityTimeout;
 
     private Stream(Builder b) {
         this.id = Objects.requireNonNull(b.id, "id");
@@ -48,6 +56,9 @@ public final class Stream {
         this.statusReason = b.statusReason;
         this.createdAt = b.createdAt;
         this.updatedAt = b.updatedAt;
+        this.description = b.description;
+        this.minVerificationInterval = b.minVerificationInterval;
+        this.inactivityTimeout = b.inactivityTimeout;
         if (this.deliveryMethod == DeliveryMethod.PUSH && (this.pushEndpointUrl == null || this.pushEndpointUrl.isBlank())) {
             throw new IllegalArgumentException("push streams require a delivery endpoint URL");
         }
@@ -71,7 +82,10 @@ public final class Stream {
                 .status(this.status)
                 .statusReason(this.statusReason)
                 .createdAt(this.createdAt)
-                .updatedAt(this.updatedAt);
+                .updatedAt(this.updatedAt)
+                .description(this.description)
+                .minVerificationInterval(this.minVerificationInterval)
+                .inactivityTimeout(this.inactivityTimeout);
     }
 
     /** Copy with a new status/reason and a bumped {@code updatedAt}. */
@@ -128,8 +142,34 @@ public final class Stream {
         return this.updatedAt;
     }
 
+    /** The receiver's {@code description} of the stream (SSF 1.0 §8.1.1), or {@code null}. */
+    public String description() {
+        return this.description;
+    }
+
+    /** The {@code min_verification_interval} in seconds the transmitter gave the stream, or {@code null} for none. */
+    public Integer minVerificationInterval() {
+        return this.minVerificationInterval;
+    }
+
+    /** The {@code inactivity_timeout} in seconds the transmitter gave the stream, or {@code null} for none. */
+    public Long inactivityTimeout() {
+        return this.inactivityTimeout;
+    }
+
     public boolean deliversEvent(String eventType) {
         return this.eventsDelivered.contains(eventType);
+    }
+
+    /**
+     * Whether the push executor may POST this stream's SETs: a push stream, and {@code enabled}. SSF 1.0
+     * §8.1.2.1 has the transmitter "MUST transmit events over the stream" when enabled and "MUST NOT
+     * transmit events over the stream" when paused or disabled; a poll stream is drained by its receiver.
+     * The one rule, asked by {@code SsfStore#dueForPush} when it selects and by {@code PushDeliveryService}
+     * again on the stream it reads back, so a status that changed between the two is still honoured.
+     */
+    public boolean isPushEnabled() {
+        return this.deliveryMethod == DeliveryMethod.PUSH && this.status == StreamStatus.ENABLED;
     }
 
     public static final class Builder {
@@ -145,6 +185,9 @@ public final class Stream {
         private String statusReason;
         private long createdAt;
         private long updatedAt;
+        private String description;
+        private Integer minVerificationInterval;
+        private Long inactivityTimeout;
 
         public Builder id(String v) {
             this.id = v;
@@ -203,6 +246,21 @@ public final class Stream {
 
         public Builder updatedAt(long v) {
             this.updatedAt = v;
+            return this;
+        }
+
+        public Builder description(String v) {
+            this.description = v;
+            return this;
+        }
+
+        public Builder minVerificationInterval(Integer v) {
+            this.minVerificationInterval = v;
+            return this;
+        }
+
+        public Builder inactivityTimeout(Long v) {
+            this.inactivityTimeout = v;
             return this;
         }
 

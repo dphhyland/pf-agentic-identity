@@ -1,0 +1,19 @@
+id: F-0228
+title: gm-api and rs-validation read the same act claim differently
+severity: medium
+area: gm-api, rs-validation
+source: pr-review
+status: open
+plan_items: [X-C03]
+prs: [59]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found while building XD01 (2026-09-28). From 0.5.0 rs-validation refuses an access token whose act claim is the
+  legacy string form (unless a development deployment switches it on), is not a JSON object at some level, names no
+  actor at a level, or nests deeper than 10. services/gm-api's TokenClaims still reads the string form, stops
+  silently at 10 levels, and treats an unparseable act as the end of the chain rather than a refusal - so a token
+  one resource server refuses the other accepts. TokenClaims's javadoc also still names services/demo-rs's ActChain
+  as the class whose cap it matches. RFC 8693 section 4.1: "The "act" claim value is a JSON object". Plan item X-C03
+  moves gm-api's token verification onto rs-validation with strict act, which removes the difference; until then a
+  deployment that sends string-form act tokens to both sees gm-api accept what rs-validation refuses.

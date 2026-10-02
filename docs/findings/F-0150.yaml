@@ -1,0 +1,21 @@
+id: F-0150
+title: The ldm SSF store reads a stream's updatedAt back as the database's time of its last write
+severity: low
+area: ssf
+source: design
+status: open
+plan_items: [DB-1, S-10]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-09-28 by the SsfStore contract that DB-1 runs against each store on Postgres 16
+  (LdmSsfStoreOnPostgresTest). LdmSsfStore writes `modified_at = to_timestamp(updatedAt)` on create and update,
+  but the Identity Object Model's `entry_class_check` trigger (vendored `0000-base-schema.sql`, BEFORE INSERT OR
+  UPDATE on `idm.entry`) sets `NEW.modified_at := now()`, so the stream reads back with the database's clock, not
+  the `updatedAt` the transmitter gave it. The `tables` and in-memory stores return what was written. Nothing in
+  the module reads a stream's `updatedAt` or `createdAt` today (checked 2026-09-28 by searching servlets/ssf's main
+  code), so no behaviour differs; it matters once a stream's timestamps are served or compared (S-10's stream
+  status work). The fix is to keep the stream's own times in `attrs` rather than in the entry's audit columns, or
+  to document that the ldm store's `updatedAt` is the write time. The contract test pins the current behaviour
+  through LdmSsfStoreOnPostgresTest's `assertUpdatedAt` override.

@@ -3,13 +3,24 @@ title: The admin API accepts a static bearer token
 severity: high
 area: pf-integration
 source: review-2026-09-26
-status: open
+status: closed
 plan_items: [S-8, S8a, S8b]
-prs: []
-verification: ''
+prs: [71, 75]
+verification: >
+  2026-09-30, branch prod/p3-operator-surfaces (PR 75, plan item S8b): every operator surface calls
+  OperatorAuthenticator with a route of its own - /federation/admin/* (OperatorApi.FEDERATION_ADMIN, fourteen
+  routes), hosted-entity enrolment and revocation (OperatorApi.HOSTED_ENTITIES), /federation/registered-clients
+  (OperatorApi.REGISTERED_CLIENTS) and the health detail and /agentic-identity/info (HealthServlet.ROUTES) - each
+  with its scope, the actor the token's sub. OIDF_AUTHORITY_ADMIN_TOKEN is accepted in development only; in
+  production it is never accepted and, while set, the operator API component is REFUSED and every operator request
+  a 503 (FederationComponentTest, StaticBearerTest, FederationAdminServletTest.productionRefusesTheStaticBearer,
+  HostedEntityServletEnrolTest.aProductionOperatorEnrolsWithItsScopeAndIsTheActor, RegisteredClientsServletTest,
+  HealthServletTest). OperatorApiRoutesTest and SsfRoutesTest fail on a mapped path with no route. The catalogue
+  entry is classed forbidden-in-production.
 target_release: 0.6.0
 notes: >
   `OIDF_AUTHORITY_ADMIN_TOKEN` is one shared secret for the hosted-entity admin API, and the other operator
   surfaces are no better. S-8 moves them onto PingFederate-issued OAuth access tokens (JWT or introspection),
   a scope per surface, DPoP required in production and the actor taken from the token; the static token
-  becomes development-only.
+  becomes development-only. PR 71 (S8a, 2026-09-30) builds OperatorAuthenticator in platform-pf and nothing
+  uses it yet; S8b moves the surfaces onto it and closes this.

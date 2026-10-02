@@ -1,0 +1,25 @@
+id: F-0422
+title: platform-pf's audit sink and operator authenticator read their settings by hand, outside its settings package
+severity: medium
+area: platform-pf, pf-integration
+source: pr-review
+status: open
+plan_items: [ST-5]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found on 2026-10-01 by ST6's direct-read scan on main e377dbae. PfAuditSink.install (and pf-integration's
+  PfAuditEventSink.install, which calls the same PfAuditSink.configure) hands System::getenv and System::getProperty
+  to configure, which reads oidf.events.audit, then OIDF_EVENTS_AUDIT, and OIDF_EVENTS_MAX_VALUE_LENGTH itself: a
+  value of the audit switch that is neither true nor false is warned about and audit stays on, and a maximum length
+  that is not a number is warned about and the cap kept, where the pf-audit catalogue types them `bool` and `int` and
+  the resolver refuses both. OperatorAuthenticator.fromProcess reads oidf.authority.admin_token, then
+  OIDF_AUTHORITY_ADMIN_TOKEN, through staticBearer the same way. The production profile's sweep still evaluates
+  OIDF_EVENTS_AUDIT's accepted-risk rule from the catalogue, and the operator authenticator never accepts the
+  static bearer in production, so neither read skips a profile rule; what is skipped is the strict parse and the one reading of each
+  name. The fix is to read the audit settings through Settings over platform-pf's own pf-audit catalogue. The static
+  bearer is catalogued only in pf-integration's hosted-entities.json, which platform-pf cannot rely on (gm-api's war
+  ships platform-pf without it), so its entry has to be declared in, or moved to, platform-pf's operator-auth
+  catalogue before OperatorAuthenticator reads it through Settings - or OperatorAuthenticator's callers hand it the
+  value they read. Then delete the three lines of tools/direct-read-allow.txt that name this finding.

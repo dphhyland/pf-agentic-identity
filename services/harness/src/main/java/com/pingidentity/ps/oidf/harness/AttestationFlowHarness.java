@@ -9,11 +9,13 @@
  * Two modes:
  *
  *   live <baseUrl> [tokenEndpoint] [clientId]
- *       Talks to a DEPLOYED instance. Fetches a real challenge from
- *       <baseUrl>/federation/attestation-challenge, mints a complete Client
+ *       Talks to a DEPLOYED instance. POSTs to the authorization server's challenge
+ *       endpoint, <baseUrl>/federation/attestation-challenge, mints a complete Client
  *       Attestation JWT + PoP JWT (and a DPoP combined-mode proof) that echo the
  *       challenge, and prints the OAuth-Client-Attestation / -PoP (and DPoP)
- *       headers plus a ready-to-run curl against the token endpoint.
+ *       headers plus a ready-to-run curl against the token endpoint. The attester's
+ *       endpoint (GET /federation/attestation/challenge) is for the instance-key
+ *       proof at issuance, and the token endpoint refuses its challenges.
  *
  *   selfverify
  *       Runs the module's REAL ClientAttestationVerifier in-process (no network,
@@ -21,11 +23,13 @@
  *       and DPoP modes, and that a tampered DPoP key is rejected. Proves the
  *       deployed verification logic end-to-end.
  *
- * Classpath: jose4j (always) + client-attestation (for `selfverify`, resolved via reflection so this
+ * Classpath: jose4j and platform (always) + client-attestation (for `selfverify`, resolved via reflection so this
  * file compiles even without it on the classpath). See services/harness/README.md.
  */
 package com.pingidentity.ps.oidf.harness;
 
+import com.pingidentity.ps.oidf.platform.settings.Parsers;
+import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -33,12 +37,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 import java.util.List;
 import java.util.Map;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 
 import org.jose4j.jwk.EcJwkGenerator;
 import org.jose4j.jwk.JsonWebKey;
@@ -51,20 +51,29 @@ import org.jose4j.keys.EllipticCurves;
 
 public final class AttestationFlowHarness {
 
+    /**
+     * The authorization server's challenge endpoint (ABCA-10 §6.1, POST), whose challenges the token endpoint takes.
+     * Not the attester's {@code /federation/attestation/challenge}: a challenge from there is refused here.
+     */
+    static final String AS_CHALLENGE_PATH = "/federation/attestation-challenge";
+
     static final String ATTESTATION_TYP = "oauth-client-attestation+jwt";
     static final String POP_TYP = "oauth-client-attestation-pop+jwt";
     static final String DPOP_TYP = "dpop+jwt";
 
     // Workload identity the attester vouches for (carried as the attestation's "workload" claim).
     static final String SOFTWARE_ID = "pf-oidf-attestation-harness";
+    /** The switch that turns the trust-all on. */
+    static final String INSECURE_TLS = "OIDF_HARNESS_INSECURE_TLS";
     static final String SOFTWARE_VERSION = "0.0.1-SNAPSHOT";
     private static final String INSTANCE_ID = java.util.UUID.randomUUID().toString();
     private static volatile Map<String, Object> WORKLOAD;
 
     public static void main(String[] args) throws Exception {
-        // PingFederate serves a self-signed cert (CN=localhost) behind the TCP proxy;
-        // accept it for this dev/test harness (chain + hostname).
-        System.setProperty("jdk.internal.httpclient.disableHostnameVerification", "true");
+        // A local PingFederate behind the TCP proxy serves a self-signed certificate for localhost, whatever name is
+        // dialled. OIDF_HARNESS_INSECURE_TLS=true is that case: any chain, and the JDK client's host name check off
+        // for the run. Unset, a run against a real deployment checks both (F-0162).
+        relaxHostnameCheck(insecureTls(System::getenv));
         String mode = args.length > 0 ? args[0] : "selfverify";
         switch (mode) {
             case "live" -> live(args);
@@ -88,7 +97,7 @@ public final class AttestationFlowHarness {
         String baseUrl = stripTrailingSlash(args[1]);
         String clientId = args.length > 3 ? args[3] : "https://rp.example.com";
         String tokenEndpoint = args.length > 2 ? args[2] : baseUrl + "/as/token.oauth2";
-        String challengeUrl = baseUrl + "/federation/attestation-challenge";
+        String challengeUrl = baseUrl + AS_CHALLENGE_PATH;
 
         // Use a fixed attester key when OIDF_ATTESTER_JWK is set (must match the server's
         // mock-attesters trust file); otherwise a random one (which a federation/mock-trusted
@@ -104,6 +113,14 @@ public final class AttestationFlowHarness {
 
         // 1) fetch a real challenge from the deployed servlet
         HttpClient http = httpClient();
+        // The PoP audience is PingFederate's issuer and nothing else (draft-ietf-oauth-attestation-based-
+        // client-auth-10 §5.1); the token endpoint URL is refused from 0.4.0. The issuer is read from PF's
+        // discovery document unless OIDF_POP_AUDIENCE names it.
+        String popAudience = envOr("OIDF_POP_AUDIENCE", null);
+        if (popAudience == null) {
+            popAudience = discoveredIssuer(http, tokenEndpoint);
+        }
+        System.out.println("PoP audience       : " + popAudience);
         HttpResponse<String> chResp = http.send(
                 HttpRequest.newBuilder(URI.create(challengeUrl)).POST(HttpRequest.BodyPublishers.noBody()).build(),
                 HttpResponse.BodyHandlers.ofString());
@@ -120,9 +137,9 @@ public final class AttestationFlowHarness {
         String popChallenge = "1".equals(System.getenv("OIDF_NO_CHALLENGE")) ? null : challenge;
         // 2) Client Attestation JWT (signed by the attester; cnf binds the instance key)
         String attestation = attestationJwt(attesterKey, instanceKey, "https://attester.example.com", clientId);
-        // 3a) PoP JWT (signed by the instance key; echoes the challenge)
-        String pop = popJwt(instanceKey, clientId, tokenEndpoint, popChallenge);
-        // 3b) DPoP combined-mode proof (alternative to the PoP; nonce = challenge)
+        // 3a) PoP JWT (signed by the instance key; echoes the challenge; aud = PF's issuer)
+        String pop = popJwt(instanceKey, clientId, popAudience, popChallenge);
+        // 3b) DPoP combined-mode proof (alternative to the PoP; nonce = challenge; htu = the token endpoint)
         String dpop = dpopJwt(instanceKey, tokenEndpoint, popChallenge);
 
         String requestedRar = toJsonArray(requestedAccess(envOr("OIDF_SALES_REGION", "EMEA"), "create_opportunity"));
@@ -148,6 +165,24 @@ public final class AttestationFlowHarness {
         System.out.println("NOTE: the token endpoint accepts these only once PingFederate is configured with an");
         System.out.println("      OAuth AS, the client registered (public client + attestation_required=true), and an");
         System.out.println("      issuance criterion calling ClientAttestationUtils.validateClientAttestation(#this).");
+    }
+
+    /**
+     * The {@code issuer} of the PingFederate that serves {@code tokenEndpoint}, from its
+     * {@code /.well-known/openid-configuration} at the endpoint's origin.
+     */
+    private static String discoveredIssuer(HttpClient http, String tokenEndpoint) throws Exception {
+        URI endpoint = URI.create(tokenEndpoint);
+        URI discovery = new URI(endpoint.getScheme(), endpoint.getRawAuthority(), "/.well-known/openid-configuration",
+                null, null);
+        HttpResponse<String> resp = http.send(HttpRequest.newBuilder(discovery).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        require(resp.statusCode() == 200, discovery + " returned HTTP " + resp.statusCode()
+                + " - set OIDF_POP_AUDIENCE to PingFederate's issuer instead");
+        Object issuer = JsonUtil.parseJson(resp.body()).get("issuer");
+        require(issuer instanceof String && !((String) issuer).isBlank(), discovery + " names no issuer"
+                + " - set OIDF_POP_AUDIENCE to PingFederate's issuer instead");
+        return (String) issuer;
     }
 
     /** POSTs the PoP-mode token request (with authorization_details) and prints PF's response. */
@@ -196,8 +231,7 @@ public final class AttestationFlowHarness {
         Class<?> cfgBuilderHolder = Class.forName("com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig");
         Object builder = cfgBuilderHolder.getMethod("builder").invoke(null);
         Class<?> builderClass = builder.getClass();
-        builder = builderClass.getMethod("addAcceptedAudience", String.class).invoke(builder, OP_ISSUER);
-        builder = builderClass.getMethod("addAcceptedAudience", String.class).invoke(builder, TOKEN_ENDPOINT);
+        builder = builderClass.getMethod("expectedAudience", String.class).invoke(builder, OP_ISSUER);
         builder = builderClass.getMethod("expectedHtu", String.class).invoke(builder, TOKEN_ENDPOINT);
         builder = builderClass.getMethod("challengeRequired", boolean.class).invoke(builder, true);
         Object config = builderClass.getMethod("build").invoke(builder);
@@ -309,13 +343,18 @@ public final class AttestationFlowHarness {
                 "privileges", List.of("quota:standard")));
     }
 
-    /** A token request's {@code authorization_details} asking to act in one region with one action. */
+    /**
+     * A token request's {@code authorization_details} asking to act in one region with one action. It restates the
+     * entitlement's {@code privileges}: the token gate compares strictly (plan item S1b), so a field the attestation
+     * constrains and the request leaves out is refused rather than filled in.
+     */
     static List<Map<String, Object>> requestedAccess(String region, String action) {
         return List.of(Map.of(
                 "type", "sales_agent",
                 "actions", List.of(action),
                 "locations", List.of("https://crm.contoso.com/api"),
-                "sales_regions", List.of(region)));
+                "sales_regions", List.of(region),
+                "privileges", List.of("quota:standard")));
     }
 
     /** Serialize a list of objects to a compact JSON array (jose4j only serializes maps). */
@@ -469,18 +508,32 @@ public final class AttestationFlowHarness {
      * a self-signed local PF - loudly, and never by default: live mode's documented use is a real
      * deployment, where a silent MITM would hand an attacker the client secret and the attestation.
      */
-    static HttpClient httpClient() throws Exception {
-        if (!Boolean.parseBoolean(System.getenv("OIDF_HARNESS_INSECURE_TLS"))) {
-            return HttpClient.newHttpClient();
+    static HttpClient httpClient() {
+        return httpClient(insecureTls(System::getenv));
+    }
+
+    /**
+     * {@code OIDF_HARNESS_INSECURE_TLS}, strictly: {@code true} or {@code false} in any case, unset is false, and anything
+     * else stops the run naming it. The harness is not shipped and has no catalogue, so no profile applies.
+     */
+    static boolean insecureTls(java.util.function.Function<String, String> env) {
+        return Parsers.bool(INSECURE_TLS, env.apply(INSECURE_TLS), false);
+    }
+
+    /**
+     * Turns the JDK client's host name check off for this JVM only when {@code insecureTls} - through platform's
+     * {@link InsecureTls}, the one place allowed to, recorded under {@code OIDF_HARNESS_INSECURE_TLS}. Before 0.6.0 it
+     * was turned off on every run (F-0162).
+     */
+    static void relaxHostnameCheck(boolean insecureTls) {
+        InsecureTls.disableJdkHostnameVerification(INSECURE_TLS, insecureTls);
+    }
+
+    /** The same, told the switch: the trust-all is platform's {@link InsecureTls}. */
+    static HttpClient httpClient(boolean insecureTls) {
+        if (insecureTls) {
+            System.err.println("WARN: " + INSECURE_TLS + "=true - TLS certificate verification is OFF for this run");
         }
-        System.err.println("WARN: OIDF_HARNESS_INSECURE_TLS=true - TLS certificate verification is OFF for this run");
-        TrustManager[] trustAll = {new X509TrustManager() {
-            public void checkClientTrusted(X509Certificate[] c, String a) {}
-            public void checkServerTrusted(X509Certificate[] c, String a) {}
-            public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-        }};
-        SSLContext ssl = SSLContext.getInstance("TLS");
-        ssl.init(null, trustAll, new SecureRandom());
-        return HttpClient.newBuilder().sslContext(ssl).build();
+        return InsecureTls.trustAnyCertificate(HttpClient.newBuilder(), INSECURE_TLS, insecureTls).build();
     }
 }

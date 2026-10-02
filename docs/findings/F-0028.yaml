@@ -5,7 +5,7 @@ area: attestation-issuer, device-enrolment, pf-integration
 source: review-2026-09-26
 status: open
 plan_items: [X-A22, X-A07, X-A08, X-B10, S4c, H-FED-10]
-prs: []
+prs: [76, 99]
 verification: ''
 target_release: 0.9.0
 notes: >
@@ -13,3 +13,8 @@ notes: >
   re-mint and UV refresh (X-A07, X-A08, Phase 6), asserted context via Microsoft Graph (X-B10, Phase 5), the
   `attestation_required` client property (S4c enforces it, Phase 3), and the federation's dead code (H-FED-10
   removes it, Phase 3).
+
+  Phase 3 (0.6.0, recorded 2026-10-01 by the release package): S4C (PR #76) enforces attestation_required at the
+  token-endpoint filter, and HFEDD (PR #99) removed the dead federation code (H-FED-10), with ST5F (PR #91) removing
+  FederationConfiguration's dead methods. Still open: the agent registry (X-A22), App Attest assertions on re-mint
+  and UV refresh (X-A07, X-A08) and asserted context (X-B10).

@@ -1,5 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration.utils;
 
+import com.pingidentity.ps.oidf.platform.pf.component.CriterionGate;
+import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
@@ -18,6 +20,7 @@ import com.pingidentity.ps.oidf.pf.FederationPolicySupport;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfRequestScope;
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationConfiguration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,7 +31,6 @@ import java.util.function.Function;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 import org.sourceid.saml20.adapter.attribute.AttributeValue;
 
 /**
@@ -46,7 +48,7 @@ public final class OIDFederationUtils {
     private static volatile String configuredTrustControllerHost;
     private static volatile String configuredTrustControllerBaseUrl;
     private static final Object LOCK = new Object();
-    private static final Function<HttpServletRequest, String> PF_ISSUER = req -> OAuthIssuerUtils.getInstance().getIssuerValue(req);
+    private static final Function<HttpServletRequest, String> PF_ISSUER = req -> PfInternals.issuer(req);
     /** Test seam: PF's issuer resolver needs a booted PingFederate. */
     private static volatile Function<HttpServletRequest, String> issuerResolver = PF_ISSUER;
     /** Test seam: the transport the gateway fetches through; null means a screened JDK client. */
@@ -120,6 +122,10 @@ public final class OIDFederationUtils {
     }
 
     public static boolean validateTrustChain(Object inObj) {
+        // S9b: false, never a throw, while FEDERATION is not serving here (CriterionGate says how the engine knows).
+        if (!CriterionGate.serves(Startup.FEDERATION, "validateTrustChain")) {
+            return false;
+        }
         // Deployment-wide settings, resolved once and identical for every reader. These used to be
         // statics on RegistrationConfiguration, mirrored from its constructor, so this call site
         // needed its own env fallback for the case where nothing had constructed one yet -- see
@@ -130,6 +136,10 @@ public final class OIDFederationUtils {
     }
 
     public static boolean validateTrustChain(Object inObj, Boolean ignoreSslErrors, String trustControllerHost) {
+        // S9b: false, never a throw, while FEDERATION is not serving here (CriterionGate says how the engine knows).
+        if (!CriterionGate.serves(Startup.FEDERATION, "validateTrustChain")) {
+            return false;
+        }
         return validateTrustChain(inObj, ignoreSslErrors, trustControllerHost, trustControllerHost);
     }
 
@@ -143,6 +153,10 @@ public final class OIDFederationUtils {
      * the token-endpoint filter never enters. So it enters its own, and what it audits carries the caller's address.
      */
     public static boolean validateTrustChain(Object inObj, Boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
+        // S9b: false, never a throw, while FEDERATION is not serving here (CriterionGate says how the engine knows).
+        if (!CriterionGate.serves(Startup.FEDERATION, "validateTrustChain")) {
+            return false;
+        }
         PfRequestScope.Context outer = PfRequestScope.enter(requestOf(inObj));
         try {
             return validateTrustChainInner(inObj, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl);
@@ -173,7 +187,7 @@ public final class OIDFederationUtils {
         List<String> trustChainList = extractTrustChainFromClientAssertion(request);
         long maxLeafNodeTime = longSetting(inParameters, "extproperties.trust_chain_leaf_max_time", -1L);
         long maxTrustAnchorNodeTime = longSetting(inParameters, "extproperties.trust_chain_trustanchor_max_time", -1L);
-        long maxTrustChainEntryAgeSeconds = longSetting(inParameters, "extproperties.trust_chain_request_max_age", 60L);
+        long maxTrustChainEntryAgeSeconds = trustChainRequestMaxAge(inParameters);
         if (registrationExpired(inParameters, rpEntityId)) {
             return false;
         }
@@ -204,6 +218,10 @@ public final class OIDFederationUtils {
      * validates - so a mapping needs one or the other, not both. Fails closed on anything unexpected.
      */
     public static boolean federationPolicy(Object inObj) {
+        // S9b: false, never a throw, while FEDERATION is not serving here (CriterionGate says how the engine knows).
+        if (!CriterionGate.serves(Startup.FEDERATION, "federationPolicy")) {
+            return false;
+        }
         PfRequestScope.Context outer = PfRequestScope.enter(requestOf(inObj));
         try {
             FederationPolicyDecisionPoint pdp = FederationPolicySupport.decisionPointFor(DecisionPoint.TOKEN_ISSUANCE);
@@ -266,6 +284,23 @@ public final class OIDFederationUtils {
      * when the client has no value for it, so a blank, {@code "null"} or non-numeric value falls back to
      * {@code fallback} with a warning naming the key - it never throws out of the criterion.
      */
+    /**
+     * The default of the per-client extended property {@code trust_chain_request_max_age}, in seconds: the catalogue
+     * entry's (client-properties.json), which {@code TrustChainRequestMaxAgeTest} holds this to. One default for every
+     * reader (F-0198): the OGNL chain criterion, the attestation criterion's attester chain and the token-endpoint
+     * filter's attester chain. The validator drops a presented statement older than this and fetches it again
+     * ({@code TrustChainValidator}'s presented index), so the limit costs a stale chain a fetch and never refuses one.
+     */
+    public static final long TRUST_CHAIN_REQUEST_MAX_AGE_DEFAULT = 60L;
+
+    /**
+     * The client's {@code trust_chain_request_max_age}, or {@link #TRUST_CHAIN_REQUEST_MAX_AGE_DEFAULT} when it has none
+     * (or one that is not a whole number, with a warning); -1 is no limit.
+     */
+    public static long trustChainRequestMaxAge(Map inParameters) {
+        return longSetting(inParameters, "extproperties.trust_chain_request_max_age", TRUST_CHAIN_REQUEST_MAX_AGE_DEFAULT);
+    }
+
     static long longSetting(Map inParameters, String key, long fallback) {
         if (!inParameters.containsKey(key)) {
             return fallback;

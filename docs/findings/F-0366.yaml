@@ -1,0 +1,18 @@
+id: F-0366
+title: The Kubernetes sub pattern lets a namespace or service-account name carry '/' into the SPIFFE path
+severity: low
+area: attestation-issuer
+source: pr-review
+status: open
+plan_items: [H-ATT-1]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found while building H-ATT-1 (2026-09-30), CloudTokenValidator.kubernetes at prod/p3-cloud-evidence: the GKE, EKS
+  and AKS validators take system:serviceaccount:<ns>:<sa> with [^:]+ for each part, as they did before, and put both
+  into /ns/<ns>/sa/<sa>. A '/' or '..' in either would make a path whose segments a suffix-wildcard binding reads
+  differently. Only a token signed by a pinned cluster can carry such a sub, and Kubernetes names are DNS labels and
+  subdomains that cannot hold '/', so the exposure is a misbehaving or compromised cluster. The fix is to hold both
+  parts to Kubernetes' name grammar; it was left out of H-ATT-1 because EvidenceSelectorsTest's bound tests build
+  names longer than Kubernetes allows, and changing them is a separate, reviewable step.

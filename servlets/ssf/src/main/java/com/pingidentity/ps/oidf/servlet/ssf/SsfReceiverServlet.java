@@ -3,7 +3,10 @@
  */
 package com.pingidentity.ps.oidf.servlet.ssf;
 
-import com.pingidentity.ps.oidf.ssf.SetVerifier;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
+import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
+import com.pingidentity.ps.oidf.signals.SetVerifier;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.SsfReceiverService;
 import com.pingidentity.ps.oidf.ssf.SsfSupport;
@@ -26,28 +29,44 @@ import org.jose4j.json.JsonUtil;
  * The receiver side of RFC 8935: a transmitter POSTs each SET here with
  * {@code Content-Type: application/secevent+jwt}. The SET is verified against the configured transmitter's
  * JWKS ({@code receiverExpectedIssuer} / {@code receiverJwksUrl}), duplicates are accepted idempotently, and
- * verified SETs are dispatched to the registered handlers. Responses per RFC 8935 §2.3–2.4: {@code 202} on
- * acceptance (including duplicates), {@code 400} with {@code {"err": "...", "description": "..."}} on
- * verification failure. The POST must carry {@code receiverEndpointAuthToken} as a bearer token
- * ({@code 401} otherwise).
+ * verified SETs are dispatched to the registered handlers. Responses per RFC 8935 §2.2–2.4: {@code 202} on
+ * acceptance (including duplicates, and a SET discarded for a critical subject member it cannot act on),
+ * {@code 400} with {@code {"err": "...", "description": "..."}} on verification failure - a SET carrying {@code exp}
+ * or {@code sub} among them (SSF 1.0 §4.1.7, §4.1.2; {@link SsfReceiverService}) - with {@code Content-Language: en-US}
+ * (§2.3: "The response MUST include a "Content-Language" header field"). The POST must carry
+ * {@code receiverEndpointAuthToken} as a bearer token ({@code 401} otherwise).
  *
  * <p>{@code GET} serves a bounded recent-events summary for demos/inspection (same bearer).
- * The receiver is active only when {@code receiverExpectedIssuer} is set; otherwise both methods return 404.
+ * The receiver is active only when {@code receiverExpectedIssuer} is set; otherwise both methods return 404. Each
+ * method starts with the {@code SSF_RECEIVER} part's gate: 503 while the receiver is starting, failed or refused.
  */
-@WebServlet(urlPatterns = {"/ssf/receiver/events"})
+@WebServlet(urlPatterns = {"/ssf/receiver/events"}, loadOnStartup = 2)
 public class SsfReceiverServlet extends HttpServlet {
 
     private static final long serialVersionUID = 1L;
     private static final Log log = LogFactory.getLog(SsfReceiverServlet.class);
 
+    /** This servlet's part of the {@code SSF_RECEIVER} component. */
+    private transient volatile ComponentParts.Part part;
+
+    /**
+     * Registers the {@code SSF_RECEIVER} part at deploy - this servlet loads on start-up, after
+     * {@code SsfConfigurationServlet}, whose transmitter builds the receiver - and says what became of it
+     * ({@link SsfComponents#receiver}). Never throws.
+     */
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        SsfHttp.bootstrap(config); // fail-soft: unconfigured SSF disables the endpoints
+        ComponentParts.Part part = Startup.begin(Startup.SSF_RECEIVER, "SsfReceiverServlet");
+        this.part = part;
+        part.start(() -> SsfComponents.receiver(part));
     }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (ComponentGate.oauthEndpoint(this.part, resp)) {
+            return;
+        }
         SsfReceiverService receiver = SsfSupport.receiverService();
         if (receiver == null) {
             SsfHttp.writeError(resp, 404, "not_found", "SSF receiver is not configured");
@@ -80,6 +99,9 @@ public class SsfReceiverServlet extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (ComponentGate.oauthEndpoint(this.part, resp)) {
+            return;
+        }
         SsfReceiverService receiver = SsfSupport.receiverService();
         if (receiver == null) {
             SsfHttp.writeError(resp, 404, "not_found", "SSF receiver is not configured");
@@ -112,6 +134,7 @@ public class SsfReceiverServlet extends HttpServlet {
             throws IOException {
         resp.setStatus(status);
         resp.setContentType("application/json");
+        resp.setHeader("Content-Language", "en-US");
         LinkedHashMap<String, Object> body = new LinkedHashMap<>();
         body.put("err", err);
         if (description != null) {

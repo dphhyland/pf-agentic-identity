@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.pingidentity.ps.oidf</groupId>
+    <artifactId>platform-pf</artifactId>
+    <version>0.7.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>platform-pf</name>
+    <description>platform's PingFederate side: what only runs inside PingFederate - the guard an OGNL criterion
+        runs behind and, as Phase 2 lands them, the settings PingFederate supplies, the audit sink, the health
+        servlets, the lifecycle listener and one facade over the PingFederate internals the repository calls.
+        Depends on platform; PingFederate's own jars are provided.</description>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+        <!-- The commit this jar is built from, written into its manifest (below) for BuildInfo: CI passes
+             -Doidf.build.commit=$GITHUB_SHA; a build that passes nothing says unknown (F-0190). -->
+        <oidf.build.commit>unknown</oidf.build.commit>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
+    </properties>
+
+    <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
+         otherwise: no parent, plugin config kept local. -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.7.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <!-- Everything but platform is provided: PingFederate 13.1.3 ships each of them in server/default/lib (or,
+         for the servlet API, in its Jetty's lib), and stage-modules.sh stages none of them. They are declared
+         now, before anything here uses most of them, so the packages that add the audit sink (O-1), the health
+         servlets (O-4), the lifecycle listener (F-2) and the internals facade (F-1's second half) add code
+         under their own anchors and never edit this list. -->
+    <dependencies>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId></dependency>
+        <!-- rs-validation (plan item S8a): the operator authenticator verifies PingFederate's access tokens, their DPoP
+             proofs and their certificate binding through DelegatedTokenValidator, so DPoP is checked in one place
+             (Phase 3 decision 8). Optional, so a war that bundles platform-pf (gm-api) does not take rs-validation and
+             oidf-jose with it until it uses the authenticator; stage-modules.sh stages its jar into PingFederate
+             beside this one, and a consumer that copies jars copies it too. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rs-validation</artifactId><optional>true</optional></dependency>
+        <dependency><groupId>com.pingidentity.pingfederate</groupId><artifactId>pingfederate-sdk</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>pingfederate</groupId><artifactId>pf-protocolengine</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-api</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><scope>provided</scope></dependency>
+        <!-- The @Requirement annotation only: SOURCE retention. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId><scope>test</scope></dependency>
+        <!-- H-FED-7: from log4j-api 2.24 the ThreadContext map is a no-op without an implementation; LoggingUtilAuditWriterTest reads it -->
+        <dependency><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-core</artifactId><scope>test</scope></dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.16.0</version></plugin>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.6.0</version></plugin>
+            <!-- The commit (F-0190): /agentic-identity/info and the start-up banner read it through BuildInfo. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.5.1</version>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Build-Commit>${oidf.build.commit}</Build-Commit>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+                <!-- S8b: OperatorTestKit (authenticators, tokens and DPoP proofs) for the operator surfaces' tests in
+                     pf-integration and ssf, published as a test-jar as openid-federation's fixtures are. -->
+                <executions>
+                    <execution><goals><goal>test-jar</goal></goals></execution>
+                </executions>
+            </plugin>
+
+            <!--
+              Coverage gate on the decisions, 100% line + branch per METHOD. As in platform's pom, each package
+              adds its includes under its own anchor comment and nowhere else, and the rule always includes at
+              least one real method (tools/coverage-report.py strict fails a gate that matches nothing).
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.15</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>METHOD</element>
+                                    <includes>
+                                        <!-- ognl (F-1, then S-9): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.ognl.CriterionGuard.evaluate(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.ognl.CriterionGuard.describe(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.ognl.CriterionGuard.oneLine(*</include>
+                                        <!-- component (S-9): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.action(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.filter(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.attestationTraffic(*</include>
+                                        <!-- component (S-9, S9B): the per-surface rules and the criteria's rule -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.federationEndpoint(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.oauthEndpoint(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.autoRegistration(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.namesFederationClient(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.lookUp(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.attestedClient(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.attestation(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.challenge(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.emits(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.unavailable(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.CriterionGate.serves(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.CriterionGate.answer(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.CriterionGate.engine(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.entityIdentifier(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.jwtPart(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.write(*</include>
+                                        <!-- settings (ST-1, ST-2): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.settings.InitParams.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.settings.InitParams.sources(*</include>
+                                        <!-- audit (O-1): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.install(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.configure(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.auditSwitch(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.emit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.protocolOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.auditDescription(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.record(*</include>
+                                        <!-- H-FED-7: the writer saves and puts back PingFederate's audit context -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.LoggingUtilAuditWriter.write(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.LoggingUtilAuditWriter.startClean(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.LoggingUtilAuditWriter.restore(*</include>
+                                        <!-- health (O-4): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.health.BuildInfo.read(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.health.BuildInfo.version(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.health.BuildInfo.commit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.health.HealthServlet.service(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.health.HealthServlet.answer(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.health.HealthServlet.write(*</include>
+                                        <!-- lifecycle (F-2): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.contextInitialized(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.contextDestroyed(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.audit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.deferAudit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.ownsCopy(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.warOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.where(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.collect(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.banner(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.accepted(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.insecure(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.components(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.executors(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.oneLine(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAuditServlet.init(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAuditServlet.service(*</include>
+                                        <!-- lifecycle (PR-5): the production profile's sweep and what the banner and the log say of it -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.sweep(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.refusing(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.sweepLog(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.violations(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.label(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.refusedInCode(*</include>
+                                        <!-- internals (F-1, PfInternals): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.tokenEndpointBaseUrl(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.addClient(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.updateClient(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.getClient(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.getClients(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.isBackendDatabase(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.discoveryHandler(*</include>
+                                        <!-- auth (S8a): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.authenticate(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.authorise(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.decide(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.validator(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.accessTokenType(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.actorOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.refusedToken(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.checkFailureLimit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.checkMutationLimit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.retryAfter(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.failureKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.scheme(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.challenges(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.headerSafe(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.claimedLabel(*</include>
+                                        <!-- auth (S8b): the static bearer's one rule, and what a surface's init asks -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.withStaticBearer(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.staticBearer(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.shared(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.productionRefusal(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.configured(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.usable(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.problem(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.developmentStaticBearer(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.staticOperator(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.sameSecret(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthConfig.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthConfig.problem(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthConfig.baseUrlProblem(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorRoutes.match(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorRoutes.Builder.route(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.InMemoryWindowCounter.hit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.InMemoryWindowCounter.peek(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.RedisWindowCounter.peek(*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <!-- Published to the monorepo's own package registry, as every module is. -->
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/dphhyland/pf-agentic-identity</url>
+        </repository>
+    </distributionManagement>
+
+</project>

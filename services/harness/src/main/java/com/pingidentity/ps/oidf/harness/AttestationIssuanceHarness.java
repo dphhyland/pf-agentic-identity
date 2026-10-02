@@ -139,7 +139,7 @@ public final class AttestationIssuanceHarness {
         JsonWebKey attesterPub = JsonWebKey.Factory.newJwk(publicParams(attesterKey));
         AttesterKeyResolver resolver = new StaticAttesterKeyResolver(Map.of(ISSUER, List.of(attesterPub)));
         ClientAttestationConfig cfg = ClientAttestationConfig.builder()
-                .addAcceptedAudience(OP_ISSUER)
+                .expectedAudience(OP_ISSUER)
                 .expectedHtu(TOKEN_ENDPOINT)
                 .build();
         ClientAttestationVerifier verifier = new ClientAttestationVerifier(
@@ -200,6 +200,8 @@ public final class AttestationIssuanceHarness {
         claims.setAudience(ISSUER);
         claims.setJwtId(jti);
         claims.setIssuedAtToNow();
+        // The attester requires exp, at most 300 s after iat (CAS §4.3, plan item S4c).
+        claims.setExpirationTime(NumericDate.fromSeconds(claims.getIssuedAt().getValue() + 120L));
         return sign(signingKey, InstanceKeyProofValidator.TYP, claims);
     }
 

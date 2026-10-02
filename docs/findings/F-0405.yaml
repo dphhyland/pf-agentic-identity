@@ -1,0 +1,21 @@
+id: F-0405
+title: 'SSF push delivery drops a SET for good when its endpoint''s host name does not resolve'
+severity: medium
+area: ssf
+source: design
+status: open
+plan_items: [S5d, S-10]
+prs: [94]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found by package S5D on 2026-10-01 while mapping OutboundHttp's failures to push delivery's outcomes. A delivery the
+  outbound policy refuses is PERMANENT, so the SET is acknowledged (removed) and a WARN logged, which is right for an
+  endpoint on a private address. But OutboundUrlPolicy.refusal counts a name that does not resolve as a refusal
+  wherever the address rule applies (the rule cannot pass a name it cannot resolve), and with the production rules
+  it applies to every push endpoint. So a DNS failure at the moment of an attempt - a resolver timeout, NXDOMAIN
+  during a receiver's DNS change - drops the SET instead of retrying it. That was the behaviour before 0.6.0 too
+  (PushDeliveryService checked the URL with OutboundUrlPolicy.check before sending, and check throws the same
+  refusal); S5D kept it, since its rule is that each failure keeps its caller's outcome. The fix belongs with S-10's
+  delivery engine (Phase 4): retry UNRESOLVED as a transport failure, and keep PERMANENT for REFUSED_URL and
+  REFUSED_ADDRESS. PushDeliveryService.deliver is the one place to change.

@@ -1,0 +1,23 @@
+id: F-0227
+title: No @Requirement prefix for RFC 8705 or RFC 9068, so rs-validation's mTLS and typ refusals carry no id
+severity: low
+area: conformance, rs-validation
+source: pr-review
+status: open
+plan_items: [X-D01]
+prs: [59]
+verification: ''
+target_release: 1.0.0
+notes: >
+  Found while building XD01 (2026-09-28). libs/conformance's Requirement.java declares the @Requirement prefixes, and
+  tools/coverage-report.py --gate refuses an id whose prefix it does not declare. Neither RFC8705 nor RFC9068 is
+  declared, and XD01 may not edit libs/conformance, so the tests of rs-validation's certificate binding (RFC 8705
+  section 3) and access-token typ check (RFC 9068 section 4) quote the RFC sentence in their javadoc but carry no
+  @Requirement id: AccessTokenRefusalTest.aCertificateBoundTokenOverAnotherCertificateOrNoneIsRefused and
+  aTokenOfAnotherTypeIsRefused. The dashboard therefore counts neither as pinned. The fix is to add both prefixes to
+  Requirement.java's vocabulary (both RFCs were read for XD01 from the RFC Editor's text on 2026-09-28) and tag the
+  two tests.
+
+  Retargeted from 0.6.0 to 1.0.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  libs/conformance's Requirement vocabulary still declares no RFC8705 or RFC9068 prefix (no Phase 3 package, HSSF2
+  included, added one), so the two rs-validation tests still carry no id. D-8 owns it.

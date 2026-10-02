@@ -107,6 +107,18 @@ class ExplicitRegistrationRequestTest {
     }
 
     @Test
+    @Requirement("OIDFED §12.2.2(2.2)")
+    void aStatementWithNoJwksOfItsOwnIsRejected() throws Exception {
+        EllipticCurveJsonWebKey k = key("rp-1");
+        JwtClaims claims = entityConfiguration(k, RP, RP, OP);
+        claims.unsetClaim("jwks");
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> ExplicitRegistrationRequest.fromJwt(sign(claims, k, null), OP));
+        assertTrue(e.getMessage().contains("jwks"), e.getMessage());
+    }
+
+    @Test
     @Requirement({"OIDFED §12.2.2(2.2)", "OIDFED §12.2.1(4.12)"})
     void audienceIsCheckedOnTheVerifiedClaims() throws Exception {
         EllipticCurveJsonWebKey k = key("rp-1");

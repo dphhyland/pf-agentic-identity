@@ -80,4 +80,14 @@ public interface InstanceAttestationValidator {
      */
     InstanceIdentity validate(String presented, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
             throws IssuanceException;
+
+    /**
+     * The fixed list of selector names this validator may prove ({@link InstanceIdentity#selectors()}, keyed
+     * {@code <id()>:<name>}). A validator builds selectors only from these names, only from claims of evidence whose
+     * signature it verified, and only after every check passed; a claim in the evidence cannot add a name. Empty for
+     * a validator that proves nothing beyond its subject. The attestation-issuer README lists each validator's.
+     */
+    default List<String> selectorNames() {
+        return List.of();
+    }
 }

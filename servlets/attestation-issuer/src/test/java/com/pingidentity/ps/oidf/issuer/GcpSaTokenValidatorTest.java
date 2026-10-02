@@ -24,7 +24,7 @@ class GcpSaTokenValidatorTest {
     private static final String TRUST_DOMAIN = "demo-project.gcp.banking.demo";
     private static final String SA_EMAIL = "agent-runtime@demo-project.iam.gserviceaccount.com";
 
-    private final GcpSaTokenValidator validator = new GcpSaTokenValidator();
+    private final GcpSaTokenValidator validator = new GcpSaTokenValidator(CloudPolicies.development());
     private PublicJsonWebKey googleKey;
     private List<JsonWebKey> bundle;
     private AttestationIssuanceConfig config;

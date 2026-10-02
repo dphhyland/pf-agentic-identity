@@ -24,13 +24,14 @@ PF_TERRAFORM_PRODUCT_VERSION=13.1
 FILES = {
     "build/pf-version.env": ENV,
     "bom/pom.xml": "<project><properties><version.pingfederate>13.1.3.0</version.pingfederate></properties></project>\n",
-    "services/gm-api/servlet/pom.xml": "<project><properties><pingfederate.version>13.1.3</pingfederate.version></properties></project>\n",
+    "services/gm-api/servlet/pom.xml": "<project><dependencies><dependency><groupId>com.pingidentity.pingfederate</groupId><artifactId>pingfederate-sdk</artifactId><scope>provided</scope></dependency></dependencies></project>\n",
     "build/pingfederate/Dockerfile": f"# header\nFROM {IMAGE}@{DIGEST}\nUSER root\n",
     ".github/actions/pf-provided-jars/action.yml": 'runs:\n  steps:\n    - run: |\n        . "$GITHUB_WORKSPACE/build/pf-version.env"\n        docker create "${PF_IMAGE}@${PF_IMAGE_DIGEST}"\n',
     ".github/workflows/build.yml": 'steps:\n  - run: grep -v \'^#\' build/pf-version.env >> "$GITHUB_ENV"\n',
     ".github/workflows/release.yml": 'steps:\n  - run: grep -v \'^#\' build/pf-version.env >> "$GITHUB_ENV"\n',
-    "conformance/author.sh": '. "$HERE/../build/pf-version.env"\nIMAGE="${PF_IMAGE:?}@${PF_IMAGE_DIGEST:?}"\n',
-    "conformance/apply.sh": '. "$HERE/../build/pf-version.env"\nexport TF_VAR_pf_product_version="${PF_TERRAFORM_PRODUCT_VERSION:?}"\n',
+    "conformance/author.sh": '. "$HERE/layout.sh"\n. "$PFAI_VERSION_ENV"\nIMAGE="${PF_IMAGE:?}@${PF_IMAGE_DIGEST:?}"\n',
+    "conformance/apply.sh": '. "$HERE/layout.sh"\n. "$PFAI_VERSION_ENV"\nexport TF_VAR_pf_product_version="${PF_TERRAFORM_PRODUCT_VERSION:?}"\n',
+    "conformance/layout.sh": 'if [[ -f "$_pfai_base/build/pf-version.env" ]]; then\n  PFAI_VERSION_ENV="$_pfai_base/build/pf-version.env"\nelse\n  PFAI_VERSION_ENV="$PFAI_IMAGE_DIR/pf-version.env"\nfi\n',
     "conformance/terraform/provider.tf": 'provider "pingfederate" {\n  product_version = var.pf_product_version\n}\n',
     "conformance/terraform/variables.tf": 'variable "pf_product_version" {\n  type    = string\n  default = "13.1"\n}\n',
     "tools/pf-linkcheck.py": f'"""\n  id=$(docker create {IMAGE})\n"""\n',
@@ -82,9 +83,15 @@ class Disagree(unittest.TestCase):
         self.assert_problem({"bom/pom.xml": "<project><properties><version.pingfederate>13.0.0.3</version.pingfederate></properties></project>\n"},
                             "bom/pom.xml: <version.pingfederate> is 13.0.0.3, PF_SDK_MAVEN_VERSION is 13.1.3.0")
 
+    def test_gm_api_pom_missing(self):
+        # A moved or renamed gm-api pom is reported, not passed as "no pin of its own".
+        self.assert_problem({"services/gm-api/servlet/pom.xml": None}, "services/gm-api/servlet/pom.xml: missing")
+
     def test_gm_api_pin(self):
-        self.assert_problem({"services/gm-api/servlet/pom.xml": "<project><properties><pingfederate.version>13.1.0</pingfederate.version></properties></project>\n"},
-                            "<pingfederate.version> is 13.1.0, PF_VERSION is 13.1.3")
+        # gm-api takes the SDK version from the BOM; a pin of its own, even the right one, is a second place
+        for v in ("13.1.0", "13.1.3"):
+            self.assert_problem({"services/gm-api/servlet/pom.xml": f"<project><properties><pingfederate.version>{v}</pingfederate.version></properties></project>\n"},
+                                f"services/gm-api/servlet/pom.xml: carries <pingfederate.version> {v}")
 
     def test_dockerfile_digest(self):
         other = "sha256:" + "ab" * 32
@@ -93,6 +100,24 @@ class Disagree(unittest.TestCase):
 
     def test_dockerfile_without_a_digest(self):
         self.assert_problem({"build/pingfederate/Dockerfile": f"FROM {IMAGE}\n"}, "Dockerfile: FROM")
+
+    def test_dockerfile_stages_start_from_the_pinned_image(self):
+        # builder, capability and deployment: one image FROM, and FROMs that name an earlier stage
+        staged = (f"ARG STAGING_PROFILE=production\nFROM {IMAGE}@{DIGEST} AS pingfederate\nFROM pingfederate AS builder\n"
+                  "FROM pingfederate AS capability\nCOPY --from=builder /build/x /x\nFROM capability AS deployment\n")
+        with tempfile.TemporaryDirectory() as root:
+            write_repo(root, {"build/pingfederate/Dockerfile": staged})
+            code, out, err = run(root)
+            self.assertEqual(code, 0, err)
+
+    def test_dockerfile_stage_reference_before_the_stage_is_an_image(self):
+        # a name used before any FROM declares it is an image reference, and not the pinned one
+        self.assert_problem({"build/pingfederate/Dockerfile": f"FROM capability AS deployment\nFROM {IMAGE}@{DIGEST} AS capability\n"},
+                            f"build/pingfederate/Dockerfile: FROM capability is not {IMAGE}@{DIGEST}")
+
+    def test_dockerfile_every_image_from_is_the_pinned_one(self):
+        self.assert_problem({"build/pingfederate/Dockerfile": f"FROM {IMAGE}@{DIGEST} AS base\nFROM other:1 AS x\n"},
+                            "build/pingfederate/Dockerfile: FROM other:1 is not")
 
     def test_action_with_a_literal(self):
         err = self.assert_problem({".github/actions/pf-provided-jars/action.yml": 'runs:\n  steps:\n    - run: mvn install:install-file -Dversion=13.1.3.0\n'},
@@ -105,6 +130,23 @@ class Disagree(unittest.TestCase):
 
     def test_author_sh(self):
         self.assert_problem({"conformance/author.sh": f'IMAGE="{IMAGE}"\n'}, "conformance/author.sh: does not source")
+
+    def test_author_sh_sourcing_the_env_file_directly(self):
+        # The old form: a path into this repository's layout, which the public tree does not have.
+        self.assert_problem({"conformance/author.sh": '. "$HERE/../build/pf-version.env"\nIMAGE="${PF_IMAGE:?}@${PF_IMAGE_DIGEST:?}"\n'},
+                            "conformance/author.sh: does not source $PFAI_VERSION_ENV from conformance/layout.sh")
+
+    def test_apply_sh_sourcing_the_env_file_before_layout(self):
+        self.assert_problem({"conformance/apply.sh": '. "$PFAI_VERSION_ENV"\n. "$HERE/layout.sh"\nexport TF_VAR_pf_product_version="${PF_TERRAFORM_PRODUCT_VERSION:?}"\n'},
+                            "conformance/apply.sh: does not source $PFAI_VERSION_ENV from conformance/layout.sh")
+
+    def test_layout_sh_missing(self):
+        self.assert_problem({"conformance/layout.sh": None},
+                            "conformance/layout.sh: does not resolve PFAI_VERSION_ENV to build/pf-version.env")
+
+    def test_layout_sh_resolving_elsewhere(self):
+        self.assert_problem({"conformance/layout.sh": 'PFAI_VERSION_ENV="$PFAI_IMAGE_DIR/pf-version.env"\n'},
+                            "conformance/layout.sh: does not resolve PFAI_VERSION_ENV to build/pf-version.env")
 
     def test_apply_sh(self):
         self.assert_problem({"conformance/apply.sh": 'export TF_VAR_pf_admin_host=x\n'}, "conformance/apply.sh: does not export TF_VAR_pf_product_version")

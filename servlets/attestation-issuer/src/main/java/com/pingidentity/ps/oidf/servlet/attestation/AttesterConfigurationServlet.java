@@ -14,6 +14,12 @@ import com.pingidentity.ps.oidf.issuer.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.issuer.IssuanceException;
 import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
 import com.pingidentity.ps.oidf.issuer.SpiffeBinding;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
+import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.net.TrustedProxies;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
+import com.pingidentity.ps.oidf.platform.settings.SettingRefused;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -21,8 +27,10 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
@@ -48,13 +56,22 @@ import org.jose4j.json.JsonUtil;
  * domain, and the RAR <em>type names</em> it may request. The full entitlement ceiling, the instance
  * bindings, and the signing configuration are deliberately not exposed.
  *
- * <p>The advertised endpoint URLs are derived from the request, honouring
- * {@code X-Forwarded-Proto}/{@code X-Forwarded-Host}/{@code X-Forwarded-Port} so the document is correct
- * behind a TLS-terminating proxy. The {@code challengeRequired} init-param mirrors the issuance servlet's
- * and must be configured to the same value.
+ * <p>The advertised endpoint URLs are derived from the request: its own scheme and host, or behind a proxy
+ * {@code OIDF_TRUSTED_PROXIES} lists, what that proxy says in {@code X-Forwarded-Proto}/{@code -Host}/{@code -Port} (or
+ * RFC 7239 {@code Forwarded}) - platform's {@link TrustedProxies} (plan item H-ATT-3, F-0061). From any other sender
+ * those headers are ignored, so a caller cannot make the document name a host of its choosing. The
+ * {@code challengeRequired} init-param mirrors the issuance servlet's and must be configured to the same value.
+ *
+ * <p>CORS (H-ATT-3): {@code Access-Control-Allow-Origin} is sent only to an origin {@value #CORS_SETTING} lists, with
+ * {@code Vary: Origin}, for {@code GET}; by default none is. Workloads and SDKs fetch these documents from servers,
+ * which CORS does not restrict, so the default costs them nothing. What it stops is a web page reading the documents
+ * through a visitor's browser - the browser can reach an attester the page's author cannot, inside a private network,
+ * and the per-client view names a client's issuer, trust domain and RAR types.
  */
+// loadOnStartup: its part of ATTESTATION_ISSUER registers at deploy, not on the first request (finding F-0193); its init
+// never throws.
 @WebServlet(urlPatterns = {"/.well-known/client-attester", "/federation/.well-known/client-attester",
-        "/federation/attester-configuration"})
+        "/federation/attester-configuration"}, loadOnStartup = 1)
 public class AttesterConfigurationServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
 
@@ -69,20 +86,78 @@ public class AttesterConfigurationServlet extends HttpServlet {
     /** The client-authentication method the advertised token endpoint accepts. */
     static final List<String> TOKEN_ENDPOINT_AUTH_METHODS = List.of("attest_jwt_client_auth");
 
+    /** The browser origins allowed to read the documents. */
+    static final String CORS_SETTING = "OIDF_ATTESTER_CORS_ORIGINS";
+
+    /** An origin as a browser serialises it: scheme, host and an optional port, no path. */
+    private static final Pattern ORIGIN = Pattern.compile("https?://([a-z0-9]([a-z0-9.-]{0,252})?|\\[[0-9a-f:.]{2,45}\\])(:[0-9]{1,5})?");
+
     private volatile IssuanceClientResolver clientResolver;
     private boolean challengeRequired;
+    /** The origins, in lower case, allowed to read the documents from a browser; none by default. */
+    private volatile Set<String> corsOrigins = Set.of();
 
+    /** This servlet's part of ATTESTATION_ISSUER, from init; null when a test's constructor made it and init never ran. */
+    private transient volatile ComponentParts.Part part;
+
+    /**
+     * Registers the servlet's part of {@code ATTESTATION_ISSUER} and reads {@code challengeRequired} strictly, through
+     * the attestation-issuer catalogue (plan item ST-5): {@code true} or {@code false}, any case; anything else leaves
+     * the part {@code FAILED_CONFIG}, naming the setting, and the documents answer 503.
+     */
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        this.challengeRequired = Boolean.parseBoolean(config.getInitParameter("challengeRequired"));
+        ComponentParts.Part begun = Startup.begin(Startup.ATTESTATION_ISSUER, "AttesterConfigurationServlet");
+        this.part = begun;
+        begun.start(() -> {
+            boolean challengeRequired = AttestationIssuanceServlet.challengeRequired(config);
+            Set<String> origins = corsOrigins(AttestationIssuanceServlet.corsOrigins(config));
+            TrustedProxies.check();
+            this.challengeRequired = challengeRequired;
+            this.corsOrigins = origins;
+        });
+    }
+
+    /**
+     * {@value #CORS_SETTING}'s origins, in lower case; empty when unset.
+     *
+     * @throws SettingRefused naming the setting, for an entry that is not {@code scheme://host[:port]}
+     */
+    static Set<String> corsOrigins(Set<String> configured) {
+        if (configured == null) {
+            return Set.of();
+        }
+        Set<String> out = new LinkedHashSet<>();
+        for (String origin : configured) {
+            String lower = origin.toLowerCase(Locale.ROOT);
+            if (!ORIGIN.matcher(lower).matches()) {
+                throw new SettingRefused(CORS_SETTING, CORS_SETTING + ": '" + origin
+                        + "' is not an origin, http(s)://host[:port] with no path; '*' is not allowed");
+            }
+            out.add(lower);
+        }
+        return Set.copyOf(out);
+    }
+
+    void setCorsOrigins(Set<String> origins) {
+        this.corsOrigins = corsOrigins(origins);
+    }
+
+    @Override
+    protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        if (ComponentGate.oauthEndpoint(this.part, resp)) {
+            return;
+        }
+        super.service(req, resp);
     }
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        applyCors(resp);
+        applyCors(req, resp, this.corsOrigins);
         resp.setContentType("application/json");
-        Map<String, Object> doc = metadata(baseUrl(req), this.challengeRequired, AgentRegistrySupport.isConfigured());
+        String issuer = opIssuer(req);
+        Map<String, Object> doc = metadata(baseUrl(req), this.challengeRequired, AgentRegistrySupport.isConfigured(), issuer);
 
         // The /.well-known document is a static, cacheable, deployment-wide resource — it takes no
         // parameters (per RFC 8615, a well-known URI is a fixed resource). It advertises the deployment
@@ -102,9 +177,8 @@ public class AttesterConfigurationServlet extends HttpServlet {
             // The audience the workload must set in its token-endpoint PoP: PF's configured OP issuer,
             // which is stable regardless of how the request was routed (the "aud trap" — the dialed URL
             // can differ from the issuer behind a proxy). Advertised so the SDK does not have to guess it.
-            String popAudience = opIssuer(req);
-            if (popAudience != null) {
-                doc.put("pop_audience", popAudience);
+            if (issuer != null) {
+                doc.put("pop_audience", issuer);
             }
             resp.setHeader("Cache-Control", "public, max-age=300");
             write(resp, 200, doc);
@@ -134,21 +208,44 @@ public class AttesterConfigurationServlet extends HttpServlet {
 
     @Override
     protected void doOptions(HttpServletRequest req, HttpServletResponse resp) {
-        applyCors(resp);
+        applyCors(req, resp, this.corsOrigins);
+        resp.setHeader("Allow", "GET, OPTIONS");
         resp.setStatus(204);
     }
 
-    /** The deployment-wide document: endpoints, evidence formats, and proof requirements. */
+    /** The deployment-wide document without the authorization server's pointers, for a deployment whose issuer is not known. */
     static Map<String, Object> metadata(String baseUrl, boolean challengeRequired, boolean agentIdSupported) {
+        return metadata(baseUrl, challengeRequired, agentIdSupported, null);
+    }
+
+    /**
+     * The deployment-wide document: endpoints, evidence formats, and proof requirements, and - when {@code asIssuer}, the
+     * authorization server's issuer, is known - where that server's metadata is (F-0118).
+     */
+    static Map<String, Object> metadata(String baseUrl, boolean challengeRequired, boolean agentIdSupported, String asIssuer) {
         List<String> algorithms = sortedAlgorithms(ClientAttestationConfig.DEFAULT_ASYMMETRIC_ALGORITHMS);
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("attestation_endpoint", baseUrl + "/federation/attestation");
-        m.put("challenge_endpoint", baseUrl + "/federation/attestation-challenge");
+        // The attester's challenge endpoint, for the instance-key proof. The token endpoint's challenges come from
+        // the authorization server's own endpoint, which its metadata names; a challenge from one is refused at the
+        // other (CAS §4.1), so this document names only the attester's.
+        m.put("challenge_endpoint", baseUrl + AttestationIssuanceChallengeServlet.PATH);
         // The PF token endpoint that accepts the minted attestation as client authentication
-        // (attest_jwt_client_auth, via ClientAttestationAuthFilter). Advertised so a client SDK can run
-        // the whole flow from the PF host alone.
+        // (attest_jwt_client_auth, via ClientAttestationAuthFilter): a client SDK finds it from the PF host alone.
+        // Its PoP's challenge is not the one above: it comes from the authorization server's challenge_endpoint, which
+        // the document at authorization_server_metadata names (F-0118).
         m.put("token_endpoint", baseUrl + "/as/token.oauth2");
         m.put("token_endpoint_auth_methods_supported", TOKEN_ENDPOINT_AUTH_METHODS);
+        String asMetadata = authorizationServerMetadata(asIssuer);
+        if (asMetadata != null) {
+            // RFC 9728 §2's member: "JSON array containing a list of OAuth authorization server issuer identifiers, as
+            // defined in [RFC8414]" - the identifier RFC 8414 §3.3 has the client compare with the issuer the metadata
+            // names ("If these values are not identical, the data contained in the response MUST NOT be used").
+            m.put("authorization_servers", List.of(asIssuer));
+            // And its RFC 8414 §3 location, named as RFC 9728 §5.1 names a protected resource's ("resource_metadata: The
+            // URL of the protected resource metadata"): the document whose challenge_endpoint the token endpoint accepts.
+            m.put("authorization_server_metadata", asMetadata);
+        }
         // The per-client issuance view (issuer, evidence_audience, RAR types) — a separate endpoint that
         // takes ?client_id, keeping this /.well-known document a static, parameterless, cacheable resource.
         m.put("client_configuration_endpoint", baseUrl + "/federation/attester-configuration");
@@ -206,6 +303,31 @@ public class AttesterConfigurationServlet extends HttpServlet {
     }
 
     /**
+     * RFC 8414 §3's metadata URL for {@code issuer}: "/.well-known/oauth-authorization-server" inserted "between the host
+     * component and the path component, if any", after "any terminating "/"" is removed. Null for no issuer, or one that
+     * is not an absolute URL without a query or fragment (RFC 8414 §2).
+     */
+    static String authorizationServerMetadata(String issuer) {
+        if (issuer == null) {
+            return null;
+        }
+        java.net.URI uri;
+        try {
+            uri = new java.net.URI(issuer);
+        } catch (java.net.URISyntaxException e) {
+            return null;
+        }
+        if (uri.getScheme() == null || uri.getRawAuthority() == null || uri.getRawQuery() != null || uri.getRawFragment() != null) {
+            return null;
+        }
+        String path = uri.getRawPath();
+        if (path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
+        return uri.getScheme() + "://" + uri.getRawAuthority() + "/.well-known/oauth-authorization-server" + path;
+    }
+
+    /**
      * PingFederate's configured OP issuer (its base URL), which the workload must use as the
      * token-endpoint PoP audience. Read via PF's own {@code OAuthIssuerUtils} so it matches exactly what
      * the token endpoint expects; returns {@code null} if PF cannot resolve it (then the field is omitted
@@ -213,7 +335,7 @@ public class AttesterConfigurationServlet extends HttpServlet {
      */
     private static String opIssuer(HttpServletRequest req) {
         try {
-            String issuer = org.sourceid.oauth20.issuer.OAuthIssuerUtils.getInstance().getIssuerValue(req);
+            String issuer = PfInternals.issuer(req);
             return issuer == null || issuer.isBlank() ? null : issuer;
         } catch (Throwable t) {
             return null;
@@ -225,15 +347,16 @@ public class AttesterConfigurationServlet extends HttpServlet {
      * {@code X-Forwarded-*} headers over the connection's own coordinates.
      */
     static String baseUrl(HttpServletRequest req) {
-        String proto = firstForwardedValue(req.getHeader("X-Forwarded-Proto"));
-        String host = firstForwardedValue(req.getHeader("X-Forwarded-Host"));
-        String scheme = proto != null ? proto : req.getScheme();
+        TrustedProxies.Origin origin = TrustedProxies.current().origin(req.getRemoteAddr(),
+                name -> AttestationIssuanceServlet.headerValues(req, name));
+        String host = origin.host();
+        String scheme = origin.scheme() != null ? origin.scheme() : req.getScheme();
         StringBuilder base = new StringBuilder(scheme).append("://");
         if (host != null) {
             base.append(host);
             // A forwarded host may already carry a port; only append X-Forwarded-Port if it does not.
-            String port = firstForwardedValue(req.getHeader("X-Forwarded-Port"));
-            if (port != null && !host.contains(":") && !isDefaultPort(scheme, port)) {
+            Integer port = origin.port();
+            if (port != null && !hasPort(host) && !isDefaultPort(scheme, String.valueOf(port))) {
                 base.append(':').append(port);
             }
         } else {
@@ -255,15 +378,9 @@ public class AttesterConfigurationServlet extends HttpServlet {
                 || ("http".equalsIgnoreCase(scheme) && "80".equals(port));
     }
 
-    /** Forwarded headers may be comma-joined lists (one hop per proxy); the first value is the client edge. */
-    private static String firstForwardedValue(String header) {
-        if (header == null || header.isBlank()) {
-            return null;
-        }
-        int comma = header.indexOf(',');
-        String value = comma < 0 ? header : header.substring(0, comma);
-        String t = value.trim();
-        return t.isEmpty() ? null : t;
+    /** Whether a host, a name or {@code [IPv6]}, carries a {@code :port}. */
+    static boolean hasPort(String host) {
+        return host.startsWith("[") ? host.contains("]:") : host.contains(":");
     }
 
     private static List<String> sortedAlgorithms(Set<String> algorithms) {
@@ -321,10 +438,20 @@ public class AttesterConfigurationServlet extends HttpServlet {
         return AttesterResolvers.fromEnvironment();
     }
 
-    private static void applyCors(HttpServletResponse resp) {
-        resp.setHeader("Access-Control-Allow-Origin", "*");
-        resp.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-        resp.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    /**
+     * CORS for a listed origin only: {@code Access-Control-Allow-Origin} naming it and {@code GET} as the one method.
+     * {@code Vary: Origin} whenever any origin is listed, since the answer then depends on the request's.
+     */
+    static void applyCors(HttpServletRequest req, HttpServletResponse resp, Set<String> allowed) {
+        if (allowed.isEmpty()) {
+            return;
+        }
+        resp.addHeader("Vary", "Origin");
+        String origin = req.getHeader("Origin");
+        if (origin != null && allowed.contains(origin.toLowerCase(Locale.ROOT))) {
+            resp.setHeader("Access-Control-Allow-Origin", origin);
+            resp.setHeader("Access-Control-Allow-Methods", "GET");
+        }
     }
 
     private static void write(HttpServletResponse resp, int status, Map<String, Object> body) throws IOException {

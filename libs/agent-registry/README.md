@@ -47,6 +47,12 @@ and already holds a stable id to carry as `agent_id`.
 Nothing is read from the environment here. The consumer decides which registry to configure and
 supplies the `DataSource`; the choice is deliberately explicit.
 
+From 0.6.0 the in-memory registry needs the `in-memory-state` accepted risk under the production profile
+(`OIDF_ACCEPTED_RISKS`, Phase 3 plan decisions 9 and 15): `configureInMemoryRegistry()` without it refuses
+`ATTESTATION_ISSUER`, the component that mints `agent_id`, and throws, so the part that called it is `REFUSED`.
+Development allows it with a WARN. No servlet this repository ships configures a registry today, so a deployment of
+the shipped war sees no change.
+
 ## Security posture
 
 The `instance_subject` column is the proven identifier and is never to be logged next to `agent_id` at
@@ -60,6 +66,7 @@ mvn -pl libs/agent-registry -am package     # or `mvn package` at the repo root;
 ```
 
 Both registries are held to the same `AgentRegistryContract` suite; the JDBC tests run the shipped
-migration against H2 in PostgreSQL mode. Versions come from `bom/pom.xml`. Not staged into PingFederate
+migration on PostgreSQL, in a database of their own (`libs/testkit`; see
+[CONTRIBUTING.md](../../CONTRIBUTING.md#tests-that-need-postgres)). Versions come from `bom/pom.xml`. Not staged into PingFederate
 by `build/pingfederate/stage-modules.sh`; it reaches `oidf.war`'s `WEB-INF/lib` only as a
 transitive dependency of `attestation-issuer`.

@@ -482,16 +482,6 @@ class TrustChainValidatorEdgeTest {
         }
 
         @Override
-        public org.jose4j.jwt.JwtClaims fetchEntityConfiguration() throws Exception {
-            return this.delegate.fetchEntityConfiguration();
-        }
-
-        @Override
-        public List<String> fetchMembers() throws Exception {
-            return this.delegate.fetchMembers();
-        }
-
-        @Override
         public String fetchEntityStatement(String issuer) throws Exception {
             return this.delegate.fetchEntityStatement(issuer);
         }

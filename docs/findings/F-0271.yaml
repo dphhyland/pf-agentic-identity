@@ -1,0 +1,20 @@
+id: F-0271
+title: OIDF_SSF_ENABLED and OIDF_SSF_RECEIVER_ENABLED are catalogued and parsed but change nothing yet
+severity: low
+area: platform, ssf
+source: design
+status: closed
+plan_items: [ST-5]
+prs: [72, 82]
+verification: >
+  2026-09-30, package ST5C. The SSF servlets start through their parts, so the switches apply: on the rig (slot
+  3, PingFederate 13.1.3.0, the branch at 2d952243) OIDF_SSF_ENABLED=false gave SSF and SSF_RECEIVER DISABLED and 404 on
+  /.well-known/ssf-configuration and /ssf/poll; SsfComponentsTest covers the switch off, on without an issuer
+  (FAILED_CONFIG naming both) and the receiver's switch keeping the transmitter from building it.
+target_release: 0.6.0
+notes: >
+  Found by package S9A (2026-09-30). The nine switches are in platform's components catalogue, but servlets/ssf still
+  starts from its own settings through SsfHttp.bootstrap and SsfComponents, which S9A was not to touch; setting either
+  SSF switch to false leaves the transmitter or receiver running, and neither is FAILED_CONFIG when its settings are
+  present and its switch unset in production. docs/operator/components.md and the catalogue's descriptions say so.
+  Who and when: ST-5 (package ST5C, Phase 3 wave 3) moves the SSF start-up onto the component parts.

@@ -1,0 +1,305 @@
+{
+  "format": 1,
+  "component": "federation-entity",
+  "module": "libs/openid-federation",
+  "package": "com.pingidentity.ps.oidf.federation",
+  "families": ["OIDF_FEDERATION_"],
+  "settings": [
+    {
+      "name": "OIDF_FEDERATION_TRUST_ANCHORS",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "This entity's superiors, space- or comma-separated Entity Identifiers, published as its authority_hints; with PingFederate's own issuer in the list it is an anchor instead and publishes trust_mark_issuers and trust_mark_owners. An anchor is recognised with or without a trailing slash, and whatever the case of its host",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Unset or blank, or an entry that is not an Entity Identifier (an https URL with a host and no query, fragment or user info): the federation servlet does not start, and the reason names the entry"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "init-param", "name": "trustAnchorIssuers"},
+        {"from": "env", "name": "OIDF_FEDERATION_TRUST_ANCHORS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_SUBORDINATES",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "Entities this one vouches for, space- or comma-separated: /federation/fetch issues a statement about each with the keys its own configuration publishes, and /federation/list lists them",
+      "when_wrong": {"effect": "not-checked", "detail": "A bad entry fails when it is fetched"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "init-param", "name": "subordinates"},
+        {"from": "env", "name": "OIDF_FEDERATION_SUBORDINATES"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_SIGNING_ALG",
+      "kind": "env",
+      "type": "choice",
+      "default": "RS256",
+      "choices": ["RS256", "PS256"],
+      "description": "How this entity signs its statements, with PingFederate's current RSA key",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Anything but RS256 or PS256, in any case: the federation servlet does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "init-param", "name": "signingAlgorithm"},
+        {"from": "env", "name": "OIDF_FEDERATION_SIGNING_ALG"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_ORGANIZATION_NAME",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "organization_name in this entity's federation_entity metadata",
+      "when_wrong": {"effect": "not-checked", "detail": "Published as given"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "init-param", "name": "organizationName"},
+        {"from": "env", "name": "OIDF_FEDERATION_ORGANIZATION_NAME"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_CLIENT_REGISTRATION_TYPES",
+      "kind": "env",
+      "type": "words",
+      "default": "automatic,explicit",
+      "description": "What client_registration_types_supported advertises, space- or comma-separated; none advertises neither and omits the registration endpoint, and federation_registration_endpoint is published only with explicit. Advertising only: registration works whatever it says",
+      "when_wrong": {"effect": "doesnt-start", "detail": "A list of nothing, or none beside another word: the federation servlet does not start. Unknown words are published as given"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "init-param", "name": "clientRegistrationTypes"},
+        {"from": "env", "name": "OIDF_FEDERATION_CLIENT_REGISTRATION_TYPES"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_RESOLVE_DISCOVERY",
+      "kind": "env",
+      "type": "choice",
+      "default": "known",
+      "choices": ["known", "any"],
+      "description": "Who the resolve endpoint answers for: known, only this entity, its subordinates and the entities it hosts (18.1); any, anyone",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Anything but known or any, in any case: the federation servlet does not start"},
+      "profile": "accepted-risk:resolve-any",
+      "governed": ["any"],
+      "security": true,
+      "sources": [
+        {"from": "init-param", "name": "resolveDiscovery"},
+        {"from": "env", "name": "OIDF_FEDERATION_RESOLVE_DISCOVERY"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_ATTESTER_JWKS",
+      "kind": "env",
+      "type": "json-object",
+      "default": null,
+      "description": "The co-hosted attester's public keys, published as oauth_client_attester.jwks so other authorisation servers can trust its attestations through the federation",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not one JSON object, not a JWK Set, or a key that is not public: the federation servlet does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "init-param", "name": "attesterJwks"},
+        {"from": "env", "name": "OIDF_FEDERATION_ATTESTER_JWKS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "corsEnabled",
+      "kind": "init-param",
+      "type": "bool",
+      "default": true,
+      "description": "Whether every federation endpoint sends CORS headers",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false, in any case: the federation servlet does not start (under development a spelling the reader before 0.6.0 took, such as yes, is read as it read it, false, with a warning)"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "init-param", "name": "corsEnabled"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "corsAllowOrigin",
+      "kind": "init-param",
+      "type": "string",
+      "default": "*",
+      "description": "Access-Control-Allow-Origin on the federation endpoints",
+      "when_wrong": {"effect": "not-checked", "detail": "Sent as given"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "init-param", "name": "corsAllowOrigin"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "corsAllowMethods",
+      "kind": "init-param",
+      "type": "string",
+      "default": "GET, OPTIONS",
+      "description": "Access-Control-Allow-Methods on the federation endpoints",
+      "when_wrong": {"effect": "not-checked", "detail": "Sent as given"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "init-param", "name": "corsAllowMethods"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "corsAllowHeaders",
+      "kind": "init-param",
+      "type": "string",
+      "default": "Accept, Content-Type",
+      "description": "Access-Control-Allow-Headers on the federation endpoints",
+      "when_wrong": {"effect": "not-checked", "detail": "Sent as given"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "init-param", "name": "corsAllowHeaders"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "corsMaxAge",
+      "kind": "init-param",
+      "type": "int",
+      "default": 3600,
+      "min": -2147483648,
+      "max": 2147483647,
+      "description": "Access-Control-Max-Age on the federation endpoints, in seconds",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number that fits an int: the federation servlet does not start"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "init-param", "name": "corsMaxAge"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "tokenEndpointAuthMethodsSupported",
+      "kind": "init-param",
+      "type": "words",
+      "default": "private_key_jwt,attest_jwt_client_auth,attest_jwt_client_auth_dpop",
+      "description": "token_endpoint_auth_methods_supported in the openid_provider metadata, space- or comma-separated",
+      "when_wrong": {"effect": "doesnt-start", "detail": "A list of nothing (a comma alone): the federation servlet does not start. Otherwise published as given"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "init-param", "name": "tokenEndpointAuthMethodsSupported"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "clientAttestationSigningAlgValuesSupported",
+      "kind": "init-param",
+      "type": "words",
+      "default": "RS256,PS256,ES256",
+      "description": "client_attestation_signing_alg_values_supported in the openid_provider metadata, space- or comma-separated",
+      "when_wrong": {"effect": "doesnt-start", "detail": "A list of nothing (a comma alone): the federation servlet does not start. Otherwise published as given"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "init-param", "name": "clientAttestationSigningAlgValuesSupported"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "clientAttestationPopSigningAlgValuesSupported",
+      "kind": "init-param",
+      "type": "words",
+      "default": "ES256,RS256,PS256",
+      "description": "client_attestation_pop_signing_alg_values_supported in the openid_provider metadata, space- or comma-separated",
+      "when_wrong": {"effect": "doesnt-start", "detail": "A list of nothing (a comma alone): the federation servlet does not start. Otherwise published as given"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "init-param", "name": "clientAttestationPopSigningAlgValuesSupported"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "dpopSigningAlgValuesSupported",
+      "kind": "init-param",
+      "type": "words",
+      "default": "ES256,RS256,PS256",
+      "description": "dpop_signing_alg_values_supported in the openid_provider metadata, space- or comma-separated",
+      "when_wrong": {"effect": "doesnt-start", "detail": "A list of nothing (a comma alone): the federation servlet does not start. Otherwise published as given"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "init-param", "name": "dpopSigningAlgValuesSupported"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "clientAttestationFormatsSupported",
+      "kind": "init-param",
+      "type": "words",
+      "default": "jwt",
+      "description": "Read and kept, space- or comma-separated, and never published",
+      "when_wrong": {"effect": "doesnt-start", "detail": "A list of nothing (a comma alone): the federation servlet does not start. Otherwise it has no effect"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "init-param", "name": "clientAttestationFormatsSupported"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "clientAttestationPopMethodsSupported",
+      "kind": "init-param",
+      "type": "words",
+      "default": "attestation_pop_jwt,dpop_combined",
+      "description": "The attestation proof-of-possession methods the openid_provider metadata advertises, space- or comma-separated",
+      "when_wrong": {"effect": "doesnt-start", "detail": "A list of nothing (a comma alone): the federation servlet does not start. Otherwise published as given"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "init-param", "name": "clientAttestationPopMethodsSupported"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "attestationChallengeEndpointEnabled",
+      "kind": "init-param",
+      "type": "bool",
+      "default": true,
+      "description": "Whether the openid_provider metadata advertises the attestation challenge endpoint",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false, in any case: the federation servlet does not start (under development a spelling the reader before 0.6.0 took, such as yes, is read as it read it, false, with a warning)"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "init-param", "name": "attestationChallengeEndpointEnabled"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_IGNORE_SSL_ERRORS",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether federation fetches skip certificate checks, for a test federation only: the federation servlet's own (resolve, Trust Mark status), registration's, the OGNL criteria's and attestation's, read as one setting by every one of them (F-0197). The federation servlet also reads its init-param ignoreSslErrors, first; PDP calls always check",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false, in any case, or the superseded name set to a different value: the components that read it do not start (under development a spelling the reader before 0.6.0 took, such as yes, is read as it read it, false, with a warning)"},
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {"from": "init-param", "name": "ignoreSslErrors"},
+        {"from": "system-property", "name": "oidf.federation.ignore.ssl.errors"},
+        {"from": "env", "name": "OIDF_FEDERATION_IGNORE_SSL_ERRORS"}
+      ],
+      "aliases": [
+        {"name": "OIDF_TRUST_CONTROLLER_IGNORE_SSL", "sources": [{"from": "system-property", "name": "oidf.trust.controller.ignore.ssl"}, {"from": "env", "name": "OIDF_TRUST_CONTROLLER_IGNORE_SSL"}]}
+      ],
+      "file": false,
+      "components": ["FEDERATION", "AUTO_REGISTRATION", "ATTESTATION_AUTH", "ATTESTATION_ISSUER", "HOSTING"]
+    }
+  ],
+  "removed": [
+    {"name": "trustControllerHost", "from": "init-param", "replacement": null, "release": "0.6.0"}
+  ]
+}

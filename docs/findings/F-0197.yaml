@@ -1,0 +1,37 @@
+id: F-0197
+title: The federation servlet and FederationRuntimeConfig read the same two variables from different sources
+severity: medium
+area: openid-federation, pf-integration
+source: design
+status: closed
+plan_items: [ST-5]
+prs: [91]
+verification: >
+  2026-09-30, package ST5F (PR #91). OIDF_FEDERATION_IGNORE_SSL_ERRORS is one catalogue entry, in openid-federation's
+  federation-entity.json, whose sources are the federation servlet's init-param ignoreSslErrors, the system property
+  oidf.federation.ignore.ssl.errors and the environment variable, in that order, with the superseded
+  OIDF_TRUST_CONTROLLER_IGNORE_SSL as its alias; FederationConfiguration and FederationRuntimeConfig both read it
+  through platform.settings (the runtime from the process, which has no init-params), strictly. The init-param
+  trustControllerHost, which the servlet read and never used, is a removed name, so OIDF_FEDERATION_TRUST_CONTROLLER_HOST
+  has one reader. FederationSettingsTest.theServletAndTheRuntimeReadTheSwitchTheSameWay runs both readers over one
+  table of twelve environments (property, environment, superseded name agreeing and disagreeing, strict and legacy
+  spellings in both profiles) and asserts the same answer from each. The same holds for the other variables two
+  readers read: OIDF_OPENBAO_URL and OIDF_OPENBAO_TOKEN, which HostedEntityServlet read as init-param, system
+  property and environment variable before falling back to RegistryHostedEntitySigner's reading with the superseded
+  OPENBAO_*, BAO_* and VAULT_* names, and which now have one hosted-entity-signing entry each, superseded names
+  checked whenever they are read; and OIDF_AUTHORITY_* (AuthorityDataSource and HostedEntityServlet read one entry
+  each).
+target_release: 0.6.0
+notes: >
+  Found by ST3A (2026-09-28) while cataloguing: a name is catalogued once, so each variable's sources had to be
+  written down in one place, and they differ by reader. FederationRuntimeConfig reads
+  OIDF_FEDERATION_IGNORE_SSL_ERRORS and OIDF_FEDERATION_TRUST_CONTROLLER_HOST as system property, then
+  environment variable, then the superseded OIDF_TRUST_CONTROLLER_IGNORE_SSL and OIDF_TRUST_CONTROLLER_HOST (with
+  their system properties). The federation servlet's FederationConfiguration (libs/openid-federation) reads its
+  init-params ignoreSslErrors and trustControllerHost, then the environment variable only. So
+  -Doidf.federation.ignore.ssl.errors=true, or only the superseded name, turns certificate checks off for
+  registration, the OGNL criteria and attestation but leaves them on for the federation servlet's own fetches
+  (resolve, Trust Mark status), and the reverse with the init-param. Both read the switch leniently (anything but
+  true is false). The catalogues record it as it is: federation-runtime owns the variables, and
+  federation-entity's two init-param entries say they fall back to the environment only. ST-5 converts both
+  readers onto one Setting.

@@ -1,0 +1,19 @@
+id: U-0064
+title: The Entra device token the iOS client would carry, and where the server would take it
+area: ios-client, device-enrolment
+source: design
+status: open
+plan_items: [X-I01a, X-A17]
+prs: []
+recorded_in: docs/device/ios-client-contract.md, The Entra device token
+verify_by: >
+  David's two-day spike on an Intune-managed iPhone: an app registration with the broker redirect URI, MSAL
+  with the Microsoft Authenticator broker, a Conditional Access policy that requires a compliant device, and
+  an access token whose payload is decoded and kept (redacted) as evidence of whether deviceid is present and
+  which of uti and tid are. Then X-A17 names the request field and the server's check, and DeviceTokenProvider
+  is implemented against it.
+verification: ''
+notes: >
+  U-0042 is the claim itself, from the plan; this entry is the kit's side of it. At ab74038 no request to the
+  enrolment service carries such a token and EnrolmentRequest has no field for one, so the kit ships the
+  DeviceTokenProvider seam with UnavailableDeviceTokenProvider, which throws and says why.

@@ -104,7 +104,7 @@ class OpenIdFederationServletTrustMarkTest {
 
         verify(exchange.response).setStatus(200);
         verify(exchange.response).setContentType("application/trust-mark+jwt");
-        assertEquals(RP, JwtCodec.parseUnverifiedClaims(exchange.body.toString()).getSubject());
+        assertEquals(RP, JwtCodec.parseUnverifiedClaims(exchange.body.toString()).unverifiedSubject());
         assertEquals("not_found", new Exchange("GET", "/federation/trust_mark", Map.of("trust_mark_type", OPEN, "sub", "https://other.example"))
                 .error(404).get("error"), "§8.6.2: a mark the entity does not hold is a 404");
     }
@@ -119,7 +119,7 @@ class OpenIdFederationServletTrustMarkTest {
 
         verify(exchange.response).setStatus(200);
         verify(exchange.response).setContentType("application/trust-mark-status-response+jwt");
-        assertEquals("active", JwtCodec.parseUnverifiedClaims(exchange.body.toString()).getClaimValue("status"));
+        assertEquals("active", JwtCodec.parseUnverifiedClaims(exchange.body.toString()).unverifiedClaim("status"));
         assertEquals("invalid_request", new Exchange("POST", "/federation/trust_mark_status", Map.of()).error(400).get("error"));
     }
 

@@ -1,0 +1,24 @@
+id: F-0280
+title: A chain and its Trust Marks still spend two resolution budgets in FederationService.resolve and registration
+severity: medium
+area: openid-federation, pf-integration
+source: design
+status: open
+plan_items: [S5c]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Package S5B (2026-09-30) gave every trust chain resolution one budget of time and requests, the gateway's own
+  requests and a peer chain included, and let TrustMarkValidator.validate(chain, budget) spend a caller's budget for
+  the anchor's configuration, each issuer and each status call. The callers were outside its files:
+  FederationService.resolve and the registration paths (RegistrationService, ClientAttestationUtils) validate the chain
+  on one budget and then call TrustMarkValidator.validate(chain), which makes a second budget from the issuers'
+  validator's options. One request can so cost up to two wall clocks and twice the requests the settings name.
+  S5c passes one budget through registration (ValidationRequest.budget and validate(chain, budget)); the resolve
+  endpoint's FederationService wiring goes with it.
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  FederationService.resolve and the registration paths still validate a chain on one budget and then call
+  TrustMarkValidator.validate(chain), which makes a second. It is S5c's residual and no Phase 3 package took it; the
+  programme plan names no Phase 4 owner, so David schedules it.

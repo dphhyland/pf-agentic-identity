@@ -1,0 +1,27 @@
+id: F-0427
+title: Preflight and oidf-preflight.jar judge only the profile audit, so a setting the server refuses when it reads it exits 0
+severity: medium
+area: platform
+source: pr-review
+status: open
+plan_items: [PR-5, ST-7]
+prs: [101]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-10-01 in the review of package ST7. PR5's Preflight, and oidf-preflight.jar which runs it, judge a file
+  with ProfileAudit: governed values, required settings, unknown names and component switches. A server refuses more
+  than that when a component reads a setting: Settings.resolve calls Catalogue.refuseRemoved, which throws
+  SettingRefused for any removed name that is set, under either profile, and then Setting.resolve, which throws for a
+  value its type's strict parser refuses (in development only a boolean spelled yes, no, 1, 0, on or off is let
+  through, as false), for a name set beside its _FILE variant and for a name and its superseded name set to different
+  values. ProfileAudit calls neither for a setting it does not govern. Seen on 2026-10-01 with oidf-preflight.jar on
+  JDK 17.0.11: a file with OIDF_DEPLOYMENT_PROFILE=production, OIDF_AUTO_REGISTRATION_ENABLED=true,
+  OIDF_BRIDGE_PRIVATE_JWK=x (removed in 0.1.2), OIDF_AUTO_REGISTRATION_FRONT_CHANNEL=yes and
+  OIDF_REGISTRATION_MAX_TTL_SECONDS=abc exits 0, "clean under the production profile"; so does one with
+  OIDF_REDIS_SENTINEL_PASSWORD and OIDF_REDIS_SENTINEL_PASSWORD_FILE both set. Each is refused on the component's
+  first read. Strict parsing is itself a 0.6.0 upgrade hazard, so this is the kind of line an operator runs the
+  preflight to find. It fails closed (the component refuses), which is why it is medium and not high.
+  docs/operator/preflight.md, "What it cannot check", names the three kinds with examples. A fix is for ProfileAudit
+  (or Preflight beside it) to run refuseRemoved and each set name's Setting.resolve under the file's profile and
+  report a SettingRefused as a violation of the setting's component; it is PR5's code, which ST7 was not to change.

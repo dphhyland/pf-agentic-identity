@@ -1,0 +1,36 @@
+id: F-0198
+title: Two automatic-registration limits wrap past an int before they are checked, and one per-client limit has two defaults
+severity: low
+area: pf-integration
+source: design
+status: closed
+plan_items: [ST-5]
+prs: [91]
+verification: >
+  2026-09-30, package ST5F (PR #91). FederationRuntimeConfig reads OIDF_AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES and
+  OIDF_AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS as ints with the catalogue's range, 1 to 2147483647, so 0,
+  2147483648, 4294967297 and 9223372036854775808 are refused naming the setting
+  (FederationSettingsTest.theAutoRegistrationLimitsAreIntsInTheirRange). The per-client trust_chain_request_max_age
+  defaults to 60 for every reader - the OGNL chain criterion, the attestation criterion's attester chain and the
+  token-endpoint filter's attester resolver - through OIDFederationUtils.trustChainRequestMaxAge and its constant.
+  TrustChainRequestMaxAgeTest holds each reader to it: the constant to the catalogue's default and the OGNL reader to
+  the constant (theDefaultIsTheCataloguesAndEveryReaderUsesIt), the attestation criterion's
+  ClientAttestationUtils.trustChainEntryMaxAge with no property to 60
+  (theAttestationCriterionHoldsAnAttesterChainToTheSameDefault), and the resolver
+  ClientAttestationUtils.attesterResolver gives the filter, which is seen asking the validator for 60
+  (theTokenEndpointFilterHoldsAnAttesterChainToTheSameDefault). 60 because the validator drops a presented statement
+  older than the limit and fetches it again (TrustChainValidator's presented index) rather than refusing the chain.
+  What the attester paths lose: a stale presented statement costs a fetch, and one that cannot be fetched - the host
+  unreachable, or refused by OutboundUrlPolicy as private (only the trust controller is exempt) - now fails the chain
+  where the presented copy passed before. A client with trust_chain_request_max_age -1 keeps the old behaviour.
+target_release: 0.6.0
+notes: >
+  Found by ST3A (2026-09-28) while transcribing defaults from the code. FederationRuntimeConfig reads
+  OIDF_AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES and OIDF_AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS as longs
+  and casts them to int before AutoRegistrationSettings checks they are at least 1, so 4294967297 is read as 1
+  and accepted, where the catalogue's range (1 to 2147483647) would refuse it. And the per-client extended
+  property trust_chain_request_max_age defaults to 60 seconds at the OGNL chain criterion
+  (OIDFederationUtils.validateTrustChain) and to -1, no limit, where ClientAttestationUtils resolves an attester's
+  chain (trustChainEntryMaxAge); the token-endpoint filter's attester resolver passes -1 always. The catalogue
+  gives the property the chain criterion's 60 and names the other in its description. ST-5 reads both limits
+  through the typed Setting and settles the one default.

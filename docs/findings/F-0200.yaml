@@ -1,0 +1,28 @@
+id: F-0200
+title: Until a copy knows it is the webapp's, managed executors keep the engine's copy from starting threads only because nothing there calls a start
+severity: low
+area: platform
+source: design
+status: open
+plan_items: [F-2, X-A01]
+prs: [51]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Package C3 (2026-09-28) refuses a managed executor in a plugin's relocated copy of platform, in a copy whose
+  lifecycle has shut down, and for a job already running anywhere in the JVM (libs/platform README, "exec").
+  It cannot refuse the engine's copy (server/default/deploy, where the OGNL criteria run), because a copy cannot
+  tell which loader it is in: Lifecycle.loaderRole() is UNKNOWN in every copy until F-2's listener calls
+  markWebapp() in the webapp's, and making UNKNOWN refuse now would stop every job until F-2 lands. Today the
+  rule holds because every start is in a servlet's or filter's init (or a boot retry scheduled from one), which
+  no engine-side code reaches. Once F-2 marks the webapp, ExecutorRegistry.create can refuse any copy that is not
+  marked, with one check. Standalone programs that use platform (services/device-enrolment through X-A01's
+  service-kit, for instance) would then need to mark themselves, or the check must treat a JVM with no servlet
+  container differently; F-2 or X-A01 decides which.
+
+  Retargeted from 0.5.0 to 0.7.0 on 2026-09-29, still open. F2 (PR #57) now marks the webapp's copy
+  (Lifecycle.markWebapp from LifecycleListener), so the check is possible, but it was not added: F2's README
+  (libs/platform-pf, "What it does not do") leaves it to platform.exec's owner and to X-A01's service-kit, which
+  standalone programs would need in order to mark themselves. ExecutorRegistry on origin/main 4b1fd979 still refuses
+  only a relocated copy, a shut-down copy and a name already claimed. X-A01 is recommended for Phase 4 (the Phase 2
+  plan, decision 4).

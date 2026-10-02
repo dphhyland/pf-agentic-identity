@@ -2,11 +2,20 @@ id: U-0034
 title: RFC 8935 non-202 handling and RFC 8936 acknowledgements
 area: ssf
 source: design
-status: open
+status: closed
 plan_items: [S10b, H-SSF-2]
-prs: []
+prs: [87]
 recorded_in: >
   the plan, To verify before relying on it, verbatim from the primary source, SSF, CAEP and SET transport
 verify_by: Quote the section verbatim from the primary source before the code or the docs assert it.
-verification: ''
+verification: >
+  Quoted 2026-09-30 (package HSSF1) from the primary text. RFC 8935 §2.2: "the SET Recipient SHALL acknowledge
+  successful transmission by responding with HTTP Response Status Code 202 (Accepted)"; §2.3: "the SET Recipient
+  SHALL respond with an HTTP Response Status Code of 400 (Bad Request)" with err and description, and "The response
+  MUST include a "Content-Language" header field". RFC 8936 §2: "The SET Recipient SHALL NOT use the event
+  acknowledgement mechanism to report event errors other than those relating to the parsing and validation of the
+  SET"; §2.2, ack: "Once a SET has been acknowledged, the SET Transmitter is released from any obligation to retain
+  the SET", and setErrs: "the "jti" values of invalid SETs received". The receiver's push endpoint answers 202 and
+  400 with Content-Language, and its poll client acknowledges what it took and reports what it refused in setErrs;
+  how a transmitter treats a non-202 on push stays S10b's.
 notes: ''

@@ -126,11 +126,11 @@ footer{max-width:1080px;margin:0 auto;padding:0 24px 40px;color:var(--faint);fon
     <div class="metric"><strong>13 of 13</strong><span>modules of the CAEP Interoperability Profile plan passed</span></div>
     <div class="metric"><strong>0 failed</strong><span>of the FAPI 2.0 Security Profile plan's 56 modules, of which 50 passed</span></div>
   </div>
-  <a class="src" href="../conformance/README.md" data-lines="166-175">conformance/README.md:166-175</a>
+  <a class="src" href="../conformance/README.md" data-lines="184-195">conformance/README.md:185-196</a>
 </div>
 
 <div class="note" style="margin-top:22px">These results come from a locally hosted suite at <code>release-v5.3.1</code>. Certification requires an authenticated run on the OpenID Foundation’s hosted suite against a reachable server.
-<a class="src" href="../conformance/README.md" data-lines="215-217">conformance/README.md:215-217</a></div>
+<a class="src" href="../conformance/README.md" data-lines="235-237">conformance/README.md:236-238</a></div>
 
 <section id="plans">
   <h2>Results by test plan</h2>
@@ -176,7 +176,7 @@ footer{max-width:1080px;margin:0 auto;padding:0 24px 40px;color:var(--faint);fon
       </tr>
     </tbody>
   </table></div>
-  <a class="src" href="../conformance/README.md" data-lines="166-175">conformance/README.md:166-175</a>
+  <a class="src" href="../conformance/README.md" data-lines="184-195">conformance/README.md:185-196</a>
   <a class="src" href="../docs/federation/conformance.md" data-lines="9-11">docs/federation/conformance.md:9-11</a>
 </section>
 
@@ -193,7 +193,7 @@ footer{max-width:1080px;margin:0 auto;padding:0 24px 40px;color:var(--faint);fon
     <div><b>SKIPPED, on the claims-parameter module.</b> The server does not advertise support, so the suite skips this test.</div>
   </div>
   <p style="margin-top:18px">Earlier federation failures identified missing OpenID Connect Discovery metadata and missing checks on requests from registered relying parties. Both defects have been fixed.</p>
-  <a class="src" href="../conformance/README.md" data-lines="177-187">conformance/README.md:177-187</a>
+  <a class="src" href="../conformance/README.md" data-lines="197-207">conformance/README.md:198-208</a>
   <a class="src" href="../docs/federation/conformance.md" data-lines="32-46">docs/federation/conformance.md:32-46</a>
 </section>
 
@@ -213,11 +213,11 @@ ALLOWED_ALGORITHMS =
   Set.of("PS256", "ES256", "EdDSA");</code></pre>
   </div>
   <p>A UserInfo filter returns <code>x-fapi-interaction-id</code> and rejects access tokens in query strings, as required by FAPI 1.0 Baseline. An OAuth error filter restricts <code>error_description</code> to RFC 6749’s permitted characters. The image build registers all three filters on PingFederate endpoints.</p>
-  <a class="src" href="../conformance/README.md" data-lines="123-132">conformance/README.md:123-132</a>
-  <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/fapi2/Fapi2ProfileFilter.java" data-lines="37-62">Fapi2ProfileFilter.java:37-62</a>
+  <a class="src" href="../conformance/README.md" data-lines="141-150">conformance/README.md:142-151</a>
+  <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/fapi2/Fapi2ProfileFilter.java" data-lines="38-63">Fapi2ProfileFilter.java:38-63</a>
   <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/fapi2/Fapi2RequestPolicy.java" data-lines="31-110">Fapi2RequestPolicy.java:31-110</a>
   <a class="src" href="../servlets/pf-integration/README.md" data-lines="45-49">servlets/pf-integration/README.md:45-49</a>
-  <a class="src" href="../conformance/vars.env" data-lines="59-62">conformance/vars.env:59-62</a>
+  <a class="src" href="../conformance/vars.env" data-lines="62-79">conformance/vars.env:62-79</a>
 </section>
 
 <section id="ciba">
@@ -231,7 +231,7 @@ ALLOWED_ALGORITHMS =
     another client's access token and expects a refusal the server cannot make.</li>
   </ul>
   <p>The tested configurations cannot pass this plan. The other 32 modules passed.</p>
-  <a class="src" href="../conformance/README.md" data-lines="204-213">conformance/README.md:204-213</a>
+  <a class="src" href="../conformance/README.md" data-lines="224-233">conformance/README.md:225-234</a>
 </section>
 
 <section id="rig">
@@ -257,8 +257,8 @@ ALLOWED_ALGORITHMS =
       </tr>
     </tbody>
   </table></div>
-  <a class="src" href="../conformance/README.md" data-lines="112-121">conformance/README.md:112-121</a>
-  <a class="src" href="../conformance/README.md" data-lines="99-110">conformance/README.md:99-110</a>
+  <a class="src" href="../conformance/README.md" data-lines="130-139">conformance/README.md:131-140</a>
+  <a class="src" href="../conformance/README.md" data-lines="117-128">conformance/README.md:118-129</a>
 </section>
 
 <section id="run">
@@ -287,7 +287,7 @@ ALLOWED_ALGORITHMS =
     <div class="card"><h3>Licence requirements</h3><p>The workflow requires the repository secrets <code>PING_IDENTITY_DEVOPS_USER</code> and <code>PING_IDENTITY_DEVOPS_KEY</code>. Their presence and the latest run result must be checked in GitHub Actions.</p>
     <a class="src" href="../.github/workflows/conformance-federation.yml" data-lines="44-54">conformance-federation.yml:44-54</a></div>
     <div class="card"><h3>Manual conformance runs</h3><p>The OpenID Provider plan requires the suite to host a relying party and trust anchor. Operators run this plan and the FAPI 2.0, Shared Signals, CAEP and FAPI-CIBA plans against a local suite.</p>
-    <a class="src" href="../conformance/README.md" data-lines="225-228">conformance/README.md:225-228</a></div>
+    <a class="src" href="../conformance/README.md" data-lines="245-248">conformance/README.md:246-249</a></div>
     <div class="card"><h3>Mutation testing, weekly</h3><p>A weekly mutation-testing workflow checks the federation library and PingFederate integration. The workflow fails when tests detect fewer than 85% of introduced mutations.</p>
     <a class="src" href="../.github/workflows/mutation.yml" data-lines="1-10">mutation.yml:1-10</a></div>
   </div>
@@ -296,7 +296,7 @@ ALLOWED_ALGORITHMS =
 <section id="untested">
   <h2>Untested scenarios</h2>
   <p class="note">OpenID Foundation certification has not been obtained. Both federation plans are alpha. Shared Signals <b>push</b> delivery and CIBA <b>ping</b> mode remain untested because the local suite cannot receive permitted callbacks. The CAEP results combine a local replica run on 2026-09-23 and a public test environment run on 2026-09-24. The relying-party federation plan does not apply to this OpenID Provider implementation.</p>
-  <a class="src" href="../conformance/README.md" data-lines="215-221">conformance/README.md:215-221</a>
+  <a class="src" href="../conformance/README.md" data-lines="235-241">conformance/README.md:236-242</a>
   <a class="src" href="../conformance/suite/run-plan.py" data-lines="7-9">run-plan.py:7-9</a>
 </section>
 

@@ -1,0 +1,51 @@
+{
+  "format": 1,
+  "component": "deployment-profile",
+  "module": "libs/platform",
+  "package": "com.pingidentity.ps.oidf.platform.profile",
+  "families": ["OIDF_DEPLOYMENT_", "OIDF_ACCEPTED_"],
+  "settings": [
+    {
+      "name": "OIDF_DEPLOYMENT_PROFILE",
+      "kind": "env",
+      "type": "choice",
+      "default": "production",
+      "choices": ["development", "production"],
+      "description": "The profile this process runs under: development, or production, which is also what unset means",
+      "when_wrong": {"effect": "not-checked", "detail": "Anything but development, in any case and trimmed, runs as production; rar-model alone reads development only when it is written exactly so (F-0160)"},
+      "profile": "any",
+      "security": true,
+      "sources": [{"from": "env", "name": "OIDF_DEPLOYMENT_PROFILE"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_ACCEPTED_RISKS",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "The risky switches this deployment accepts in production, comma-separated, each a risk id alone or with the last day it holds (expiry-log-mode@2026-12-31, UTC)",
+      "when_wrong": {"effect": "not-checked", "detail": "An entry that is empty, not a risk this release knows, dated wrongly or past its date, repeated, or without the date a dated risk needs is not accepted, and the start-up audit lists it at WARN; under the production profile a switch that needs that risk then refuses its components"},
+      "profile": "any",
+      "security": true,
+      "sources": [{"from": "env", "name": "OIDF_ACCEPTED_RISKS"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "jdk.internal.httpclient.disableHostnameVerification",
+      "kind": "system-property",
+      "type": "string",
+      "default": null,
+      "description": "The JDK's own switch, never this repository's: set, it turns off the host name check of every java.net.http client in the JVM - PingFederate's and every component's - for the life of the JVM. The JDK reads it once, in jdk.internal.net.http.common.Utils (JDK 17 and 21): unset checks host names, empty or true turns the check off, any other value checks. The production profile forbids it with any value (F-0035, F-0195)",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Set under the production profile, with any value: every component is REFUSED and answers 503, ready is 503, and PingFederate's own endpoints keep serving. Remove -Djdk.internal.httpclient.disableHostnameVerification from the JVM's options"},
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [{"from": "system-property", "name": "jdk.internal.httpclient.disableHostnameVerification"}],
+      "aliases": [],
+      "file": false,
+      "components": ["FEDERATION", "AUTO_REGISTRATION", "ATTESTATION_AUTH", "ATTESTATION_ISSUER", "HOSTING", "SSF", "SSF_RECEIVER", "OPERATOR_API", "FAPI"]
+    }
+  ],
+  "removed": []
+}

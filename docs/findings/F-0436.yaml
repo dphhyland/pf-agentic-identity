@@ -1,0 +1,26 @@
+id: F-0436
+title: The coverage gate requires Budget.take's compareAndSet retry, which only thread contention reaches, so the java job can fail by chance
+severity: low
+area: platform, ci
+source: design
+status: open
+plan_items: [R-CI5]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found by the v0.6.0 release package on 2026-10-01. The Build's java job on the release branch (run 36777726700, at
+  c6e2310b, whose code is origin/main 600fa6b5's; GitHub's runner, Temurin 17.0.20) failed at platform's
+  jacoco:check (coverage-gate): "Rule violated for method com.pingidentity.ps.oidf.platform.http.Budget.take(): lines
+  covered ratio is 0.83, but expected minimum is 1" and branches 0.75. main's own Build on 600fa6b5 (run
+  36775688490) passed, and so did the release package's local JDK 17 reactor the same day. Budget.take
+  (libs/platform, Budget.java lines 84 to 94) loops on requests.compareAndSet(left, left - 1), and the branch where
+  the compare fails and the loop goes round again is reached only when two threads spend at once:
+  DeadlineAndBudgetTest.concurrentSpendingNeverSpendsMoreThanTheBudget starts eight threads on one latch, which
+  collide on most runs and not on every one. libs/platform/pom.xml includes Budget.take(* in its METHOD gate, which
+  requires every line and branch, so the gate is nondeterministic. Nothing in the product is wrong: the retry is
+  correct and the test's assertion held. The fix is in the test or the gate - drive the retry deterministically (a
+  test that makes the compare fail once, for instance through a package-private hook), or take Budget.take out of the
+  100% gate - and is a code change the release package does not make. Until then a failed java job on this rule is
+  rerun. Low: it costs a rerun, not a defect. The programme plan gives it no later item of its own, so David
+  schedules it.

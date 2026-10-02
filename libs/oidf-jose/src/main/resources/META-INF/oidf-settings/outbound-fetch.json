@@ -1,0 +1,64 @@
+{
+  "format": 1,
+  "component": "outbound-fetch",
+  "module": "libs/oidf-jose",
+  "package": "com.pingidentity.ps.oidf.jose",
+  "families": ["OIDF_FETCH_"],
+  "settings": [
+    {
+      "name": "OIDF_FETCH_ALLOW_HTTP",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether fetches, and a policy decision point's URL, may use http:// - for a development federation or PDP only",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false, in any case: the components that fetch do not start (under development a spelling the reader before 0.6.0 took, such as yes, is read as it read it, false, with a warning)"},
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [{"from": "env", "name": "OIDF_FETCH_ALLOW_HTTP"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FETCH_ALLOW_PRIVATE_NETWORKS",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether fetches may reach private, loopback and link-local addresses; without it a host any of whose addresses is one is refused",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false, in any case: the components that fetch do not start (under development a spelling the reader before 0.6.0 took, such as yes, is read as it read it, false, with a warning)"},
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [{"from": "env", "name": "OIDF_FETCH_ALLOW_PRIVATE_NETWORKS"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FETCH_HOST_ALLOWLIST",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "Hosts, space- or comma-separated, exempt from the private-address rule; a name covers its subdomains, and https is still required",
+      "when_wrong": {"effect": "doesnt-start", "detail": "A list of nothing (a comma alone): the components that fetch do not start. Otherwise read as given, lower-cased; an entry that names no host exempts nothing"},
+      "profile": "any",
+      "security": true,
+      "sources": [{"from": "env", "name": "OIDF_FETCH_HOST_ALLOWLIST"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FETCH_MAX_BODY_BYTES",
+      "kind": "env",
+      "type": "long",
+      "default": 262144,
+      "min": 1,
+      "max": 9223372036854775807,
+      "description": "The largest response body any federation fetch reads, in bytes",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number, or below 1: the components that fetch do not start (before 0.6.0 such a value was read as the default)"},
+      "profile": "any",
+      "security": true,
+      "sources": [{"from": "env", "name": "OIDF_FETCH_MAX_BODY_BYTES"}],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

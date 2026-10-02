@@ -21,6 +21,7 @@ import org.junit.jupiter.api.AfterEach;
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
+@org.junit.jupiter.api.extension.ExtendWith(InMemoryStateAccepted.class)
 class ClientAttestationServiceMetadataServletTest {
 
     private static final String ISSUER = "https://attester.example.com";
@@ -38,7 +39,8 @@ class ClientAttestationServiceMetadataServletTest {
         Map<String, Object> m = initialized(Map.of()).metadata(ISSUER);
         assertEquals(ISSUER, m.get("issuer"));
         assertEquals(ISSUER + "/federation/attestation", m.get("attestation_endpoint"));
-        assertEquals(ISSUER + "/federation/attestation-challenge", m.get("challenge_endpoint"));
+        assertEquals(ISSUER + "/federation/attestation/challenge", m.get("challenge_endpoint"),
+                "the attester's own challenge endpoint, not the authorization server's");
         assertEquals(false, m.get("challenge_required"));
         // The built-in registry (InstanceAttestationValidators.defaults()) covers every cloud-platform
         // evidence type PLUS the wallet placeholder; every cloud type reports format "spiffe", so the
@@ -48,7 +50,7 @@ class ClientAttestationServiceMetadataServletTest {
         assertEquals(List.of("RS256", "PS256", "ES256"), m.get("attestation_signing_alg_values_supported"));
         assertEquals(List.of("client_id", "instance_key", "instance_attestation", "proof"),
                 m.get("request_parameters_required"));
-        assertEquals(List.of("aud", "jti"), m.get("proof_claims_required"));
+        assertEquals(List.of("aud", "jti", "iat", "exp"), m.get("proof_claims_required"));
         assertEquals(List.of("iss", "sub", "iat", "exp", "cnf", "workload"), m.get("attestation_claims_issued"));
         assertEquals(List.of("authorization_details"), m.get("attestation_claims_optional"));
         assertNull(m.get("custom_claims_required"));
@@ -64,7 +66,7 @@ class ClientAttestationServiceMetadataServletTest {
     void challengeRequiredAddsChallengeToProofClaims() throws Exception {
         Map<String, Object> m = initialized(Map.of("challengeRequired", "true")).metadata(ISSUER);
         assertEquals(true, m.get("challenge_required"));
-        assertEquals(List.of("aud", "jti", "challenge"), m.get("proof_claims_required"));
+        assertEquals(List.of("aud", "jti", "iat", "exp", "challenge"), m.get("proof_claims_required"));
     }
 
     @Test
@@ -102,10 +104,28 @@ class ClientAttestationServiceMetadataServletTest {
     }
 
     @Test
-    void cimdSourceAdvertisedWhenBundlesConfigured() throws Exception {
+    void cimdSourceAdvertisedWhenBundlesConfiguredInDevelopment() throws Exception {
+        String bundles = "{\"banking.demo\":{\"keys\":[]}}";
+        assertEquals(List.of("cimd", "registration"), ClientAttestationServiceMetadataServlet.metadataSources(
+                k -> "oidf.cimd.trust.bundles".equals(k) ? bundles : null,
+                k -> "OIDF_DEPLOYMENT_PROFILE".equals(k) ? "development" : null));
+        assertEquals(List.of("cimd", "registration"), ClientAttestationServiceMetadataServlet.metadataSources(
+                k -> " ", Map.of("OIDF_CIMD_TRUST_BUNDLES", bundles, "OIDF_DEPLOYMENT_PROFILE", "development")::get),
+                "the variable when the property is blank");
+    }
+
+    /** M-1: outside development the attester refuses the CIMD source, so the document does not advertise it. */
+    @Test
+    void cimdSourceIsNotAdvertisedOutsideDevelopment() throws Exception {
         System.setProperty("oidf.cimd.trust.bundles", "{\"banking.demo\":{\"keys\":[]}}");
-        Map<String, Object> m = initialized(Map.of()).metadata(ISSUER);
-        assertEquals(List.of("cimd", "registration"), m.get("client_metadata_sources_supported"));
+        assertEquals(List.of("registration"), ClientAttestationServiceMetadataServlet.metadataSources(System::getProperty, k -> null),
+                "an unset profile is production");
+        assertEquals(List.of("registration"), ClientAttestationServiceMetadataServlet.metadataSources(System::getProperty,
+                k -> "OIDF_DEPLOYMENT_PROFILE".equals(k) ? "production" : null));
+        assertEquals(List.of("registration"), ClientAttestationServiceMetadataServlet.metadataSources(k -> null, k -> null),
+                "no bundles, no cimd, in any profile");
+        assertEquals(List.of("registration"), ClientAttestationServiceMetadataServlet.metadataSources(k -> null,
+                k -> "OIDF_DEPLOYMENT_PROFILE".equals(k) ? "development" : " "), "a blank variable is no bundles");
     }
 
     @Test

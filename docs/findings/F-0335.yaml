@@ -1,0 +1,34 @@
+id: F-0335
+title: The federation endpoints' and automatic registration's attestation-store state stays in memory in production without the in-memory-state risk
+severity: medium
+area: pf-integration, client-attestation
+source: design
+status: open
+plan_items: [PR-2]
+prs: [80]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found by ST5A (2026-09-30) while wiring PR-2's in-memory rule. AttestationSupport.requireSharedState(namespace) is
+  the rule (Phase 3 plan, decisions 9 and 15), and ST5A calls it from the parts that own the attestation namespaces:
+  the authorization server's challenge endpoint (oidf:as:*, refusing ATTESTATION_AUTH) and the attester's issuance
+  servlet and challenge endpoint (oidf:cas:*, refusing ATTESTATION_ISSUER). Two other users of these stores keep
+  in-memory state in production without the risk, because their classes are not ST5A's: OpenIdFederationServlet's
+  federation-endpoint client authentication (AttestationSupport.replayCache(StoreNamespace.FED_ENDPOINT),
+  oidf:fed:endpoint:*, component FEDERATION), and FrontChannelAutoRegistrationFilter's request-object and assertion
+  jtis (AttestationSupport.replayCache(), the authorization server's oidf:as:* cache, component AUTO_REGISTRATION).
+  The fix is one call each from their start functions - AttestationSupport.requireSharedState(FED_ENDPOINT) in
+  OpenIdFederationServlet (ST5F rewrites that servlet's settings in wave 5), and a requireSharedState(AS) that refuses
+  AUTO_REGISTRATION rather than ATTESTATION_AUTH (componentOf maps AS to ATTESTATION_AUTH; the filter's owner decides
+  whether automatic registration gets its own namespace). Until then a production deployment without Redis replays
+  a federation client assertion or an automatic registration request object on a second node. A third user, found in
+  ST5A's review (2026-09-30): ClientAttestationUtils (servlets/pf-integration, S4D1's this wave) calls
+  AttestationSupport.replayCache() and challengeService() from the OGNL issuance criterion, in PingFederate's engine
+  classloader, which holds its own copy of AttestationSupport. Code refusals are per loaded copy
+  (ProfileRefusals.CODE), so the rule the challenge endpoint enforces in the servlet's copy never sees the engine
+  copy's in-memory replay and challenge stores; that copy needs its own requireSharedState(AS) where the criterion's
+  stores are first built, or the token-endpoint filter's start function.
+
+  Retargeted from 0.6.0 to 0.7.0 on 2026-10-01 by the v0.6.0 release package, still open on origin/main 600fa6b5:
+  the OGNL criterion's copy and the federation endpoints' stores still take no in-memory-state check. C-1 (Phase 4)
+  owns in-memory state once topology is known (decision 9).

@@ -1,0 +1,25 @@
+id: F-0131
+title: Lifecycle starts its own short-lived closer threads outside platform.exec
+severity: low
+area: platform
+source: design
+status: closed
+plan_items: [C-3]
+prs: [51]
+verification: >
+  Closed by C3 on 2026-09-28. Lifecycle.close starts each closer through ManagedExecutors.startDaemon
+  ("oidf-platform-close-<n>", a daemon, uncaught throws logged), so platform.exec is the one place platform
+  starts a thread. It is deliberately not a managed executor: the lifecycle is what closes the executors, and a
+  shutdown that ran its closes on one would depend on an executor being shut down. So startDaemon is not claimed,
+  not registered with the lifecycle and not refused in any copy. LifecycleTest passes unchanged on JDK 17 and 20,
+  and a search of main Java code for `new Thread(` finds only platform.exec, libs/testkit's shutdown hook (test
+  support, never shipped) and services/device-enrolment's Main (X-A11).
+target_release: 0.5.0
+notes: >
+  Package F1 (2026-09-28) bounds the wait in Lifecycle.shutdown by closing each registered resource on a daemon
+  thread of its own ("oidf-platform-close-<name>") and waiting for it only until the budget runs out. That is a
+  `new Thread(` in platform.lifecycle, and the Phase 2 exit check expects `new Thread(` only in platform.exec. The
+  threads run during shutdown, which only the webapp's lifecycle listener is meant to call, and when a resource is
+  registered after shutdown (closed at once, in whichever copy and from whichever caller registers it); each ends
+  with its close, but after a timeout the remaining closes start while the hung one still runs. C-3's
+  ManagedExecutors is where they move, or where the exit check names this one exception with its reason.

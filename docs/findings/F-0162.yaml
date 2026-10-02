@@ -1,0 +1,24 @@
+id: F-0162
+title: The attestation flow harness turns off the JDK's hostname check for the whole run, every run
+severity: low
+area: harness
+source: design
+status: closed
+plan_items: [PR-3]
+prs: [85]
+verification: >
+  Fixed by package ST5S (2026-09-30). AttestationFlowHarness.main sets
+  jdk.internal.httpclient.disableHostnameVerification through InsecureTls only when OIDF_HARNESS_INSECURE_TLS is true,
+  read strictly with platform's Parsers, and records it under that switch; without it a live run checks the
+  certificate's chain and its name. AttestationFlowHarnessInsecureTlsTest sees the property unset after a run without
+  the switch and set after one with it.
+target_release: 0.6.0
+notes: >
+  services/harness AttestationFlowHarness.main sets jdk.internal.httpclient.disableHostnameVerification=true
+  before anything else, whatever mode it runs in, so in `live` mode - whose documented use is a deployed
+  PingFederate - a server certificate's chain is checked (unless OIDF_HARNESS_INSECURE_TLS=true) but its name
+  never is. PR1 (2026-09-28) kept that, moving the call to libs/platform's InsecureTls, the one place the scan
+  allows it, and recording it under "AttestationFlowHarness.main (every run)". The harness is a hand-run tool,
+  not shipped. Its comment gives the reason: PingFederate behind a TCP proxy serves a self-signed certificate for
+  localhost, so the name dialled does not match. The fix is to set the flag only when OIDF_HARNESS_INSECURE_TLS
+  is on, so that a run against a real deployment checks both.

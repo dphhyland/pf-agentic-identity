@@ -1,0 +1,60 @@
+# The direct reads tools/direct-read-scan.py admits outside platform (plan item ST-6): each, and why.
+#
+# Two forms, each under a `# group <name>` line (the scan's docstring has the rules):
+#   <module>: <why it is never shipped>               in the "not shipped" group only; admits every hit in the module
+#                                                     (the scan checks only that stage-modules.sh does not stage it: a
+#                                                     module shipped another way is kept out of this group by review)
+#   <path> | <pattern> | <finding id, or why>         a hit in that file whose line, comments removed, contains the pattern
+# CI runs the scan with --check-allow-list, so a line that admits nothing fails the build: when you convert a read,
+# delete its line; when a finding here closes, its lines go with it (the scan refuses a closed finding's id).
+# A new direct read is a failure until it is converted - read it through platform.settings - or admitted here with
+# a finding or a reason a reviewer accepts.
+
+# group not shipped
+libs/testkit: DB1's Postgres test support, a test-scoped dependency never staged into the image; its OIDF_TEST_JDBC_URL and CI are the build's (settings-scan exempts it for the same reason)
+services/harness: verification CLIs run by hand with mvn exec:java; nothing stages or releases it and its pom skips deploy (settings-scan exempts it for the same reason)
+
+# group handed to platform
+# The process's lookup handed to platform - Sources.of, Settings.of, DeploymentProfile.of, AcceptedRisks.of - through
+# a constructor or method a test calls with its own map: platform.settings reads each name the catalogue entry gives,
+# in its order, strictly. The seam is the one platform's own API asks for (it takes a Function<String, String>).
+libs/platform-pf/src/main/java/com/pingidentity/ps/oidf/platform/pf/health/HealthServlet.java | this(() -> OperatorAuthenticator.shared(), System::getenv | the environment for DeploymentProfile.of, which the detail view reports
+libs/platform-pf/src/main/java/com/pingidentity/ps/oidf/platform/pf/lifecycle/LifecycleListener.java | this(System::getenv, Sources.process() | the environment for DeploymentProfile.of, AcceptedRisks.of and the start-up audit
+libs/rar-model/src/main/java/com/pingidentity/ps/oidf/rar/model/RarModels.java | return fromEnvironment(System.getenv()); | the environment for fromEnvironment(Map), which reads it through the rar-models catalogue
+libs/client-attestation/src/main/java/com/pingidentity/ps/oidf/clientattestation/AttestationRarModels.java | RarModels.fromEnvironment(environment == null ? System.getenv() : environment) | the environment for RarModels.fromEnvironment, which reads it through the rar-models catalogue
+plugins/rar-paz-plugin/src/main/java/com/pingidentity/ps/oidf/rar/ModelGate.java | fromEnvironment(System.getenv()) | the environment for RarModels.fromEnvironment, which reads it through the rar-models catalogue
+plugins/rar-paz-plugin/src/main/java/com/pingidentity/ps/oidf/rar/AttestationAwareRarProcessor.java | configure(configuration, profile, System::getenv) | the environment for ProfileRules.check, which reads it through the rar-pdp-processor catalogue
+plugins/rar-paz-plugin/src/main/java/com/pingidentity/ps/oidf/rar/AttestationAwareRarProcessor.java | new ProfileRules.Validator(System::getenv) | the environment for ProfileRules' GUI validator, which reads it through the rar-pdp-processor catalogue
+plugins/instance-registry-datasource/src/main/java/com/pingidentity/ps/oidf/registry/InstanceRegistryDataSource.java | this(System::getenv, JdbcDatastoreFieldDescriptor::new) | the environment for Settings.of over the instance-registry catalogue
+plugins/instance-registry-datasource/src/main/java/com/pingidentity/ps/oidf/registry/InstanceRegistryDataSource.java | Sources.of(this.env, System::getProperty, null) | the system properties for Settings.of over the instance-registry catalogue
+plugins/ciba-sim/src/main/java/com/pingidentity/ps/oidf/cibasim/CibaSimDecisionServlet.java | this(System::getenv, DecisionStore::at) | the environment for SimulatorGate, which reads it through the ciba-simulator catalogue
+plugins/ciba-sim/src/main/java/com/pingidentity/ps/oidf/cibasim/SimOobAuthenticator.java | this(System::getenv, DecisionStore::at) | the environment for SimulatorGate, which reads it through the ciba-simulator catalogue
+services/device-enrolment/src/main/java/com/pingidentity/ps/oidf/enrolment/Main.java | run(System::getenv, System::getProperty, System.err) | the environment and system properties for Settings.of over the device-enrolment catalogue
+services/gm-api/servlet/src/main/java/au/com/idpartners/gm/servlet/McpServlet.java | Sources.of(env, System::getProperty, initParams) | the system properties for Settings.of over the gm-api catalogue
+servlets/attestation-issuer/src/main/java/com/pingidentity/ps/oidf/issuer/CloudTokenValidator.java | fromEnvironment(System::getProperty, System::getenv) | the process for CloudTokenValidator.Policy, which reads it through the evidence-policy catalogue
+servlets/attestation-issuer/src/main/java/com/pingidentity/ps/oidf/issuer/EvidencePolicy.java | fromEnvironment(System::getProperty, System::getenv) | the process for EvidencePolicy, which reads it through the evidence-policy catalogue
+servlets/attestation-issuer/src/main/java/com/pingidentity/ps/oidf/servlet/attestation/ClientAttestationServiceMetadataServlet.java | metadataSources(System::getProperty, System::getenv) | the process for Settings.of over the attestation-issuer catalogue
+servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/fapi1/FapiResourceServerFilter.java | this(System::getenv) | the environment for Sources.of over the fapi2-profile catalogue
+servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/fapi1/FapiResourceServerFilter.java | Sources.of(this.environment, System::getProperty, initParams) | the system properties for Sources.of over the fapi2-profile catalogue
+servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/fapi2/Fapi2ProfileFilter.java | this(Fapi2ProfileFilter::defaultIssuer, System::getenv) | the environment for Sources.of over the fapi2-profile catalogue
+servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/fapi2/Fapi2ProfileFilter.java | Sources.of(this.environment, System::getProperty, initParams) | the system properties for Sources.of over the fapi2-profile catalogue
+libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/FederationConfiguration.java | config == null ? name -> null : config::getInitParameter | the servlet's init-params for Sources.withInitParams over the federation-entity catalogue: openid-federation does not depend on platform-pf, so it cannot call InitParams.of
+
+# group not a setting
+servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/RegistrationExpirySweeper.java | System.getProperty(OWNER_PROPERTY) | oidf.registration.sweeper.owner is a JVM-wide claim the sweeper sets and clears so one webapp in the JVM runs it, not a setting anyone configures
+
+# group findings
+# Reads that should have gone through platform.settings (plan item ST-5), each with its finding; they go when it closes.
+servlets/attestation-issuer/src/main/java/com/pingidentity/ps/oidf/issuer/IssuedTtlCap.java | fromEnvironment(System::getProperty, System::getenv) | F-0420
+servlets/attestation-issuer/src/main/java/com/pingidentity/ps/oidf/servlet/attestation/AttesterResolvers.java | fromEnvironment(System::getProperty, System::getenv) | F-0420
+servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/pf/OperatorApi.java | config.getInitParameter(initParam) | F-0421
+servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/pf/OperatorApi.java | System.getProperty(sysProp) | F-0421
+servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/pf/OperatorApi.java | System.getenv(envVar) | F-0421
+libs/platform-pf/src/main/java/com/pingidentity/ps/oidf/platform/pf/audit/PfAuditSink.java | install(System::getenv, System::getProperty, remoteAddress) | F-0422
+servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/pf/PfAuditEventSink.java | install(System::getenv, System::getProperty) | F-0422
+libs/platform-pf/src/main/java/com/pingidentity/ps/oidf/platform/pf/auth/OperatorAuthenticator.java | staticBearer(System::getProperty, System::getenv) | F-0422
+plugins/rar-paz-plugin/src/main/java/com/pingidentity/ps/oidf/rar/AttestationAwareRarProcessor.java | System.getProperty(EXTRA_TYPES_PROPERTY), System.getenv(EXTRA_TYPES_ENV) | F-0423
+services/gm-api/servlet/src/main/java/au/com/idpartners/gm/servlet/McpServlet.java | from(System::getenv, config::getInitParameter) | F-0424
+services/gm-api/servlet/src/main/java/au/com/idpartners/gm/servlet/MetadataServlet.java | settings(System::getenv, config::getInitParameter) | F-0424
+servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/trustanchor/HostedEntityServlet.java | configureAuthority(config::getInitParameter) | F-0424
+servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/trustanchor/FederationAdminServlet.java | configureAuthority(config::getInitParameter) | F-0424

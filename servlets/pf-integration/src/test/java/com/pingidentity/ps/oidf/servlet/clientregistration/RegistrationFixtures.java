@@ -33,6 +33,12 @@ final class RegistrationFixtures {
     static final Map<String, Object> JWKS = jwks("k1", "abc");
     private static SigningKeyProvider signer;
 
+    /** The claims of a statement a fixture built, as a validator would hand them on once the chain has verified. */
+    static org.jose4j.jwt.JwtClaims claimsOf(String jwt) throws Exception {
+        return org.jose4j.jwt.JwtClaims.parse(new String(java.util.Base64.getUrlDecoder().decode(jwt.split("\\.")[1]),
+                java.nio.charset.StandardCharsets.UTF_8));
+    }
+
     private RegistrationFixtures() {
     }
 
@@ -64,7 +70,7 @@ final class RegistrationFixtures {
                 .resolvedMetadata(metadataByType)
                 .trustChain(chain)
                 .presentedTrustChain(chain)
-                .leafEntityStatement(JwtCodec.parseUnverifiedClaims(chain.get(0)))
+                .leafEntityStatement(claimsOf(chain.get(0)))
                 .policedEntityTypes(policed)
                 .expEpochSeconds(expEpochSeconds)
                 .build();

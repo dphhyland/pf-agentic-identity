@@ -1,0 +1,35 @@
+id: F-0118
+title: The attester's discovery document no longer leads a client to a challenge the token endpoint accepts
+severity: low
+area: attestation-issuer, openid-federation
+source: pr-review
+status: closed
+plan_items: [S-4]
+prs: [95]
+verification: >
+  2026-10-01, PR 95 (S4M): /.well-known/client-attester keeps its own challenge_endpoint (the attester's, GET
+  /federation/attestation/challenge) and now names the authorization server - authorization_servers, RFC 9728 section
+  2's member, carrying PingFederate's issuer, and authorization_server_metadata, that issuer's RFC 8414 section 3 URL -
+  whose document, extended by AttestationMetadataFilter (F-0115), names challenge_endpoint POST
+  <issuer>/federation/attestation-challenge, the one the token endpoint accepts.
+  ChallengeEndpointAdvertisementTest.theAttesterDocumentLeadsAClientToTheAuthorizationServersChallenge follows the
+  pointer from the attester's document to that challenge endpoint; the attestation-issuer README's "Which challenge is
+  which" says which document names which.
+target_release: 0.6.0
+notes: >
+  Found on 2026-09-27 in the adversarial review of S4b. /.well-known/client-attester names the token endpoint,
+  attest_jwt_client_auth and pop_audience so that a client SDK can find the token endpoint from the PingFederate
+  host alone (AttesterConfigurationServlet.metadata). Until S4b its challenge_endpoint was the one endpoint whose
+  challenges both the attester and the token endpoint took. From S4b it is the attester's, GET
+  /federation/attestation/challenge, whose challenges the token endpoint refuses (CAS section 4.1), and the
+  document names no endpoint whose challenges the token endpoint takes. ABCA-10 section 6.1 (read at ietf.org on
+  2026-09-27): "If the Authorization Server offers a challenge endpoint, the Client MUST retrieve a challenge and
+  MUST use this challenge in the Client Attestation PoP JWT or DPoP Proof". A client that discovers from this
+  document alone cannot do that: the Entity Configuration's openid_provider block names the authorization server's
+  endpoint, and PingFederate's own discovery documents do not (F-0115). client-attestation-sdk-polyglot is such a
+  client. By default it puts the attester's challenge in its PoP, which the token endpoint refused before S4b as
+  well, because the attester had spent it (docs/releases/unreleased/S4B.md, Before you deploy). Low: the token
+  endpoint enforces its own challenge policy whatever the documents say, and a client without a challenge fails
+  closed where one is required. The fix goes with F-0115: once the authorization server's metadata names its
+  challenge_endpoint, this document can point a client at that metadata, so that each surface's document still
+  names only its own challenge endpoint.

@@ -1,0 +1,99 @@
+/*
+ * The SSF receiver's and introspection's insecure-TLS switches through InsecureTls: any chain, but still the
+ * host dialled.
+ */
+package com.pingidentity.ps.oidf.ssf;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Set;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class InsecureTlsSitesTest {
+
+    private static final String BODY = "{\"keys\":[],\"active\":false,\"sets\":{}}";
+
+    @TempDir
+    static Path dir;
+    private static SelfSignedTlsServer rightName;
+    private static SelfSignedTlsServer wrongName;
+
+    @BeforeAll
+    static void start() throws Exception {
+        rightName = new SelfSignedTlsServer(dir, "localhost", 200, BODY);
+        wrongName = new SelfSignedTlsServer(dir, "wrong.example", 200, BODY);
+    }
+
+    @AfterAll
+    static void stop() {
+        rightName.close();
+        wrongName.close();
+    }
+
+    @Test
+    void theReceiversJwksFetch() throws Exception {
+        assertEquals(List.of(), JwksHttpSource.of(rightName.url("/jwks"), 60, true).keys(true));
+        assertTrue(SelfSignedTlsServer.isWrongName(assertThrows(Exception.class,
+                () -> JwksHttpSource.of(wrongName.url("/jwks"), 60, true).keys(true))));
+        assertFalse(SelfSignedTlsServer.isWrongName(assertThrows(Exception.class,
+                () -> JwksHttpSource.of(rightName.url("/jwks"), 60, false).keys(true))), "off: the chain is checked");
+    }
+
+    @Test
+    void thePollReceiversTransport() throws Exception {
+        assertEquals(BODY, PollReceiverClient.httpTransport(() -> rightName.url("/poll"), ReceiverBearer.fixed("t"), true).poll("{}"));
+        assertTrue(SelfSignedTlsServer.isWrongName(assertThrows(Exception.class,
+                () -> PollReceiverClient.httpTransport(() -> wrongName.url("/poll"), ReceiverBearer.fixed("t"), true).poll("{}"))));
+        assertFalse(SelfSignedTlsServer.isWrongName(assertThrows(Exception.class,
+                () -> PollReceiverClient.httpTransport(() -> rightName.url("/poll"), ReceiverBearer.fixed("t"), false).poll("{}"))));
+    }
+
+    @Test
+    void theReceiversStreamManagementTransport() throws Exception {
+        assertEquals(BODY, ReceiverStreamClient.httpTransport(ReceiverBearer.fixed("t"), true).call("GET", rightName.url("/ssf/streams"), null));
+        assertTrue(SelfSignedTlsServer.isWrongName(assertThrows(Exception.class,
+                () -> ReceiverStreamClient.httpTransport(ReceiverBearer.fixed("t"), true).call("GET", wrongName.url("/ssf/streams"), null))));
+        assertFalse(SelfSignedTlsServer.isWrongName(assertThrows(Exception.class,
+                () -> ReceiverStreamClient.httpTransport(ReceiverBearer.fixed("t"), false).call("GET", rightName.url("/ssf/streams"), null))));
+    }
+
+    @Test
+    void theIntrospectionCall() throws Exception {
+        assertFalse(PfIntrospectionReceiverAuthenticator.forEndpoint(rightName.url("/as/introspect.oauth2"), "id", "secret", true, null)
+                .authenticate("token").isActive());
+        assertTrue(SelfSignedTlsServer.isWrongName(assertThrows(ReceiverAuthException.class,
+                () -> PfIntrospectionReceiverAuthenticator.forEndpoint(wrongName.url("/as/introspect.oauth2"), "id", "secret", true, null)
+                        .authenticate("token"))));
+        assertFalse(SelfSignedTlsServer.isWrongName(assertThrows(ReceiverAuthException.class,
+                () -> PfIntrospectionReceiverAuthenticator.forEndpoint(rightName.url("/as/introspect.oauth2"), "id", "secret", false, null)
+                        .authenticate("token"))));
+    }
+
+    @Test
+    void theSettingsAreNamedAsAnOperatorSetsThem() {
+        assertEquals("OIDF_SSF_RECEIVER_INSECURE_TLS", PollReceiverClient.RECEIVER_INSECURE_TLS);
+        assertEquals("OIDF_SSF_INTROSPECTION_INSECURE_TLS", PfIntrospectionReceiverAuthenticator.INTROSPECTION_INSECURE_TLS);
+    }
+
+    @Test
+    void eachSiteRecordsItsUseUnderItsOwnSetting() throws Exception {
+        Set<String> receiver = Set.of("OIDF_SSF_RECEIVER_INSECURE_TLS");
+        assertEquals(receiver, SelfSignedTlsServer.settingsRecordedBy(
+                () -> JwksHttpSource.of(rightName.url("/jwks"), 60, true)));
+        assertEquals(receiver, SelfSignedTlsServer.settingsRecordedBy(
+                () -> PollReceiverClient.httpTransport(() -> rightName.url("/poll"), ReceiverBearer.fixed("t"), true)));
+        assertEquals(receiver, SelfSignedTlsServer.settingsRecordedBy(() -> ReceiverStreamClient.httpTransport(ReceiverBearer.fixed("t"), true)));
+        assertEquals(Set.of("OIDF_SSF_INTROSPECTION_INSECURE_TLS"), SelfSignedTlsServer.settingsRecordedBy(
+                () -> PfIntrospectionReceiverAuthenticator.forEndpoint(rightName.url("/as/introspect.oauth2"), "id", "secret", true, null)));
+        assertEquals(Set.of(), SelfSignedTlsServer.settingsRecordedBy(
+                () -> PollReceiverClient.httpTransport(() -> rightName.url("/poll"), ReceiverBearer.fixed("t"), false)), "off: nothing recorded");
+    }
+}

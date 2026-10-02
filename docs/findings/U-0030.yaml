@@ -2,10 +2,18 @@ id: U-0030
 title: Introspection returns cnf for DPoP tokens
 area: pf-integration
 source: design
-status: open
+status: closed
 plan_items: [S8a]
-prs: []
+prs: [71]
 recorded_in: the plan, To verify before relying on it, booted PingFederate item 16
 verify_by: 'On the rig: introspect a DPoP-bound access token and read the response for cnf.'
-verification: ''
+verification: >
+  2026-09-29, on the conformance rig (PingFederate 13.1.3.0, pfai-p3-s8a): a client-credentials token minted
+  with a DPoP proof ("Require DPoP" on), introspected at /as/introspect.oauth2 by a client with the Access Token
+  Validation grant, answered 200 with "active": true, "cnf": {"jkt": ...} equal to the thumbprint of the proof's
+  key, and "token_type": "DPoP" - for a JWT token (conformanceJwt) and for a reference token (an internally
+  managed manager) alike, with and without token_type_hint. The reference token's answer carries no iss. On
+  2026-09-30 OperatorAuthenticatorRigTest let PingFederate's DPoP-bound JWT and reference tokens through in
+  introspection mode, binding checked from that cnf, on JDK 17, 20 and 21.
+  docs/operator/operator-authentication.md quotes the answer.
 notes: ''
