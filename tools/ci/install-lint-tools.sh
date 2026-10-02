@@ -11,9 +11,12 @@
 # actionlint's, gitleaks', grype's and syft's sums are the ones in their release's checksums file (grype's and
 # syft's compared with the archives as downloaded on 2026-09-28); shellcheck and zizmor publish none, so theirs
 # are of the archives as downloaded on 2026-09-27. grype fetches its vulnerability database when it runs: the
-# binary is pinned here, the data it matches against is the day's. Linux x86_64 (the ubuntu runners) and macOS
-# arm64 are recorded; another platform stops here. To move a tool: change its version and every checksum for
-# it (Dependabot does not see these), run the lint job's steps by hand, and commit both.
+# binary is pinned here, the data it matches against is the day's. Three platforms are recorded: Linux x86_64
+# (the hosted ubuntu runners), Linux arm64 (the self-hosted Linux runner, a VM on Apple silicon:
+# docs/development/ci-runners.md; its sums taken on 2026-10-01 from the same checksums files, and shellcheck's and
+# zizmor's from the digest GitHub lists for the release asset, matched by the archives as downloaded) and macOS
+# arm64. Another platform stops here. To move a tool: change its version and every checksum for it (Dependabot
+# does not see these), run the lint job's steps by hand, and commit both.
 set -euo pipefail
 
 ACTIONLINT_VERSION=1.7.12
@@ -29,6 +32,7 @@ TOOLS=("$@"); [[ ${#TOOLS[@]} -gt 0 ]] || TOOLS=(actionlint shellcheck zizmor gi
 
 case "$(uname -s)/$(uname -m)" in
   Linux/x86_64) OS=linux ;;
+  Linux/aarch64 | Linux/arm64) OS=linux-arm64 ;;
   Darwin/arm64) OS=darwin ;;
   *) echo "ERROR: no checksum recorded for $(uname -s)/$(uname -m)" >&2; exit 1 ;;
 esac
@@ -36,18 +40,24 @@ esac
 # sha256, URL and the binary's path inside the archive, per tool and platform.
 release() {
   case "$1/$2" in
-    actionlint/linux)  echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz actionlint" ;;
-    actionlint/darwin) echo "aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_darwin_arm64.tar.gz actionlint" ;;
-    shellcheck/linux)  echo "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198 https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz shellcheck-v${SHELLCHECK_VERSION}/shellcheck" ;;
-    shellcheck/darwin) echo "56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30ae407d3f48b0a79 https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.darwin.aarch64.tar.xz shellcheck-v${SHELLCHECK_VERSION}/shellcheck" ;;
-    zizmor/linux)      echo "e65324f4430c2717591937edcec90ccbefaf14c174f8ec9415e03ca875b46e1a https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz zizmor" ;;
-    zizmor/darwin)     echo "e28d22b087f9ebb8d99da6e740d348c930f559961c7c3f12badda54f882195a2 https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-aarch64-apple-darwin.tar.gz zizmor" ;;
-    gitleaks/linux)    echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz gitleaks" ;;
-    gitleaks/darwin)   echo "b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5 https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_darwin_arm64.tar.gz gitleaks" ;;
-    grype/linux)       echo "3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz grype" ;;
-    grype/darwin)      echo "500c9b2b6c089d21481815f57a553fabbd441ec7d1e79d95e3aaf40c3bfc7e36 https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_darwin_arm64.tar.gz grype" ;;
-    syft/linux)        echo "caeedb81fb0491615f1ebd1761e4145d41ee86dd2cc7bf80669f9f5ad9d6133d https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz syft" ;;
-    syft/darwin)       echo "014d561b6d13059124155f74a6c5a9a99501f5e209313638dd884f39eb418ee6 https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_darwin_arm64.tar.gz syft" ;;
+    actionlint/linux)       echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz actionlint" ;;
+    actionlint/linux-arm64) echo "325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6 https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_arm64.tar.gz actionlint" ;;
+    actionlint/darwin)      echo "aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_darwin_arm64.tar.gz actionlint" ;;
+    shellcheck/linux)       echo "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198 https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz shellcheck-v${SHELLCHECK_VERSION}/shellcheck" ;;
+    shellcheck/linux-arm64) echo "12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588 https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.aarch64.tar.xz shellcheck-v${SHELLCHECK_VERSION}/shellcheck" ;;
+    shellcheck/darwin)      echo "56affdd8de5527894dca6dc3d7e0a99a873b0f004d7aabc30ae407d3f48b0a79 https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.darwin.aarch64.tar.xz shellcheck-v${SHELLCHECK_VERSION}/shellcheck" ;;
+    zizmor/linux)           echo "e65324f4430c2717591937edcec90ccbefaf14c174f8ec9415e03ca875b46e1a https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz zizmor" ;;
+    zizmor/linux-arm64)     echo "7ff1dce33bdd18fd2a4affe63bdd47efcccca97b2cec1c1863ec26e9e2647540 https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-aarch64-unknown-linux-gnu.tar.gz zizmor" ;;
+    zizmor/darwin)          echo "e28d22b087f9ebb8d99da6e740d348c930f559961c7c3f12badda54f882195a2 https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-aarch64-apple-darwin.tar.gz zizmor" ;;
+    gitleaks/linux)         echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz gitleaks" ;;
+    gitleaks/linux-arm64)   echo "e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080 https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_arm64.tar.gz gitleaks" ;;
+    gitleaks/darwin)        echo "b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5 https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_darwin_arm64.tar.gz gitleaks" ;;
+    grype/linux)            echo "3fa2dc4b924621ab65404cf08d0b8438d896d80ab949c9d5a4ca283c36004c9b https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz grype" ;;
+    grype/linux-arm64)      echo "29f0ec7c549ddb0e2b6a0ca714851f7399438afc399b80c12808e065edc9a8f8 https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_arm64.tar.gz grype" ;;
+    grype/darwin)           echo "500c9b2b6c089d21481815f57a553fabbd441ec7d1e79d95e3aaf40c3bfc7e36 https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_darwin_arm64.tar.gz grype" ;;
+    syft/linux)             echo "caeedb81fb0491615f1ebd1761e4145d41ee86dd2cc7bf80669f9f5ad9d6133d https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz syft" ;;
+    syft/linux-arm64)       echo "c46d5e4c28e12aa4c5becfaa343ef1c7f89045b6b895f2c21d471c62db09c706 https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_arm64.tar.gz syft" ;;
+    syft/darwin)            echo "014d561b6d13059124155f74a6c5a9a99501f5e209313638dd884f39eb418ee6 https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_darwin_arm64.tar.gz syft" ;;
     *) echo "ERROR: unknown tool '$1' (actionlint, shellcheck, zizmor, gitleaks, grype or syft)" >&2; return 1 ;;
   esac
 }

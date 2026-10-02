@@ -35,7 +35,10 @@ concurrency:
 
 jobs:
   swift:
-    runs-on: macos-latest
+    # The runner is the repository variable RUNNER_MACOS's label (docs/development/ci-runners.md), or a hosted
+    # macos-latest when the variable is unset - as it is until the self-hosted runners exist - and always for a
+    # pull request Dependabot opened, whose build runs the dependency's code and so never runs on the Mac.
+    runs-on: ${{ github.event.pull_request.user.login == 'dependabot[bot]' && 'macos-latest' || vars.RUNNER_MACOS || 'macos-latest' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
