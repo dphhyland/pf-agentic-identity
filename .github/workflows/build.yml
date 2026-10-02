@@ -125,6 +125,13 @@ jobs:
         run: tools/ci/lint-terraform.sh
       - name: the tools' own tests
         run: python3 -m unittest discover -s tools/tests -v
+      - name: the public tree builds from the allow-list and passes every guard
+        # tools/export-public.py builds what ID-Partners/pf-agentic-identity would receive from this commit
+        # (tools/public-export/manifest.txt) and fails on source code, a link into a file it does not
+        # export or class internal, an unmapped dphhyland/pf-agentic-identity URL, a deny-list hit or a
+        # private key, so a change that breaks the public tree fails here rather than at release. release.yml's
+        # publishing job runs the same tool. docs/development/public-export.md describes the guards.
+        run: python3 tools/export-public.py --check
       - name: one project version across the reactor
         run: python3 tools/set-version.py --check
       - name: one PingFederate version across the repo
@@ -458,6 +465,42 @@ jobs:
               "pf-agentic-identity:capability-$profile")"
             [ "$label" = "$profile" ] || { echo "::error::capability-$profile is labelled '$label'"; exit 1; }
           done
+      - name: a release's assets, as release.yml assembles them, stage what the reactor staged
+        # tools/ci/assemble-dist.sh makes the dist/ release.yml publishes, from this build; stage-from-release.sh then
+        # stages each profile from it, and the result must be the stage each image above was built from: the same
+        # jars byte for byte, the same MANIFEST but for its built= time, and the same war assembler. Each profile is
+        # staged from the reactor again into a scratch directory first (the image's stage was overwritten by the next
+        # profile's), and that stage's MANIFEST is held to the one the image was built from.
+        run: |
+          mask() { sed -E '1s/ built=[^ ]+ / built=- /' "$1"; }
+          for profile in production conformance; do
+            STAGE_DEST="$RUNNER_TEMP/reactor-$profile/modules" build/pingfederate/stage-modules.sh --profile "$profile"
+            diff <(mask "$RUNNER_TEMP/MANIFEST-$profile") <(mask "$RUNNER_TEMP/reactor-$profile/modules/MANIFEST") \
+              || { echo "::error::stage-modules.sh staged $profile differently the second time"; exit 1; }
+          done
+          MODULES_DIR="$RUNNER_TEMP/reactor-production/modules" tools/ci/assemble-dist.sh "$RUNNER_TEMP/dist" "$OCI_VERSION"
+          # release.yml writes both of these; a stub PROVENANCE.txt is enough here, and SHA256SUMS is the real thing.
+          echo "pf-agentic-identity $OCI_VERSION, a Build of $GITHUB_SHA (not a release)" > "$RUNNER_TEMP/dist/PROVENANCE.txt"
+          ( cd "$RUNNER_TEMP/dist" && sha256sum -- * > SHA256SUMS )
+          for profile in production conformance; do
+            ours="$RUNNER_TEMP/reactor-$profile" theirs="$RUNNER_TEMP/release-$profile"
+            STAGE_DEST="$theirs/modules" build/pingfederate/stage-from-release.sh --profile "$profile" "$RUNNER_TEMP/dist"
+            diff <(cd "$ours/modules" && ls) <(cd "$theirs/modules" && ls) \
+              || { echo "::error::stage-from-release.sh staged other files than stage-modules.sh for $profile"; exit 1; }
+            for jar in "$ours"/modules/*.jar; do
+              cmp "$jar" "$theirs/modules/$(basename "$jar")" || { echo "::error::$profile: $(basename "$jar") differs"; exit 1; }
+            done
+            diff <(mask "$RUNNER_TEMP/MANIFEST-$profile") <(mask "$theirs/modules/MANIFEST") \
+              || { echo "::error::$profile: the MANIFEST staged from the release is not the image's"; exit 1; }
+            cmp "$ours/assembler/war-assembler.jar" "$theirs/assembler/war-assembler.jar" \
+              || { echo "::error::$profile: the staged war assembler differs"; exit 1; }
+            echo "$profile: $(find "$theirs/modules" -name '*.jar' | wc -l) jars, the MANIFEST and the assembler staged from the release are the reactor's"
+          done
+      - name: stage-from-release.sh refuses what it should, and sends no credentials
+        # Fixture releases made from that dist, served on 127.0.0.1: a good one stages, a tampered or unlisted jar, a
+        # SHA256SUMS naming a missing file, a release with no war assembler and an unknown profile are each refused,
+        # no request carries an Authorization header, and the production profile never stages the CIBA simulator.
+        run: build/pingfederate/test-stage-from-release.sh "$RUNNER_TEMP/dist"
       - name: each image's labels, ports, healthcheck and environment carry no configuration of their own
         # Plan item R-I3: the OCI labels name this build; 9031 and 9999 are declared and the plain listener is not;
         # the healthcheck is pf-healthcheck.sh (live, not ready); the EULA is left at the base image's NO and the
@@ -473,7 +516,7 @@ jobs:
           labels, env = config.get("Labels") or {}, dict(e.split("=", 1) for e in config.get("Env") or [])
           want = {
               "org.opencontainers.image.title": "pf-agentic-identity PingFederate",
-              "org.opencontainers.image.source": "https://github.com/dphhyland/pf-agentic-identity",
+              "org.opencontainers.image.source": "https://github.com/ID-Partners/pf-agentic-identity",
               "org.opencontainers.image.version": os.environ["OCI_VERSION"],
               "org.opencontainers.image.revision": os.environ["GITHUB_SHA"],
               "org.opencontainers.image.licenses": "Apache-2.0 AND BSD-3-Clause AND LicenseRef-PingIdentity-Proprietary",

@@ -1,0 +1,15 @@
+# Configuration archives and key material: an archive holds pf.jwk, the master key that decrypts every secret
+# in it. None of these may be committed. An age identity has no fixed name; SECURITY.md says where it belongs.
+data*.zip
+*.jwk
+pingfederate-system-keys.xml
+*.jks
+*.p12
+*.pfx
+*.lic
+
+# Terraform state and variables carry the values they managed in plaintext.
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform/

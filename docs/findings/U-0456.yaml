@@ -1,0 +1,20 @@
+id: U-0456
+title: That no exported file names a customer or prospect, while the deny list names none
+area: docs
+source: design
+status: open
+plan_items: [D-1]
+prs: [104]
+recorded_in: tools/public-export/deny.txt
+verify_by: >
+  David supplies the customer and prospect names that must never appear publicly. Add one line each to
+  tools/public-export/deny.txt (a case-insensitive regex with a `# reason`), then run python3
+  tools/export-public.py --check on HEAD and with --source-ref v0.3.0, v0.4.0, v0.5.0 and v0.6.0. A hit on HEAD is
+  fixed at its source; a hit at a mirrored tag is redacted in the export and listed, and the public commit for that
+  tag must be regenerated if it was already pushed.
+verification: ''
+notes: >
+  Recorded by the export tooling (package SPA of the repo split) on 2026-10-01. The deny list starts with a home
+  directory path, railway.internal and .up.railway.app, and a commented placeholder for customer names. Until the
+  names are in it, nothing mechanical stops a release note, an operator document or a demo script that names a
+  customer from going out; the only check is a reader's.

@@ -29,8 +29,9 @@ FILES = {
     ".github/actions/pf-provided-jars/action.yml": 'runs:\n  steps:\n    - run: |\n        . "$GITHUB_WORKSPACE/build/pf-version.env"\n        docker create "${PF_IMAGE}@${PF_IMAGE_DIGEST}"\n',
     ".github/workflows/build.yml": 'steps:\n  - run: grep -v \'^#\' build/pf-version.env >> "$GITHUB_ENV"\n',
     ".github/workflows/release.yml": 'steps:\n  - run: grep -v \'^#\' build/pf-version.env >> "$GITHUB_ENV"\n',
-    "conformance/author.sh": '. "$HERE/../build/pf-version.env"\nIMAGE="${PF_IMAGE:?}@${PF_IMAGE_DIGEST:?}"\n',
-    "conformance/apply.sh": '. "$HERE/../build/pf-version.env"\nexport TF_VAR_pf_product_version="${PF_TERRAFORM_PRODUCT_VERSION:?}"\n',
+    "conformance/author.sh": '. "$HERE/layout.sh"\n. "$PFAI_VERSION_ENV"\nIMAGE="${PF_IMAGE:?}@${PF_IMAGE_DIGEST:?}"\n',
+    "conformance/apply.sh": '. "$HERE/layout.sh"\n. "$PFAI_VERSION_ENV"\nexport TF_VAR_pf_product_version="${PF_TERRAFORM_PRODUCT_VERSION:?}"\n',
+    "conformance/layout.sh": 'if [[ -f "$_pfai_base/build/pf-version.env" ]]; then\n  PFAI_VERSION_ENV="$_pfai_base/build/pf-version.env"\nelse\n  PFAI_VERSION_ENV="$PFAI_IMAGE_DIR/pf-version.env"\nfi\n',
     "conformance/terraform/provider.tf": 'provider "pingfederate" {\n  product_version = var.pf_product_version\n}\n',
     "conformance/terraform/variables.tf": 'variable "pf_product_version" {\n  type    = string\n  default = "13.1"\n}\n',
     "tools/pf-linkcheck.py": f'"""\n  id=$(docker create {IMAGE})\n"""\n',
@@ -129,6 +130,23 @@ class Disagree(unittest.TestCase):
 
     def test_author_sh(self):
         self.assert_problem({"conformance/author.sh": f'IMAGE="{IMAGE}"\n'}, "conformance/author.sh: does not source")
+
+    def test_author_sh_sourcing_the_env_file_directly(self):
+        # The old form: a path into this repository's layout, which the public tree does not have.
+        self.assert_problem({"conformance/author.sh": '. "$HERE/../build/pf-version.env"\nIMAGE="${PF_IMAGE:?}@${PF_IMAGE_DIGEST:?}"\n'},
+                            "conformance/author.sh: does not source $PFAI_VERSION_ENV from conformance/layout.sh")
+
+    def test_apply_sh_sourcing_the_env_file_before_layout(self):
+        self.assert_problem({"conformance/apply.sh": '. "$PFAI_VERSION_ENV"\n. "$HERE/layout.sh"\nexport TF_VAR_pf_product_version="${PF_TERRAFORM_PRODUCT_VERSION:?}"\n'},
+                            "conformance/apply.sh: does not source $PFAI_VERSION_ENV from conformance/layout.sh")
+
+    def test_layout_sh_missing(self):
+        self.assert_problem({"conformance/layout.sh": None},
+                            "conformance/layout.sh: does not resolve PFAI_VERSION_ENV to build/pf-version.env")
+
+    def test_layout_sh_resolving_elsewhere(self):
+        self.assert_problem({"conformance/layout.sh": 'PFAI_VERSION_ENV="$PFAI_IMAGE_DIR/pf-version.env"\n'},
+                            "conformance/layout.sh: does not resolve PFAI_VERSION_ENV to build/pf-version.env")
 
     def test_apply_sh(self):
         self.assert_problem({"conformance/apply.sh": 'export TF_VAR_pf_admin_host=x\n'}, "conformance/apply.sh: does not export TF_VAR_pf_product_version")

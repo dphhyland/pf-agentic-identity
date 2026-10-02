@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
 # Compose the PingFederate image's build context.
 #
-# The image build is ../build/pingfederate/ (Dockerfile, war assembly and the filters it declares, entrypoint,
-# staged module jars and the staged war assembler);
+# The image build is ../build/pingfederate/ here, ../image/ in the public tree (Dockerfile, war assembly and
+# the filters it declares, entrypoint, staged module jars and the staged war assembler; layout.sh says which);
 # this directory owns what configures it: the archive export.sh produced and the cipher-list overlay.
 # `docker build` (and a deploy tool such as `railway up`) want one directory, so this assembles
 # .context/ (git-ignored) and prints its path.
 #
-# PF_AGENTIC_IDENTITY_HOME defaults to this repo. Point it at another checkout or worktree to build a
-# branch's modules with this configuration.
+# In reactor mode PF_AGENTIC_IDENTITY_HOME defaults to this repo. Point it at another checkout or worktree to
+# build a branch's modules with this configuration.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-CAP="${PF_AGENTIC_IDENTITY_HOME:-$(cd "$HERE/.." && pwd)}"
-BUILD="$CAP/build/pingfederate"
-[[ -f "$BUILD/Dockerfile" ]] || { echo "ERROR: no PF image build at $BUILD" >&2; exit 1; }
-[[ -f "$BUILD/modules/MANIFEST" ]] || { echo "ERROR: no staged modules - run mvn package and $BUILD/stage-modules.sh --profile conformance" >&2; exit 1; }
+# shellcheck source=layout.sh
+. "$HERE/layout.sh"
+BUILD="$PFAI_IMAGE_DIR"
+if [[ "$PFAI_MODE" == release ]]; then STAGE_HINT="$BUILD/stage-from-release.sh --profile conformance"; else STAGE_HINT="mvn package and $BUILD/stage-modules.sh --profile conformance"; fi
+[[ -f "$BUILD/modules/MANIFEST" ]] || { echo "ERROR: no staged modules - run $STAGE_HINT" >&2; exit 1; }
 # This image is the conformance profile - the CIBA simulator in it, for the FAPI-CIBA plan - and
 # docker-compose.yml builds it as such. The assembler refuses a modules/ staged for production, so say
 # it here, before a minute of docker build.
@@ -22,10 +23,10 @@ manifest_header="$(head -n 1 "$BUILD/modules/MANIFEST")"
 case "$manifest_header" in
   "MANIFEST/2 profile=conformance "*) ;;
   *) echo "ERROR: modules/ is not staged for the conformance profile (its MANIFEST starts '$manifest_header')." >&2
-     echo "       Run $BUILD/stage-modules.sh --profile conformance - up.sh does." >&2; exit 1 ;;
+     echo "       Run $STAGE_HINT - up.sh does." >&2; exit 1 ;;
 esac
-# The war assembler the Dockerfile runs, which stage-modules.sh stages beside modules/.
-[[ -f "$BUILD/assembler/war-assembler.jar" ]] || { echo "ERROR: no staged war assembler at $BUILD/assembler - run mvn package and $BUILD/stage-modules.sh --profile conformance" >&2; exit 1; }
+# The war assembler the Dockerfile runs, which stage-modules.sh and stage-from-release.sh stage beside modules/.
+[[ -f "$BUILD/assembler/war-assembler.jar" ]] || { echo "ERROR: no staged war assembler at $BUILD/assembler - run $STAGE_HINT" >&2; exit 1; }
 for f in data.zip overlay/pf.jwk overlay/pingfederate-system-keys.xml; do
   [[ -f "$HERE/$f" ]] || { echo "ERROR: missing $f - run ./export.sh" >&2; exit 1; }
 done
@@ -45,5 +46,5 @@ cp "$HERE/overlay/pf.jwk" "$HERE/overlay/pingfederate-system-keys.xml" "$CTX/ove
 # context (0.6.0); a development deployment that wants them mounts the file and sets oidf.mock.attesters itself.
 
 jars=("$CTX/modules"/*.jar)
-echo "composed $CTX from $CAP (${#jars[@]} module jars; $manifest_header)" >&2
+echo "composed $CTX from $BUILD (${#jars[@]} module jars; $manifest_header)" >&2
 echo "$CTX"

@@ -17,7 +17,12 @@
 #   3. the PF-provided jars come from the image build/pf-version.env pins, by digest, through the same
 #      composite action Build uses;
 #   4. `mvn -B verify` with tests and coverage gates on, then tools/pf-linkcheck.py against that PF;
-#   5. the module set is staged and dist/ assembled with a PROVENANCE derived from the staged MANIFEST;
+#   5. the module set is staged and dist/ assembled (tools/ci/assemble-dist.sh) with a PROVENANCE derived
+#      from the staged MANIFEST: the staged module jars and MANIFEST, oidf.war, gm-api.war, the two
+#      pf.plugins.* jars, oidf-preflight.jar, and the two build and test tools stage-from-release.sh needs -
+#      war-assembler-<version>.jar (the image build runs it; never deployed) and demo-only-ciba-sim.jar (the
+#      conformance rig's CIBA simulator, renamed so nothing globbing pf.plugins.* deploys it) - then
+#      PROVENANCE.txt and SHA256SUMS over all of it;
 #   6. the rebuild deploy will make is made first with `mvn install`, on this runner only, and every jar
 #      and war it rebuilt is checked byte for byte against dist/, so a build that is not reproducible
 #      stops here, before any draft and before Packages;
@@ -298,18 +303,12 @@ jobs:
         run: bash build/pingfederate/stage-modules.sh --profile production
 
       - name: assemble the release artifacts
-        # Every copy is unconditional: a missing war or plugin jar fails the release instead of quietly
-        # shipping without it, which is how a consumer would first learn of it.
+        # Every copy is unconditional (tools/ci/assemble-dist.sh): a missing war or plugin jar fails the release
+        # instead of quietly shipping without it, which is how a consumer would first learn of it. The same
+        # script makes the dist Build's image job stages a release from, so what it proves is what ships here.
         run: |
-          mkdir -p dist
           MANIFEST=build/pingfederate/modules/MANIFEST
-          cp build/pingfederate/modules/*.jar "$MANIFEST" dist/
-          cp servlets/oidf-war/target/oidf.war dist/
-          cp plugins/rar-paz-plugin/target/pf.plugins.pf-rar-paz-plugin.jar dist/
-          cp plugins/instance-registry-datasource/target/pf.plugins.instance-registry-datasource.jar dist/
-          cp services/gm-api/servlet/target/gm-api.war dist/
-          # The preflight an operator runs on an env file before upgrading (docs/operator/preflight.md); never staged.
-          cp tools/preflight/target/oidf-preflight.jar dist/
+          tools/ci/assemble-dist.sh dist "$VERSION"
           # MANIFEST/2 carries a header and [section] lines; only the "<sha256>  <file>" lines are jars.
           MODULES=$(grep -cE '^[0-9a-f]{64}  ' "$MANIFEST")
           echo "MODULES=$MODULES" >> "$GITHUB_ENV"
@@ -342,6 +341,12 @@ jobs:
             echo "also in this release: oidf.war (the modules as a standalone war, for a demo),"
             echo "pf.plugins.pf-rar-paz-plugin.jar, pf.plugins.instance-registry-datasource.jar, gm-api.war, and"
             echo "oidf-preflight.jar: run java -jar oidf-preflight.jar --env-file FILE on the env file before upgrading."
+            echo
+            echo "Two build and test tools, neither of them a deployable: war-assembler-$VERSION.jar, the war"
+            echo "assembler the image build runs (build/pingfederate/stage-from-release.sh stages it beside"
+            echo "modules/); and demo-only-ciba-sim.jar, the conformance rig's CIBA simulator, which only the"
+            echo "conformance profile stages. The simulator refuses every request outside"
+            echo "OIDF_DEPLOYMENT_PROFILE=development and must never be put in a production deploy directory."
           } > dist/PROVENANCE.txt
 
           ( cd dist && sha256sum -- * > SHA256SUMS )
@@ -352,9 +357,15 @@ jobs:
           # never staged or deployed. So the aggregate is excluded, any other collision is an error rather
           # than a first hit, and the resolved source is compared with the dist file HERE - a wrong
           # resolution fails this step, not the byte comparisons after it.
+          # demo-only-ciba-sim.jar is the one dist file under a name of its own, so it is mapped by name; any
+          # other name that resolves to nothing or to two files still fails.
           ( for f in dist/*.jar dist/*.war; do
               b="$(basename "$f")"
-              src="$(find libs servlets plugins services tools -path "*/target/$b" -not -path "*/oidf-war/target/*.jar")"
+              if [ "$b" = demo-only-ciba-sim.jar ]; then
+                src=plugins/ciba-sim/target/pf.plugins.ciba-sim.jar
+              else
+                src="$(find libs servlets plugins services tools build -path "*/target/$b" -not -path "*/oidf-war/target/*.jar")"
+              fi
               case "$(printf '%s\n' "$src" | grep -c .)" in
                 1) ;;
                 0) echo "::error::no reactor source for $b"; exit 1 ;;

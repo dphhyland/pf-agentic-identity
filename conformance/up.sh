@@ -7,7 +7,8 @@
 #   2. author.sh            a stock PF 13.1.3 with an admin API, on localhost:29999
 #   3. apply.sh apply       terraform/ -> that server: OAuth server, tokens, clients, login form
 #   4. export.sh            its realised config as data.zip - PF's own saved state    (git-ignored)
-#   5. mvn package + stage  the module jars from this repo (run FIRST: author.sh needs the CIBA plugin)
+#   5. mvn package + stage  the module jars from this repo (run FIRST: author.sh needs the CIBA plugin), or
+#      stage-from-release   with PF_RELEASE, or in a tree with no pom.xml, from a release's verified assets
 #   6. compose-context.sh   the image build context: this repo's Dockerfile + that archive
 #   7. docker compose up    the image, built and running, with vars.env and your licence details
 #
@@ -22,7 +23,12 @@
 #                   which is what a suite on this machine reaches. For a PF on a public address, set it
 #                   to that origin - it is baked into the archive at step 3.
 #   SKIP_AUTHOR=1   reuse an existing data.zip (steps 1-4 skipped); rebuild the image only.
-#   SKIP_BUILD=1    reuse the staged module jars (step 5 skipped).
+#   SKIP_BUILD=1    reuse the staged module jars (step 5 skipped), in either mode.
+#   PF_RELEASE      <version> (0.7.0 or later) or <dir>: stage the modules from that release's assets instead of
+#                   building them - stage-from-release.sh fetches a version anonymously into its cache, or takes
+#                   a directory of assets, and stages nothing that does not verify against SHA256SUMS. No Maven
+#                   then. In a tree with no pom.xml (the public one) this is the only mode, and with PF_RELEASE
+#                   unset the version is the image directory's release.env. conformance/layout.sh decides.
 #   PF_RIG_NAME     the container, image and compose project (default pf-agentic-identity, project
 #                   "conformance"). Another name runs a second rig beside the first - another checkout's -
 #                   instead of replacing it; give it its own PF_PORT_* and PF_AUTHOR_*_PORT too.
@@ -36,7 +42,10 @@
 #                   https://host.docker.internal:$SUITE_PORT). SUITE_ALIAS: the plan's alias.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; REPO="$(cd "$HERE/.." && pwd)"
-export PF_AGENTIC_IDENTITY_HOME="$REPO"
+# Reactor mode builds this checkout's modules, as it always has; release mode builds none.
+[[ -n "${PF_RELEASE:-}" || ! -f "$REPO/pom.xml" ]] || export PF_AGENTIC_IDENTITY_HOME="$REPO"
+# shellcheck source=layout.sh
+. "$HERE/layout.sh"
 export PF_RIG_NAME="${PF_RIG_NAME:-pf-agentic-identity}"
 # The default rig keeps the project name docker compose always gave it (this directory's), so an existing
 # one is still this project's to stop; any other name is a project of its own.
@@ -67,9 +76,14 @@ PING_CONFIG="${PING_DEVOPS_CONFIG:-$HOME/.pingidentity/config}"
   echo "       Create a KEY=VALUE file with PING_IDENTITY_DEVOPS_USER and PING_IDENTITY_DEVOPS_KEY (your" >&2
   echo "       Ping DevOps credentials), or point PING_DEVOPS_CONFIG at one. See README.md." >&2
   exit 1; }
-for tool in docker terraform mvn node curl unzip; do
+TOOLS=(docker terraform node curl unzip)
+[[ "$PFAI_MODE" == release ]] || TOOLS+=(mvn)
+for tool in "${TOOLS[@]}"; do
   command -v "$tool" >/dev/null || { echo "ERROR: $tool is required" >&2; exit 1; }
 done
+if [[ "$PFAI_MODE" == release ]]; then
+  command -v sha256sum >/dev/null || command -v shasum >/dev/null || { echo "ERROR: sha256sum or shasum is required" >&2; exit 1; }
+fi
 
 # The authoring PF's admin password: generated once, kept git-ignored, reused so apply/export agree.
 export PF_AUTHOR_ENV="${PF_AUTHOR_ENV:-$HERE/.author.env}"
@@ -78,10 +92,14 @@ if [[ ! -f "$PF_AUTHOR_ENV" ]]; then
   echo "generated $PF_AUTHOR_ENV (the authoring PF's admin password; git-ignored)"
 fi
 
-# Build first: author.sh stages plugins/ciba-sim into the authoring server, because terraform/ciba.tf
-# can only instantiate a plugin PingFederate can see.
-if [[ "${SKIP_BUILD:-0}" != 1 || ! -f "$REPO/build/pingfederate/modules/MANIFEST" ]]; then
-  ( cd "$REPO" && mvn -q -DskipTests package && build/pingfederate/stage-modules.sh --profile conformance )
+# Stage first: author.sh stages the CIBA simulator from modules/ into the authoring server, because
+# terraform/ciba.tf can only instantiate a plugin PingFederate can see.
+if [[ "${SKIP_BUILD:-0}" != 1 || ! -f "$PFAI_IMAGE_DIR/modules/MANIFEST" ]]; then
+  if [[ "$PFAI_MODE" == release ]]; then
+    "$PFAI_IMAGE_DIR/stage-from-release.sh" --profile conformance ${PF_RELEASE:+"$PF_RELEASE"}
+  else
+    ( cd "$REPO" && mvn -q -DskipTests package && build/pingfederate/stage-modules.sh --profile conformance )
+  fi
 fi
 
 if [[ "${SKIP_AUTHOR:-0}" != 1 ]]; then

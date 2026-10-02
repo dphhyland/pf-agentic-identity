@@ -32,6 +32,8 @@
 # their DPoP proofs through it (plan item S8a); platform-pf declares it optional, so without it the operator
 # APIs fail at first use with NoClassDefFoundError. Its libraries (jose4j, jackson) are on PF's classpath.
 set -euo pipefail
+# shellcheck source=stage-lib.sh
+. "$(dirname "$0")/stage-lib.sh"
 PROFILE=production
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -82,12 +84,6 @@ if [[ "$PROFILE" == conformance ]]; then
   ENTRIES+=("plugins plugins/ciba-sim/target/pf.plugins.ciba-sim.jar")
 fi
 
-# The same digest the assembler and the release workflow compute; GNU and busybox have sha256sum, macOS
-# has shasum.
-sha256_of() {
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
-}
-
 mkdir -p "$DEST"
 rm -f "$DEST"/*.jar "$DEST/MANIFEST"
 for entry in "${ENTRIES[@]}"; do
@@ -95,31 +91,13 @@ for entry in "${ENTRIES[@]}"; do
   [[ -f "$ROOT/$j" ]] || { echo "ERROR: $j not built — run 'mvn -q -DskipTests package' first" >&2; exit 1; }
   cp "$ROOT/$j" "$DEST/"
 done
-# A manifest of exactly what this run staged. assemble-pf-runtime-war.sh refuses to build from a
-# modules/ directory that does not match it — because the failure mode otherwise is silent and
-# expensive: a hand-populated or stale modules/ assembles a war that boots fine and then throws
-# NoClassDefFoundError at the first request that touches the missing module. That has now happened
-# twice (agent-registry, then device-instance), each time discovered from a 500 in staging rather
-# than from the build.
-#
-# MANIFEST v2: one header line naming the format, the profile, the build time and the commit; then a
-# [section] per module group, and one "<sha256>  <file>" line per jar - sha256sum's own format, so
-# `grep -E '^[0-9a-f]{64}  ' MANIFEST | sha256sum -c` checks the directory by hand. The profile is
-# what the assembler compares with the image's; the digests catch a jar rebuilt or swapped after
-# staging, which the v1 list of bare filenames could not.
+# The MANIFEST (v2, written by stage-lib.sh, which says why it exists): the profile, the commit and a digest
+# per jar. The commit is -dirty when tracked files had uncommitted changes, and unknown outside a checkout.
 commit="$(git -C "$ROOT" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
 if [[ "$commit" != unknown && -n "$(git -C "$ROOT" status --porcelain --untracked-files=no 2>/dev/null)" ]]; then
   commit="$commit-dirty"
 fi
-{
-  echo "MANIFEST/2 profile=$PROFILE built=$(date -u +%Y-%m-%dT%H:%M:%SZ) commit=$commit"
-  section=""
-  for entry in "${ENTRIES[@]}"; do
-    s="${entry%% *}"; b="$(basename "${entry#* }")"
-    if [[ "$s" != "$section" ]]; then echo "[$s]"; section="$s"; fi
-    echo "$(sha256_of "$DEST/$b")  $b"
-  done
-} > "$DEST/MANIFEST"
+pfai_write_manifest "$DEST" "$PROFILE" "$commit" "${ENTRIES[@]}"
 
 echo "staged ${#ENTRIES[@]} jars ($PROFILE profile) into $DEST:"
 cat "$DEST/MANIFEST"
@@ -128,8 +106,6 @@ cat "$DEST/MANIFEST"
 # so a context composed from STAGE_DEST's parent carries it too. It is a build tool, not a module, so it is
 # not in ENTRIES or the MANIFEST: it never goes into the war or server/default/deploy.
 ASSEMBLER_JAR="$ROOT/build/war-assembler/target/war-assembler-$VERSION.jar"
-ASSEMBLER_DEST="$(dirname "$DEST")/assembler"
 [[ -f "$ASSEMBLER_JAR" ]] || { echo "ERROR: build/war-assembler/target/war-assembler-$VERSION.jar not built - run 'mvn -q -DskipTests package' first" >&2; exit 1; }
-mkdir -p "$ASSEMBLER_DEST"
-cp "$ASSEMBLER_JAR" "$ASSEMBLER_DEST/war-assembler.jar"
-echo "staged the war assembler into $ASSEMBLER_DEST/war-assembler.jar"
+pfai_stage_assembler "$ASSEMBLER_JAR" "$(dirname "$DEST")"
+echo "staged the war assembler into $(dirname "$DEST")/assembler/war-assembler.jar"

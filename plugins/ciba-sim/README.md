@@ -56,6 +56,16 @@ PingFederate so `terraform/ciba.tf` can create an instance of the authenticator,
 set with `--profile conformance`, and `docker-compose.yml` builds the image with
 `STAGING_PROFILE=conformance`. The FAPI-CIBA plan's results are in [conformance/README.md](../../conformance/README.md).
 
+**The release asset.** From 0.7.0 a release carries this jar as `demo-only-ciba-sim.jar`, so that a rig built
+from a release (`PF_RELEASE=<version> conformance/up.sh`) has it: `build/pingfederate/stage-from-release.sh`
+stages it under its real name, `pf.plugins.ciba-sim.jar`, for `--profile conformance` only. It is renamed so
+that nothing globbing `pf.plugins.*` out of a release's assets puts it in a deploy directory, and so the name
+itself says what it is. It is not published to GitHub Packages (`maven.deploy.skip`): nothing resolves it from a
+repository. Never put it in a production deploy directory: the name does not keep it out of PingFederate. On
+13.1.3 a jar named `demo-only-ciba-sim.jar` in `server/default/deploy` is loaded like any other, and the
+simulator's authenticator type is offered for new instances ([U-0460](../../docs/findings/U-0460.yaml)). What
+keeps it harmless there is the gate above: outside `OIDF_DEPLOYMENT_PROFILE=development` it refuses every request.
+
 ## Tests
 
 `mvn -o -B verify` in this module runs the four test classes and a jacoco gate that holds every decision

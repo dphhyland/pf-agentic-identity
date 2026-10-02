@@ -39,8 +39,8 @@ the image's own healthcheck ([build/pingfederate/README.md](../build/pingfederat
 | 2 | `author.sh` | a **stock** PF 13.1.3 container with its admin API on `localhost:29999`, the cipher-list overlay and the CIBA plugin staged |
 | 3 | `apply.sh apply` | `terraform/` applied to it: OAuth server settings, a JWT access token manager and mappings, an OIDC policy, a login form and test user, the clients (below) |
 | 4 | `export.sh` | `data.zip` - PF's config archive, its whole saved state; refused if it would fail the suite |
-| 5 | `mvn package` + `stage-modules.sh --profile conformance` | the conformance profile's module jars from this repo, the CIBA simulator among them, and their v2 `MANIFEST`, which names each one |
-| 6 | `compose-context.sh` | `.context/` - `build/pingfederate/`'s image build plus that archive |
+| 5 | reactor mode: `mvn package` + `stage-modules.sh --profile conformance`; release mode: `stage-from-release.sh --profile conformance` | the conformance profile's module jars, the CIBA simulator among them, and their v2 `MANIFEST`, which names each one - built from this repo, or taken from a release's assets once every one verifies against its `SHA256SUMS`. Run first: `author.sh` stages the simulator from here |
+| 6 | `compose-context.sh` | `.context/` - the image build (`build/pingfederate/` here, `image/` in the public tree) plus that archive |
 | 7 | `docker compose up --build` | the image, built with `STAGING_PROFILE=conformance`, running with `vars.env` and your licence details |
 
 Steps 2-4 are how PF is configured **as code**: `terraform/` is the source, `data.zip` the built
@@ -90,6 +90,25 @@ project, so a rig built from another checkout doesn't replace this one. Give it 
 PF_RIG_NAME=pfai-fed PF_PROFILE=federation PF_PORT_HTTPS=49031 PF_PORT_HTTP=49080 PF_PORT_ADMIN=49999 \
   PF_AUTHOR_ADMIN_PORT=48999 PF_AUTHOR_RUNTIME_PORT=48031 PF_BASE_URL=https://host.docker.internal:49031 ./up.sh
 ```
+
+## From a release
+
+`conformance/layout.sh` decides where the image build, the PingFederate version and the modules are, and in which
+mode the rig runs: **reactor** in a checkout with a `pom.xml` (the modules are built here, as above), **release**
+when `PF_RELEASE` is set or there is no `pom.xml` (the public tree). In release mode step 5 runs
+`stage-from-release.sh` instead of Maven, so the rig needs no JDK or Maven, only `curl` and `sha256sum` or `shasum`:
+
+```sh
+PF_RELEASE=0.7.0 ./up.sh                  # fetch v0.7.0's assets anonymously, verify them, stage, boot
+PF_RELEASE=/path/to/dist ./up.sh          # a directory of release assets, verified the same way
+```
+
+The first release it can stage is 0.7.0, the first with `war-assembler-<version>.jar` among its assets. The
+image is built from the same bytes either way: [build/pingfederate/README.md](../build/pingfederate/README.md#staging-from-a-release)
+says what is checked, and Build's image job proves a release's stage equals the reactor's. `SKIP_BUILD=1` reuses
+what is staged in both modes. `verify-rar-principal.sh` lends the rig the release's `pf.plugins.pf-rar-paz-plugin.jar`
+in release mode, after checking the release against its `SHA256SUMS` again on every run (a directory as well as a
+fetched version).
 
 ## A PF on a public address
 

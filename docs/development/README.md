@@ -16,5 +16,8 @@ How the repository is worked on:
   component, in the module that reads the settings. `tools/settings-scan.py` checks that every setting the code
   reads is in one and that every catalogued setting is read; its docstring says what it counts as a read.
 
+- [public-export.md](public-export.md) - the public tree: what `tools/export-public.py` exports to
+  `ID-Partners/pf-agentic-identity`, the manifest and its classes, the guards, and how to add a document.
+
 Phase 7's developer guide (plan item D-8) - builds, PingFederate jars, Postgres tests, worktrees, mutation
 testing, the generators, rigs and classloaders - lands here too.

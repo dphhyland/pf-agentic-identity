@@ -117,7 +117,7 @@ ARG OCI_CREATED
 LABEL io.github.dphhyland.pf-agentic-identity.staging-profile=$STAGING_PROFILE \
       org.opencontainers.image.title="pf-agentic-identity PingFederate" \
       org.opencontainers.image.description="PingFederate 13.1.3 with pf-agentic-identity's modules merged into pf-runtime.war" \
-      org.opencontainers.image.source="https://github.com/dphhyland/pf-agentic-identity" \
+      org.opencontainers.image.source="https://github.com/ID-Partners/pf-agentic-identity" \
       org.opencontainers.image.version=$OCI_VERSION \
       org.opencontainers.image.revision=$OCI_REVISION \
       org.opencontainers.image.created=$OCI_CREATED \
