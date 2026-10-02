@@ -119,7 +119,7 @@ for row in "${TABLE[@]}"; do
   esac
   BODY="$WORK/body-$VERSION.md"
   python3 "$ROOT/tools/public-release-body.py" "$VERSION" --tree "$TREE" --source-ref "$TAG" --sums "$ASSETS/SHA256SUMS" \
-    --mirrored --date "$(date -u +%Y-%m-%d)" "${omit_args[@]}" -o "$BODY"
+    --mirrored --date "$(date -u +%Y-%m-%d)" ${omit_args[@]+"${omit_args[@]}"} -o "$BODY"
 
   # 3. The commit and the tag, dated as the original release was.
   ( cd "$CLONE" && find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} + )
@@ -142,7 +142,7 @@ for row in "${TABLE[@]}"; do
   latest=(); [ "$TAG" = "$LAST_TAG" ] && latest=(--latest)
   if ! gh release view "$TAG" --repo "$PUBLIC_REPO" > /dev/null 2>&1; then
     gh release create "$TAG" "$ASSETS"/* --repo "$PUBLIC_REPO" --verify-tag --title "pf-agentic-identity $VERSION" \
-      --notes-file "$BODY" "${latest[@]}"
+      --notes-file "$BODY" ${latest[@]+"${latest[@]}"}
   else
     echo "   release $TAG already exists on $PUBLIC_REPO: left as it is"
   fi
