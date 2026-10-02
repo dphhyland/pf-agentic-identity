@@ -58,14 +58,18 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish; must equal the version every pom declares"
-        required: true
+        description: "Version to publish; must equal the version every pom declares (with docs_only, optional: the version the public docs name)"
+        required: false
       dry_run:
-        description: "Build, verify and assemble dist/, then stop: no draft release, no Packages, nothing published"
+        description: "Build, verify and assemble dist/, build the public tree and body, then stop: no draft release, no Packages, nothing published"
+        type: boolean
+        default: false
+      docs_only:
+        description: "Publish only the root and docs of this ref (main or a v* tag) to the public repository: no build, no tag, no release"
         type: boolean
         default: false
 
-# The one job holds the permissions it needs; the workflow itself grants none.
+# Each job holds the permissions it needs; the workflow itself grants none.
 permissions: {}
 
 concurrency:
@@ -73,7 +77,86 @@ concurrency:
   cancel-in-progress: false     # never cancel a half-published release
 
 jobs:
+  # Before anything is built: can this run publish to the public repository at all? A real release (or a real
+  # docs_only run) with no usable PUBLIC_REPO_TOKEN stops here, before the internal draft exists, and says that
+  # nothing has been published; a dry run only warns (ready=false) and still builds the public tree and body.
+  # The token is in this step's env and in publish-public's steps' env, nowhere else
+  # (tools/tests/test_public_token_scope.py holds it there).
+  public-preflight:
+    runs-on: ubuntu-latest
+    permissions: {}
+    timeout-minutes: 10
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+      author_email: ${{ steps.check.outputs.author_email }}
+    steps:
+      - name: the public repository exists, the token can push, and the tag is free
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+          PUBLIC_REPO: ID-Partners/pf-agentic-identity
+          RELEASE_TAG: ${{ github.event.inputs.version || github.ref_name }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+          DOCS_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.docs_only == true }}
+        run: |
+          set -euo pipefail
+          stop() { echo "::error::$1 Nothing has been published."; exit 1; }
+          if [ "$DOCS_ONLY" = true ]; then
+            # Docs only ever come from what was merged or released, never from a branch under review.
+            case "$GITHUB_REF" in
+              refs/heads/main|refs/tags/v*) ;;
+              *) stop "docs_only runs from main or a v* tag only, not $GITHUB_REF." ;;
+            esac
+          else
+            VERSION="${RELEASE_TAG#v}"
+            [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || stop "'$RELEASE_TAG' is not v<major>.<minor>.<patch>: dispatch with version set, or push a v* tag."
+          fi
+          if [ -z "$GH_TOKEN" ]; then
+            if [ "$DRY_RUN" = true ]; then
+              echo "::warning::PUBLIC_REPO_TOKEN is not set: this dry run builds the public tree and body but cannot check the public repository. A real release would stop here."
+              echo "ready=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            stop "PUBLIC_REPO_TOKEN is not set, so this run cannot publish to $PUBLIC_REPO (CONTRIBUTING.md, Releasing)."
+          fi
+          gh api "repos/$PUBLIC_REPO" --jq .full_name > /dev/null || stop "$PUBLIC_REPO cannot be read with PUBLIC_REPO_TOKEN: it does not exist, or the token is not granted it."
+          # Proof of push without a push: git push --dry-run fetches the receive-pack advertisement, which GitHub
+          # refuses without write access (U-0466), and sends nothing. The token reaches git through the
+          # environment only, never a remote URL, argv or .git/config.
+          b64="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$b64"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $b64"
+          probe="$RUNNER_TEMP/push-probe"
+          git init -q "$probe"
+          git -C "$probe" -c user.name=probe -c user.email=probe@invalid commit -q --allow-empty -m "never pushed"
+          git -C "$probe" push --dry-run --quiet "https://github.com/$PUBLIC_REPO.git" HEAD:refs/heads/preflight-probe-never-pushed \
+            || stop "PUBLIC_REPO_TOKEN cannot push to $PUBLIC_REPO (git push --dry-run was refused): it needs Contents read and write."
+          rm -rf "$probe"
+          # GET .../private-vulnerability-reporting needs Metadata read, which every fine-grained token has (U-0466).
+          pvr="$(gh api "repos/$PUBLIC_REPO/private-vulnerability-reporting" --jq .enabled)" || stop "private vulnerability reporting on $PUBLIC_REPO could not be read."
+          [ "$pvr" = true ] || stop "private vulnerability reporting is off on $PUBLIC_REPO; SECURITY.md sends reports there. Turn it on in the repository's settings."
+          # The commit author publish-public writes: the token owner's GitHub noreply address.
+          author="$(gh api user --jq '"\(.id)+\(.login)@users.noreply.github.com"')" || stop "GET /user failed with PUBLIC_REPO_TOKEN, so publish-public cannot name its commit author."
+          echo "author_email=$author" >> "$GITHUB_OUTPUT"
+          if [ "$DOCS_ONLY" != true ]; then
+            # v<version> must be absent there, or a commit this workflow made for the same version (a re-run).
+            ref="$(gh api "repos/$PUBLIC_REPO/git/matching-refs/tags/v$VERSION" --jq ".[] | select(.ref == \"refs/tags/v$VERSION\") | .object.type + \" \" + .object.sha")" \
+              || stop "the tags of $PUBLIC_REPO could not be read."
+            if [ -n "$ref" ]; then
+              read -r type sha <<< "$ref"
+              if [ "$type" = tag ]; then sha="$(gh api "repos/$PUBLIC_REPO/git/tags/$sha" --jq .object.sha)"; fi
+              subject="$(gh api "repos/$PUBLIC_REPO/git/commits/$sha" --jq '.message | split("\n")[0]')"
+              [ "$subject" = "Release $VERSION" ] || stop "v$VERSION already exists on $PUBLIC_REPO at $sha ('$subject'), which this workflow did not make."
+              echo "v$VERSION is already on $PUBLIC_REPO at $sha (a re-run): publish-public checks its tree"
+            fi
+          fi
+          echo "ok: $PUBLIC_REPO exists, PUBLIC_REPO_TOKEN can push to it, private vulnerability reporting is on"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
   release:
+    needs: public-preflight
+    # docs_only builds nothing; publish-public then takes the docs from the dispatch ref.
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.docs_only) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write     # create the release
@@ -320,7 +403,7 @@ jobs:
             echo "commit:       $COMMIT"
             echo "tag:          $RELEASE_TAG"
             echo "built:        $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo "run:          $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "run:          $GITHUB_RUN_ID (Release workflow of the private source repository)"
             echo "pingfederate: $PF_VERSION, built and link-checked against ${PF_IMAGE}@${PF_IMAGE_DIGEST}"
             echo
             echo "PingFederate line: 13.1.x (jakarta.servlet), from 0.2.0. These artifacts do NOT load on"
@@ -415,21 +498,27 @@ jobs:
           The PF module set, wars and plugin jars for this version, with `SHA256SUMS` and
           `PROVENANCE.txt` recording the commit and the PingFederate image that produced them.
 
-          **Consuming this.** Pull the assets and check them against `SHA256SUMS`; record the tag you
-          pulled. Do not copy jars from a sibling checkout without recording which build they came from -
-          that is how a consumer ended up running module code from before the split-package unwind, with
-          none of the security work in it, and no way to notice.
+          **Where to download.** These same assets, byte for byte, are published without authentication at
+          `https://github.com/ID-Partners/pf-agentic-identity/releases/tag/__TAG__`, with the release's
+          page at that tag. That public release is what a consumer's vendor script should pull.
+
+          **Consuming this.** Pull the assets and check them with `sha256sum -c SHA256SUMS`; record the
+          commit and tag `PROVENANCE.txt` names. Do not copy jars from a sibling checkout without recording
+          which build they came from - that is how a consumer ended up running module code from before the
+          split-package unwind, with none of the security work in it, and no way to notice.
 
           `modules/` is **__MODULES__ separate jars** (listed in `MANIFEST`), not the legacy single
           `pf-oidf-modules.jar`. Anything still copying a file by that name is running pre-2026-08-15 code.
 
-          Built and link-checked against `__PF_IMAGE__`.
+          Built and link-checked against `__PF_IMAGE__`. `demo-only-ciba-sim.jar` is the conformance rig's
+          CIBA simulator: it refuses every request outside `OIDF_DEPLOYMENT_PROFILE=development` and never
+          goes in a production deploy directory.
 
-          Maven artifacts are also published to GitHub Packages under
-          `com.pingidentity.ps.oidf`. Note that GitHub Packages requires authentication even for public
-          reads, so the assets here are the auth-free path.
+          Maven artifacts are also published to GitHub Packages under `com.pingidentity.ps.oidf`, for
+          internal consumers with access to this private repository: GitHub Packages requires
+          authentication even to read.
           NOTES
-          sed -i "s|__MODULES__|$MODULES|; s|__PF_IMAGE__|${PF_IMAGE}@${PF_IMAGE_DIGEST}|" release-notes.md
+          sed -i "s|__MODULES__|$MODULES|; s|__PF_IMAGE__|${PF_IMAGE}@${PF_IMAGE_DIGEST}|; s|__TAG__|$RELEASE_TAG|" release-notes.md
           gh release create "$RELEASE_TAG" dist/* --draft \
             --title "pf-agentic-identity $VERSION" \
             --notes-file release-notes.md

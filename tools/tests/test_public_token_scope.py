@@ -77,6 +77,14 @@ def problems(files):
     for name, text in sorted(files.items()):
         if re.search(r"^\s*['\"]?pull_request_target['\"]?\s*:", text, re.M) or re.search(r"\bpull_request_target\b", text.split("jobs:")[0]):
             out.append(f"{name}: has a pull_request_target trigger")
+        # A job can be handed every secret without naming one: toJSON(secrets) (or the secrets context passed
+        # whole anywhere else), and a reusable-workflow call with `secrets: inherit`.
+        code = "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
+        expressions = re.findall(r"\$\{\{(.*?)\}\}", code, re.S)
+        if any(re.search(r"\bsecrets\b(?!\s*\.\s*[A-Za-z_])", e) for e in expressions):
+            out.append(f"{name}: uses the secrets context whole (toJSON(secrets) or the like), which would hand out {TOKEN}")
+        if re.search(r"^\s*secrets:\s*['\"]?inherit\b", code, re.M):
+            out.append(f"{name}: passes secrets: inherit, which would hand out {TOKEN}")
         if TOKEN not in text:
             continue
         if name != "release.yml":
@@ -102,7 +110,9 @@ def problems(files):
         if any(re.match(r"^\s*persist-credentials:\s*['\"]?true", l) for l in lines):
             out.append(f"release.yml: {job} sets persist-credentials: true")
         for block in run_blocks(lines):
-            if re.search(r"\$\{\{\s*(inputs\.|github\.event\.)", block):
+            # Any expression in a run: that reaches an input or the event, also through a function such as
+            # format('{0}', inputs.version), is spliced into the script before it runs.
+            if any(re.search(r"\b(inputs|github\.event)\b", e) for e in re.findall(r"\$\{\{(.*?)\}\}", block, re.S)):
                 out.append(f"release.yml: {job} expands an input or github.event inside run: (pass it through env:)")
     return out
 
@@ -191,6 +201,22 @@ class Fixtures(unittest.TestCase):
         self.assertTrue(any("expands an input" in p for p in problems({"release.yml": bad})))
         bad = RELEASE.replace("run: gh release view", "run: gh release view ${{ github.event.inputs.version }}")
         self.assertTrue(any("expands an input" in p for p in problems({"release.yml": bad})))
+
+    def test_input_through_a_function_in_run(self):
+        bad = RELEASE.replace('echo "$INPUT_VERSION"', "echo \"${{ format('{0}', inputs.version) }}\"")
+        self.assertTrue(any("expands an input" in p for p in problems({"release.yml": bad})))
+
+    def test_every_secret_at_once(self):
+        bad = {"release.yml": RELEASE, "build.yml": "on: push\njobs:\n  a:\n    env:\n      ALL: ${{ toJSON(secrets) }}\n"}
+        self.assertTrue(any("build.yml: uses the secrets context whole" in p for p in problems(bad)))
+        bad = RELEASE.replace("      - run: echo build", "      - env:\n          ALL: ${{ toJson( secrets ) }}\n        run: echo build")
+        self.assertTrue(any("secrets context whole" in p for p in problems({"release.yml": bad})))
+        bad = RELEASE.replace("      - run: echo build", "      - env:\n          T: ${{ secrets['PUBLIC_REPO_TOKEN'] }}\n        run: echo build")
+        self.assertTrue(any("secrets context whole" in p for p in problems({"release.yml": bad})))
+
+    def test_secrets_inherit(self):
+        bad = {"release.yml": RELEASE, "x.yml": "on: push\njobs:\n  a:\n    uses: ./.github/workflows/y.yml\n    secrets: inherit\n"}
+        self.assertTrue(any("x.yml: passes secrets: inherit" in p for p in problems(bad)))
 
 
 if __name__ == "__main__":

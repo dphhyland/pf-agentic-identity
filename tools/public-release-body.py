@@ -184,11 +184,31 @@ def parse_omits(omits, sums):
     return out
 
 
+BLOCK_START = re.compile(r"^\s*([-*+]\s|\d+[.)]\s|#|\||>|```|~~~)")
+
+
+def unwrap(text):
+    """Joins the hard-wrapped lines of each paragraph and list item, since GitHub renders a newline in a
+    release body as a line break. Fenced code, headings, tables and quotes are left as they are."""
+    out, fenced = [], False
+    for line in text.split("\n"):
+        if line.lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+            out.append(line)
+            continue
+        if fenced or not out or not line.strip() or not out[-1].strip() or BLOCK_START.match(line) \
+                or out[-1].lstrip().startswith(("#", "|", "```", "~~~")) or out[-1].endswith("  "):
+            out.append(line)
+            continue
+        out[-1] = out[-1].rstrip() + " " + line.strip()
+    return "\n".join(out)
+
+
 def body(version, page, pf, sums=None, mirrored=False, date=None, omits=(), image_from_source=False):
     opening, section = split_page(page)
     page_url = f"{PUBLIC_URL}/blob/v{version}/docs/releases/{version}.md"
     download = f"{PUBLIC_URL}/releases/download/v{version}"
-    out = [absolute_links(opening, version), ""]
+    out = [unwrap(absolute_links(opening, version)), ""]
 
     out.append("## Before you deploy")
     out.append("")
@@ -226,8 +246,9 @@ def body(version, page, pf, sums=None, mirrored=False, date=None, omits=(), imag
     image = pf.get("PF_IMAGE")
     digest = pf.get("PF_IMAGE_DIGEST")
     pinned = f" (`{image}@{digest}`)" if image and digest else (f" (`{image}`)" if image else "")
-    out.append(f"PingFederate: built and link-checked against PingFederate {pf['PF_VERSION']}{pinned}. Every "
-               "release here is a `jakarta.servlet` build for PingFederate 13.1.x and does not load on 13.0.x.")
+    line = ".".join(pf["PF_VERSION"].split(".")[:2])
+    out.append(f"PingFederate: built and link-checked against PingFederate {pf['PF_VERSION']}{pinned}, a "
+               f"`jakarta.servlet` build for the PingFederate {line}.x line.")
     if sums is not None and SIMULATOR in sums:
         out.append("")
         out.append(f"**`{SIMULATOR}` is not a deployable.** It is the conformance rig's CIBA simulator, which only "
@@ -242,7 +263,8 @@ def body(version, page, pf, sums=None, mirrored=False, date=None, omits=(), imag
         out.append("")
         out.append("## Mirrored")
         out.append("")
-        out.append(f"Mirrored on {date} from the original release; every asset is byte for byte the original and "
+        out.append(f"Mirrored on {date} from the original release; every {'mirrored ' if omits else ''}asset is "
+                   "byte for byte the original and "
                    "`SHA256SUMS` is unchanged. The `run:` line of its `PROVENANCE.txt` names a workflow run in the "
                    "private source repository, which is not public; record the `commit:` and `tag:` lines.")
         for asset, reason in omits:

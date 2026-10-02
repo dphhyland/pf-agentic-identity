@@ -102,14 +102,24 @@ class Body(unittest.TestCase):
         self.assertIn("is not a deployable", body.body("9.9.0", PAGE, PF, sums=["demo-only-ciba-sim.jar"]))
         self.assertNotIn("is not a deployable", body.body("9.9.0", PAGE, PF, sums=["oidf.war"]))
 
+    def test_pf_line_follows_pf_version(self):
+        self.assertIn("for the PingFederate 13.1.x line.", body.body("9.9.0", PAGE, PF))
+        self.assertIn("for the PingFederate 14.0.x line.", body.body("9.9.0", PAGE, dict(PF, PF_VERSION="14.0.2")))
+
+    def test_opening_is_unwrapped(self):
+        text = body.unwrap("one\ntwo\n\n- item\n  more\n- next\n\n```\na\nb\n```\n# h\nafter")
+        self.assertEqual(text, "one two\n\n- item more\n- next\n\n```\na\nb\n```\n# h\nafter")
+
     def test_image_from_source_line(self):
         self.assertIn("From v0.7.0 the image and the demo run", body.body("9.9.0", PAGE, PF, image_from_source=True))
 
     def test_mirrored_and_omitted(self):
         omits = body.parse_omits(["pf.plugins.ciba-sim.jar"], ["pf.plugins.ciba-sim.jar"])
         text = body.body("0.3.0", PAGE, PF, mirrored=True, date="2026-10-02", omits=omits)
-        self.assertIn("Mirrored on 2026-10-02 from the original release; every asset is byte for byte the original "
-                      "and `SHA256SUMS` is unchanged.", text)
+        self.assertIn("Mirrored on 2026-10-02 from the original release; every mirrored asset is byte for byte the "
+                      "original and `SHA256SUMS` is unchanged.", text)
+        whole = body.body("0.4.0", PAGE, PF, mirrored=True, date="2026-10-02")
+        self.assertIn("; every asset is byte for byte the original and", whole)
         self.assertIn("`run:` line of its `PROVENANCE.txt`", text)
         self.assertIn("- `pf.plugins.ciba-sim.jar` is not mirrored: the 0.3.0 CIBA simulator runs on "
                       "`OIDF_CIBA_SIM_ENABLED` alone; verify with `sha256sum -c --ignore-missing`.", text)
