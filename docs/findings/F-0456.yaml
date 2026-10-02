@@ -1,0 +1,26 @@
+id: F-0456
+title: PUBLIC_REPO_TOKEN is a fine-grained personal access token that expires and belongs to one person
+severity: medium
+area: release
+source: design
+status: accepted
+plan_items: [R-CI9]
+prs: []
+verification: >
+  Reviewed 2026-10-03 on the branch: the token appears only in public-preflight's step env and publish-public's
+  step envs (tools/tests/test_public_token_scope.py), and a run with it unset stops at public-preflight with
+  nothing published. The real token is exercised at cutover step 3 (the release dry run).
+target_release: 0.7.0
+expiry: 2027-01-03
+notes: >
+  release.yml's public-preflight and publish-public jobs push to ID-Partners/pf-agentic-identity with
+  PUBLIC_REPO_TOKEN, a fine-grained personal access token David creates (resource owner ID-Partners, that one
+  repository, Contents read and write), set as an Actions secret on the private repository. GitHub caps such a
+  token at 366 days, and it is one person's. The control is public-preflight: a release with a missing, expired
+  or powerless token stops before the internal draft exists, with "Nothing has been published" in the log, and
+  nothing on the public side changes. Rotation: create the new token with the same grant, replace the secret
+  (gh secret set PUBLIC_REPO_TOKEN -R dphhyland/pf-agentic-identity), run a release dry run
+  (workflow_dispatch, dry_run) and read public-preflight's "ok" line, then revoke the old token. The expiry here is
+  a review date three months after merge; package SPF sets it to no later than the token's real expiry and writes
+  that date into these notes once the token exists (cutover step 2). A GitHub App installation token would not
+  expire this way; that is Phase 7's call.

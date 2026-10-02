@@ -282,6 +282,42 @@ exist - and logs what it is waiting for and for how long. It fails, with nothing
 A dry run is gated the same way, so a dry run on a branch needs a Build started there by hand first
 (`gh workflow run build.yml --ref <branch>`); from 0.4.0 that holds for a branch with a pull request too.
 
+### The public repository
+
+Releases are published for consumers at
+[ID-Partners/pf-agentic-identity](https://github.com/ID-Partners/pf-agentic-identity), a repository generated from
+this one ([docs/development/public-export.md](docs/development/public-export.md)). release.yml does it in two
+jobs around the release job:
+
+- `public-preflight`, before anything is built: `PUBLIC_REPO_TOKEN` (a fine-grained personal access token scoped
+  to that repository with Contents read and write, set as an Actions secret here; F-0456 records its expiry and
+  rotation) can read the repository and push to it (`git push --dry-run`, the token in the environment only),
+  private vulnerability reporting is on there, and `v<version>` is either absent or a commit this workflow made.
+  A real release with no usable token stops here, with nothing published; a dry run warns and goes on.
+- `publish-public`, after the release job: `dist/` comes from this run's `release-dist` artefact, is checked
+  against `SHA256SUMS` and, in a real run, against the internal release's own assets byte for byte; the public
+  tree is built with `tools/export-public.py` and scanned by gitleaks; the body is written by
+  `tools/public-release-body.py` (a summary of the release page, within GitHub's limit, U-0465); the tree is
+  committed to the public `main` as `Release <version>`, tagged `v<version>` and pushed - never with force, and a
+  commit on the public `main` that this workflow or the mirror did not make is a stop, not an overwrite; the
+  public release is created as a draft with every `dist/` file, published and marked latest; then every asset is
+  downloaded with no credentials and checked against `SHA256SUMS`. If that last check fails the public release
+  goes back to draft and the job fails. A dry run uploads the tree and the body as the artefacts `public-tree` and
+  `public-release-body` and pushes nothing.
+
+A failed `publish-public` leaves the internal release published and the public side as the log says (nothing,
+a pushed tag, or a draft). Fix the cause and re-run the failed jobs (`gh run rerun <run-id> --failed`): an
+existing public tag at an identical tree, or an existing published release, is kept and only checked again.
+
+`docs_only` (a `workflow_dispatch` input) publishes only the root and docs of `main` or a `v*` tag to the public
+repository - no build, no tag, no release - as `Docs <ref> <date>`. It is for corrections to released
+documentation; docs from `main` can describe behaviour the latest release does not have, so say so in the
+correction.
+
+The releases made before the split, v0.3.0 to v0.6.0, were mirrored once with `tools/mirror-releases.sh`, run by
+the maintainer with their own `gh` login: byte-for-byte assets, unchanged `SHA256SUMS`, commits dated as the
+originals were published. Its table is the one place that says which release was mirrored how.
+
 ## Style
 
 [docs/development/style-guide.md](docs/development/style-guide.md). The short version: plain short sentences,

@@ -5,7 +5,7 @@ source: design
 status: open
 plan_items: [R-CI9]
 prs: []
-recorded_in: here only, until the preflight job is built (see notes)
+recorded_in: .github/workflows/release.yml, the public-preflight job
 verify_by: Cutover step 3, the release dry run with David's token - the preflight reports the token can push, and the same check fails with a Contents read-only token.
 verification: >
   Partly checked 2026-10-01. git push --dry-run over HTTPS reads the receive-pack advertisement: GIT_TRACE_CURL on
@@ -20,7 +20,10 @@ verification: >
   tokens" (read 2026-10-01) lists GET /repos/{owner}/{repo}/private-vulnerability-reporting under Repository
   permissions for "Metadata" (read), which every fine-grained token carries, so the preflight can read it.
 notes: >
-  The publish-public and public-preflight jobs were not built in package SPC's first attempt: the edit to
-  .github/workflows/release.yml was refused by the session's permission classifier (2026-10-01), so the preflight
-  this finding describes waits for David's decision. GET /user with a fine-grained token (for the commit author's
-  noreply address) is not listed on the permissions page and is to be checked at the same cutover step.
+  The public-preflight job is built (2026-10-03): it proves push access with git push --dry-run of an empty
+  commit to a never-created branch, the token in the environment only (GIT_CONFIG_* and the extraheader), reads
+  private vulnerability reporting with GET /repos/{owner}/{repo}/private-vulnerability-reporting, and takes the
+  commit author's noreply address from GET /user. The first attempt at this package (2026-10-01) was refused the
+  release.yml edit by the session's permission classifier; David's instruction on 2026-10-03 to merge and push the
+  split work carried it through. GET /user with a fine-grained token (for the noreply address) is not listed on
+  GitHub's permissions page and is checked at cutover step 3 with David's token, when this finding closes.
