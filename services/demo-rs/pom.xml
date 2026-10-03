@@ -15,7 +15,7 @@
     -->
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>demo-rs</artifactId>
-    <version>0.7.0-SNAPSHOT</version>
+    <version>0.7.0</version>
     <packaging>pom</packaging>
 
     <name>demo-rs (relocated to rs-validation)</name>
@@ -33,7 +33,7 @@
     <properties>
         <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
              sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
-        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2026-10-03T00:15:27Z</project.build.outputTimestamp>
     </properties>
 
     <distributionManagement>
