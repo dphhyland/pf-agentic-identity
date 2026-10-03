@@ -1,0 +1,29 @@
+id: U-0466
+title: That a public-preflight can prove PUBLIC_REPO_TOKEN can push to ID-Partners/pf-agentic-identity without pushing, and can read private vulnerability reporting.
+area: release
+source: design
+status: open
+plan_items: [R-CI9]
+prs: []
+recorded_in: .github/workflows/release.yml, the public-preflight job
+verify_by: Cutover step 3, the release dry run with David's token - the preflight reports the token can push, and the same check fails with a Contents read-only token.
+verification: >
+  Partly checked 2026-10-01. git push --dry-run over HTTPS reads the receive-pack advertisement: GIT_TRACE_CURL on
+  git 2.47.1 showed "GET /dphhyland/pf-agentic-identity.git/info/refs?service=git-receive-pack" answered 401, while
+  the same repository's git-upload-pack advertisement answered 200 anonymously, so GitHub gates the receive-pack
+  advertisement separately from reads. GitHub's "Choosing permissions for a GitHub App" says "If you want your app
+  to use an installation or user access token to authenticate for HTTP-based Git access, you should request the
+  "Contents" repository permission." (github/docs, read 2026-10-01). That a token with Contents read only is
+  refused the receive-pack advertisement (rather than only the pack upload) was not observed: it needs a token.
+  GET /repos/{owner}/{repo}'s permissions object was not used, since its documentation does not say whether it
+  reports the token's grant or the user's role. GitHub's "Permissions required for fine-grained personal access
+  tokens" (read 2026-10-01) lists GET /repos/{owner}/{repo}/private-vulnerability-reporting under Repository
+  permissions for "Metadata" (read), which every fine-grained token carries, so the preflight can read it.
+notes: >
+  The public-preflight job is built (2026-10-03): it proves push access with git push --dry-run of an empty
+  commit to a never-created branch, the token in the environment only (GIT_CONFIG_* and the extraheader), reads
+  private vulnerability reporting with GET /repos/{owner}/{repo}/private-vulnerability-reporting, and takes the
+  commit author's noreply address from GET /user. The first attempt at this package (2026-10-01) was refused the
+  release.yml edit by the session's permission classifier; David's instruction on 2026-10-03 to merge and push the
+  split work carried it through. GET /user with a fine-grained token (for the noreply address) is not listed on
+  GitHub's permissions page and is checked at cutover step 3 with David's token, when this finding closes.

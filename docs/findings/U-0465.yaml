@@ -1,0 +1,20 @@
+id: U-0465
+title: That GitHub refuses a release body over 125,000 characters, so a public release's body cannot be its release page.
+area: release
+source: design
+status: closed
+plan_items: [R-CI9]
+prs: []
+recorded_in: tools/public-release-body.py, BODY_LIMIT and the module docstring
+verify_by: Nothing further is needed.
+verification: >
+  True, checked 2026-10-01. GitHub's REST description of "Create a release" (github/rest-api-description,
+  descriptions/api.github.com/api.github.com.json, info.version 1.1.4, read 2026-10-01) gives the body as "Text
+  describing the contents of the tag." with no maxLength. The limit is stated in the error the API returns, quoted
+  by a gh user in cli/cli issue 7705 (2023-07-15): "body is too long (maximum is 125000 characters)". So the cap is
+  125,000 characters. Measured on origin/main 58e002ec: docs/releases/0.3.0.md is 22,133 characters, 0.4.0.md
+  124,547, 0.5.0.md 116,649 and 0.6.0.md 348,293 (348,391 bytes); tools/public-release-body.py's body for 0.6.0 is
+  14,743 characters.
+notes: >
+  tools/public-release-body.py fails above 125,000 characters as Python counts them (code points). GitHub's own
+  count was not measured; a page whose body comes near the limit should be shortened at its opening.

@@ -28,7 +28,15 @@
 #      stops here, before any draft and before Packages;
 #   7. the GitHub release is created as a DRAFT, so a failure after this point leaves nothing public;
 #   8. Maven artifacts go to GitHub Packages, and what deploy rebuilt is checked against dist/ again;
-#   9. the draft is published.
+#   9. the draft is published;
+#  10. publish-public (its own job, after the release job): dist/ is taken from the release-dist artifact and
+#      checked against SHA256SUMS and against the internal release's own assets; the public tree is built by
+#      tools/export-public.py from the allow-list and scanned by gitleaks; it is committed to
+#      ID-Partners/pf-agentic-identity as "Release <version>", tagged, pushed (never with force), and the public
+#      release is created from the same dist/ bytes; then every asset is downloaded with no credentials and
+#      checked against SHA256SUMS - a failure there puts the public release back to draft.
+# Before any of it, public-preflight proves PUBLIC_REPO_TOKEN can push to the public repository, so a real release
+# with no usable token stops before the internal draft exists.
 # A workflow_dispatch with dry_run stops after 6: everything built, rebuilt and compared, nothing released
 # or published.
 #
@@ -58,14 +66,18 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish; must equal the version every pom declares"
-        required: true
+        description: "Version to publish; must equal the version every pom declares (with docs_only, optional: the version the public docs name)"
+        required: false
       dry_run:
-        description: "Build, verify and assemble dist/, then stop: no draft release, no Packages, nothing published"
+        description: "Build, verify and assemble dist/, build the public tree and body, then stop: no draft release, no Packages, nothing published"
+        type: boolean
+        default: false
+      docs_only:
+        description: "Publish only the root and docs of this ref (main or a v* tag) to the public repository: no build, no tag, no release"
         type: boolean
         default: false
 
-# The one job holds the permissions it needs; the workflow itself grants none.
+# Each job holds the permissions it needs; the workflow itself grants none.
 permissions: {}
 
 concurrency:
@@ -73,7 +85,86 @@ concurrency:
   cancel-in-progress: false     # never cancel a half-published release
 
 jobs:
+  # Before anything is built: can this run publish to the public repository at all? A real release (or a real
+  # docs_only run) with no usable PUBLIC_REPO_TOKEN stops here, before the internal draft exists, and says that
+  # nothing has been published; a dry run only warns (ready=false) and still builds the public tree and body.
+  # The token is in this step's env and in publish-public's steps' env, nowhere else
+  # (tools/tests/test_public_token_scope.py holds it there).
+  public-preflight:
+    runs-on: ubuntu-latest
+    permissions: {}
+    timeout-minutes: 10
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+      author_email: ${{ steps.check.outputs.author_email }}
+    steps:
+      - name: the public repository exists, the token can push, and the tag is free
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+          PUBLIC_REPO: ID-Partners/pf-agentic-identity
+          RELEASE_TAG: ${{ github.event.inputs.version || github.ref_name }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+          DOCS_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.docs_only == true }}
+        run: |
+          set -euo pipefail
+          stop() { echo "::error::$1 Nothing has been published."; exit 1; }
+          if [ "$DOCS_ONLY" = true ]; then
+            # Docs only ever come from what was merged or released, never from a branch under review.
+            case "$GITHUB_REF" in
+              refs/heads/main|refs/tags/v*) ;;
+              *) stop "docs_only runs from main or a v* tag only, not $GITHUB_REF." ;;
+            esac
+          else
+            VERSION="${RELEASE_TAG#v}"
+            [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || stop "'$RELEASE_TAG' is not v<major>.<minor>.<patch>: dispatch with version set, or push a v* tag."
+          fi
+          if [ -z "$GH_TOKEN" ]; then
+            if [ "$DRY_RUN" = true ]; then
+              echo "::warning::PUBLIC_REPO_TOKEN is not set: this dry run builds the public tree and body but cannot check the public repository. A real release would stop here."
+              echo "ready=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            stop "PUBLIC_REPO_TOKEN is not set, so this run cannot publish to $PUBLIC_REPO (CONTRIBUTING.md, Releasing)."
+          fi
+          gh api "repos/$PUBLIC_REPO" --jq .full_name > /dev/null || stop "$PUBLIC_REPO cannot be read with PUBLIC_REPO_TOKEN: it does not exist, or the token is not granted it."
+          # Proof of push without a push: git push --dry-run fetches the receive-pack advertisement, which GitHub
+          # refuses without write access (U-0466), and sends nothing. The token reaches git through the
+          # environment only, never a remote URL, argv or .git/config.
+          b64="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$b64"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $b64"
+          probe="$RUNNER_TEMP/push-probe"
+          git init -q "$probe"
+          git -C "$probe" -c user.name=probe -c user.email=probe@invalid commit -q --allow-empty -m "never pushed"
+          git -C "$probe" push --dry-run --quiet "https://github.com/$PUBLIC_REPO.git" HEAD:refs/heads/preflight-probe-never-pushed \
+            || stop "PUBLIC_REPO_TOKEN cannot push to $PUBLIC_REPO (git push --dry-run was refused): it needs Contents read and write."
+          rm -rf "$probe"
+          # GET .../private-vulnerability-reporting needs Metadata read, which every fine-grained token has (U-0466).
+          pvr="$(gh api "repos/$PUBLIC_REPO/private-vulnerability-reporting" --jq .enabled)" || stop "private vulnerability reporting on $PUBLIC_REPO could not be read."
+          [ "$pvr" = true ] || stop "private vulnerability reporting is off on $PUBLIC_REPO; SECURITY.md sends reports there. Turn it on in the repository's settings."
+          # The commit author publish-public writes: the token owner's GitHub noreply address.
+          author="$(gh api user --jq '"\(.id)+\(.login)@users.noreply.github.com"')" || stop "GET /user failed with PUBLIC_REPO_TOKEN, so publish-public cannot name its commit author."
+          echo "author_email=$author" >> "$GITHUB_OUTPUT"
+          if [ "$DOCS_ONLY" != true ]; then
+            # v<version> must be absent there, or a commit this workflow made for the same version (a re-run).
+            ref="$(gh api "repos/$PUBLIC_REPO/git/matching-refs/tags/v$VERSION" --jq ".[] | select(.ref == \"refs/tags/v$VERSION\") | .object.type + \" \" + .object.sha")" \
+              || stop "the tags of $PUBLIC_REPO could not be read."
+            if [ -n "$ref" ]; then
+              read -r type sha <<< "$ref"
+              if [ "$type" = tag ]; then sha="$(gh api "repos/$PUBLIC_REPO/git/tags/$sha" --jq .object.sha)"; fi
+              subject="$(gh api "repos/$PUBLIC_REPO/git/commits/$sha" --jq '.message | split("\n")[0]')"
+              [ "$subject" = "Release $VERSION" ] || stop "v$VERSION already exists on $PUBLIC_REPO at $sha ('$subject'), which this workflow did not make."
+              echo "v$VERSION is already on $PUBLIC_REPO at $sha (a re-run): publish-public checks its tree"
+            fi
+          fi
+          echo "ok: $PUBLIC_REPO exists, PUBLIC_REPO_TOKEN can push to it, private vulnerability reporting is on"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
   release:
+    needs: public-preflight
+    # docs_only builds nothing; publish-public then takes the docs from the dispatch ref.
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.docs_only) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write     # create the release
@@ -320,7 +411,7 @@ jobs:
             echo "commit:       $COMMIT"
             echo "tag:          $RELEASE_TAG"
             echo "built:        $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo "run:          $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "run:          $GITHUB_RUN_ID (Release workflow of the private source repository)"
             echo "pingfederate: $PF_VERSION, built and link-checked against ${PF_IMAGE}@${PF_IMAGE_DIGEST}"
             echo
             echo "PingFederate line: 13.1.x (jakarta.servlet), from 0.2.0. These artifacts do NOT load on"
@@ -400,6 +491,16 @@ jobs:
             exit 1
           }
 
+      - name: dist/ as the artifact release-dist, for publish-public
+        # Both modes. publish-public takes the release's bytes from here (and, in a real run, holds them to the
+        # internal release's assets), so the public release is the build this job verified.
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
       - name: dry run stops here
         if: env.DRY_RUN == 'true'
         run: |
@@ -415,21 +516,27 @@ jobs:
           The PF module set, wars and plugin jars for this version, with `SHA256SUMS` and
           `PROVENANCE.txt` recording the commit and the PingFederate image that produced them.
 
-          **Consuming this.** Pull the assets and check them against `SHA256SUMS`; record the tag you
-          pulled. Do not copy jars from a sibling checkout without recording which build they came from -
-          that is how a consumer ended up running module code from before the split-package unwind, with
-          none of the security work in it, and no way to notice.
+          **Where to download.** These same assets, byte for byte, are published without authentication at
+          `https://github.com/ID-Partners/pf-agentic-identity/releases/tag/__TAG__`, with the release's
+          page at that tag. That public release is what a consumer's vendor script should pull.
+
+          **Consuming this.** Pull the assets and check them with `sha256sum -c SHA256SUMS`; record the
+          commit and tag `PROVENANCE.txt` names. Do not copy jars from a sibling checkout without recording
+          which build they came from - that is how a consumer ended up running module code from before the
+          split-package unwind, with none of the security work in it, and no way to notice.
 
           `modules/` is **__MODULES__ separate jars** (listed in `MANIFEST`), not the legacy single
           `pf-oidf-modules.jar`. Anything still copying a file by that name is running pre-2026-08-15 code.
 
-          Built and link-checked against `__PF_IMAGE__`.
+          Built and link-checked against `__PF_IMAGE__`. `demo-only-ciba-sim.jar` is the conformance rig's
+          CIBA simulator: it refuses every request outside `OIDF_DEPLOYMENT_PROFILE=development` and never
+          goes in a production deploy directory.
 
-          Maven artifacts are also published to GitHub Packages under
-          `com.pingidentity.ps.oidf`. Note that GitHub Packages requires authentication even for public
-          reads, so the assets here are the auth-free path.
+          Maven artifacts are also published to GitHub Packages under `com.pingidentity.ps.oidf`, for
+          internal consumers with access to this private repository: GitHub Packages requires
+          authentication even to read.
           NOTES
-          sed -i "s|__MODULES__|$MODULES|; s|__PF_IMAGE__|${PF_IMAGE}@${PF_IMAGE_DIGEST}|" release-notes.md
+          sed -i "s|__MODULES__|$MODULES|; s|__PF_IMAGE__|${PF_IMAGE}@${PF_IMAGE_DIGEST}|; s|__TAG__|$RELEASE_TAG|" release-notes.md
           gh release create "$RELEASE_TAG" dist/* --draft \
             --title "pf-agentic-identity $VERSION" \
             --notes-file release-notes.md
@@ -462,3 +569,265 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "$RELEASE_TAG" --draft=false
+
+  # The public repository gets the release this run verified: the same dist/ bytes, the public tree
+  # tools/export-public.py builds from the allow-list, and a release whose body summarises the release page.
+  # It runs after the release job in both modes - a dry run uploads the tree and the body as artifacts and
+  # pushes nothing - and on a docs_only dispatch, where the release job is skipped, it publishes only the root
+  # and docs of the dispatch ref (main or a v* tag). PUBLIC_REPO_TOKEN is in the env of the steps that talk to
+  # the public repository and nowhere else; git gets it through the environment (GIT_CONFIG_* and the
+  # extraheader), never a remote URL or .git/config. Nothing here is ever force-pushed, and a hand-made commit
+  # on the public main is a stop, not an overwrite.
+  publish-public:
+    needs: [public-preflight, release]
+    # After a successful release job (real or dry run), or after the release job was skipped for docs_only.
+    # A failed or cancelled release job never reaches here.
+    if: >-
+      ${{ !cancelled() && needs.public-preflight.result == 'success'
+          && (needs.release.result == 'success'
+              || (needs.release.result == 'skipped' && github.event_name == 'workflow_dispatch' && inputs.docs_only)) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read      # the internal release's assets, held against the artifact
+      actions: read       # the release-dist artifact of this run
+    timeout-minutes: 30
+    env:
+      PUBLIC_REPO: ID-Partners/pf-agentic-identity
+      RELEASE_TAG: ${{ github.event.inputs.version || github.ref_name }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+      DOCS_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.docs_only == true }}
+      READY: ${{ needs.public-preflight.outputs.ready }}
+      AUTHOR_EMAIL: ${{ needs.public-preflight.outputs.author_email }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: where the tree, the clone and the body go
+        # Under the runner's temp directory, outside the checkout (the runner context is not available to a
+        # job's env, so the paths are set here).
+        run: |
+          {
+            echo "PUBLIC_TREE=$RUNNER_TEMP/public"
+            echo "PUBLIC_CLONE=$RUNNER_TEMP/public-clone"
+            echo "BODY=$RUNNER_TEMP/public-release-body.md"
+          } >> "$GITHUB_ENV"
+
+      - name: the version this run publishes
+        # A release: the tag's version. docs_only: the latest release already on the public repository, which is
+        # the version the public README names; the docs come from the dispatch ref regardless.
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "$DOCS_ONLY" = true ]; then
+            case "$GITHUB_REF" in
+              refs/heads/main|refs/tags/v*) ;;
+              *) echo "::error::docs_only runs from main or a v* tag only, not $GITHUB_REF"; exit 1 ;;
+            esac
+            if [ "$READY" != true ]; then
+              echo "::warning::no PUBLIC_REPO_TOKEN: the docs_only dry run exports with the version of the dispatch ref"
+              VERSION="$(sed -n 's/.*<version>\([0-9][^<]*\)<\/version>.*/\1/p' bom/pom.xml | head -n 1)"
+            else
+              VERSION="$(gh release view --repo "$PUBLIC_REPO" --json tagName --jq '.tagName | ltrimstr("v")')" \
+                || { echo "::error::$PUBLIC_REPO has no release to name in the docs"; exit 1; }
+            fi
+          else
+            VERSION="${RELEASE_TAG#v}"
+            [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::'$RELEASE_TAG' is not v<major>.<minor>.<patch>"; exit 1; }
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version $VERSION (docs_only=$DOCS_ONLY, dry_run=$DRY_RUN, ready=$READY)"
+
+      - name: the pinned gitleaks
+        run: tools/ci/install-lint-tools.sh "$RUNNER_TEMP/lint-tools" gitleaks
+
+      - name: dist/ from this run, held to its SHA256SUMS
+        if: env.DOCS_ONLY != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh run download "$GITHUB_RUN_ID" --name release-dist --dir dist
+          ( cd dist && sha256sum -c --strict SHA256SUMS )
+          echo "--- dist"; ls -la dist
+
+      - name: the internal release's assets are these bytes
+        # A real run only: the draft the release job published is downloaded and every file compared with the
+        # artifact, so what the public release carries is what the internal one does, byte for byte.
+        if: env.DOCS_ONLY != 'true' && env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "$RELEASE_TAG" --dir internal-release
+          for f in dist/*; do
+            b="$(basename "$f")"
+            [ -f "internal-release/$b" ] || { echo "::error::the internal release $RELEASE_TAG has no asset $b"; exit 1; }
+            cmp -s "$f" "internal-release/$b" || { echo "::error::$b differs between dist/ and the internal release"; exit 1; }
+          done
+          extra="$(comm -13 <(cd dist && find . -maxdepth 1 -type f | sort) <(cd internal-release && find . -maxdepth 1 -type f | sort))"
+          [ -z "$extra" ] || { echo "::error::the internal release carries assets dist/ does not: $extra"; exit 1; }
+          echo "every asset of $RELEASE_TAG is byte for byte the artifact's"
+
+      - name: the public tree
+        # Only tracked files reach the export (git's index), so nothing git-ignored can. gitleaks then reads the
+        # tree it wrote, redacted, so a secret that got past the manifest stops here and is not printed.
+        run: |
+          set -euo pipefail
+          if [ "$DOCS_ONLY" = true ]; then
+            python3 tools/export-public.py --docs-only --version "$VERSION" "$PUBLIC_TREE"
+          else
+            python3 tools/export-public.py --version "$VERSION" "$PUBLIC_TREE"
+          fi
+          "$RUNNER_TEMP/lint-tools/gitleaks" dir "$PUBLIC_TREE" --redact --no-banner
+          echo "--- public tree"; ( cd "$PUBLIC_TREE" && find . -type f | sort )
+
+      - name: the release body
+        if: env.DOCS_ONLY != 'true'
+        run: |
+          set -euo pipefail
+          # A dry run can run on a branch whose release page is not written yet (tools/release-notes.py assemble
+          # writes it in the release pull request); a real release fails without the page.
+          missing=(); [ "$DRY_RUN" = true ] && missing=(--page-may-be-missing)
+          python3 tools/public-release-body.py "$VERSION" --tree "$PUBLIC_TREE" --sums dist/SHA256SUMS -o "$BODY" "${missing[@]}"
+          echo "--- body ($(wc -c < "$BODY") bytes)"; cat "$BODY"
+
+      - name: dry run - the tree and the body, as artifacts
+        if: env.DRY_RUN == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: public-tree
+          path: ${{ runner.temp }}/public
+          if-no-files-found: error
+          retention-days: 7
+      - name: dry run - the body
+        if: env.DRY_RUN == 'true' && env.DOCS_ONLY != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: public-release-body
+          path: ${{ runner.temp }}/public-release-body.md
+          if-no-files-found: error
+          retention-days: 7
+      - name: dry run stops here
+        if: env.DRY_RUN == 'true'
+        run: |
+          echo "dry run: the public tree and body are artifacts of this run; nothing was pushed to $PUBLIC_REPO"
+
+      - name: the public repository's main, as it is
+        # The clone is refused unless its history is empty or every commit on main is one this workflow or the
+        # mirror made. A commit made by hand there is a stop: nothing is overwritten.
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ "$READY" = true ] || { echo "::error::public-preflight did not report the token ready; nothing is published"; exit 1; }
+          b64="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$b64"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $b64"
+          git clone --quiet --branch main --single-branch "https://github.com/$PUBLIC_REPO.git" "$PUBLIC_CLONE" 2>/dev/null \
+            || git clone --quiet "https://github.com/$PUBLIC_REPO.git" "$PUBLIC_CLONE"
+          cd "$PUBLIC_CLONE"
+          if git rev-parse --verify -q HEAD > /dev/null; then
+            git fetch --quiet --tags origin
+            bad="$(git log --format='%h %s' main | grep -vE '^[0-9a-f]+ (Release [0-9]+\.[0-9]+\.[0-9]+( \(mirrored\))?|Docs \S+ [0-9]{4}-[0-9]{2}-[0-9]{2})$' || true)"
+            [ -z "$bad" ] || { echo "::error::$PUBLIC_REPO main carries a commit this workflow did not make; nothing is overwritten:"; echo "$bad"; exit 1; }
+            echo "main is at $(git rev-parse --short HEAD): $(git log -1 --format=%s)"
+          else
+            git checkout --quiet -b main
+            echo "the public repository is empty: this commit is its root"
+          fi
+
+      - name: the commit, the tag and the push
+        # Full export: everything but .git is replaced by the tree. docs_only: image/ and demo/ are kept as they
+        # are and the root and docs are replaced. An identical tree makes no commit (a re-run); a v<version> tag
+        # already at this tree is kept, one at another tree is a stop. Pushes are plain pushes, never forced.
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          b64="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$b64"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $b64"
+          cd "$PUBLIC_CLONE"
+          if [ "$DOCS_ONLY" = true ]; then
+            find . -mindepth 1 -maxdepth 1 ! -name .git ! -name image ! -name demo -exec rm -rf {} +
+            message="Docs $GITHUB_REF_NAME $(date -u +%Y-%m-%d)"
+          else
+            find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+            message="Release $VERSION"
+          fi
+          cp -R "$PUBLIC_TREE"/. .
+          git add -A
+          if git diff --cached --quiet; then
+            echo "the tree is already what main holds: no commit"
+          else
+            git -c user.name="pf-agentic-identity release" -c user.email="$AUTHOR_EMAIL" commit --quiet -m "$message"
+            echo "committed $(git rev-parse --short HEAD): $message"
+          fi
+          if [ "$DOCS_ONLY" != true ]; then
+            if git rev-parse --verify -q "refs/tags/v$VERSION" > /dev/null; then
+              [ "$(git rev-parse "v$VERSION^{tree}")" = "$(git rev-parse 'HEAD^{tree}')" ] \
+                || { echo "::error::v$VERSION already exists on $PUBLIC_REPO at another tree; nothing is moved"; exit 1; }
+              echo "v$VERSION already tags this tree"
+            else
+              git -c user.name="pf-agentic-identity release" -c user.email="$AUTHOR_EMAIL" tag -a "v$VERSION" -m "pf-agentic-identity $VERSION"
+            fi
+            git push --quiet origin main "refs/tags/v$VERSION"
+            echo "pushed main and v$VERSION to $PUBLIC_REPO"
+          else
+            git push --quiet origin main
+            echo "pushed main to $PUBLIC_REPO"
+          fi
+
+      - name: the public release
+        # Created as a draft with every dist file, then published and marked latest. An existing published
+        # release (a re-run) is left as it is and only checked below.
+        if: env.DRY_RUN != 'true' && env.DOCS_ONLY != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          if state="$(gh release view "v$VERSION" --repo "$PUBLIC_REPO" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [ "$state" = false ]; then echo "v$VERSION is already published on $PUBLIC_REPO: checked below"; exit 0; fi
+            echo "v$VERSION is a draft on $PUBLIC_REPO from an earlier attempt: replaced"
+            gh release delete "v$VERSION" --repo "$PUBLIC_REPO" --yes
+          fi
+          gh release create "v$VERSION" dist/* --repo "$PUBLIC_REPO" --verify-tag --draft \
+            --title "pf-agentic-identity $VERSION" --notes-file "$BODY"
+          gh release edit "v$VERSION" --repo "$PUBLIC_REPO" --draft=false --latest
+          echo "published https://github.com/$PUBLIC_REPO/releases/tag/v$VERSION"
+
+      - name: every public asset, downloaded with no credentials, is what SHA256SUMS says
+        # No token in this step: the check is the consumer's. The CDN can lag the publish by a little, so the
+        # loop retries for up to five minutes.
+        id: anonymous
+        if: env.DRY_RUN != 'true' && env.DOCS_ONLY != 'true'
+        run: |
+          set -euo pipefail
+          base="https://github.com/$PUBLIC_REPO/releases/download/v$VERSION"
+          mkdir -p anon && cd anon
+          deadline=$((SECONDS + 300))
+          until curl -fsSL -o SHA256SUMS "$base/SHA256SUMS" && cmp -s SHA256SUMS ../dist/SHA256SUMS; do
+            [ $SECONDS -lt $deadline ] || { echo "::error::$base/SHA256SUMS is not the release's after five minutes"; exit 1; }
+            sleep 15
+          done
+          mapfile -t listed < <(awk '{ print $2 }' SHA256SUMS)
+          for name in "${listed[@]}"; do
+            [ "$name" = SHA256SUMS ] && continue
+            until curl -fsSL -o "$name" "$base/$name"; do
+              [ $SECONDS -lt $deadline ] || { echo "::error::$base/$name could not be downloaded after five minutes"; exit 1; }
+              sleep 15
+            done
+          done
+          sha256sum -c --strict SHA256SUMS
+          echo "every asset of v$VERSION on $PUBLIC_REPO verifies anonymously"
+
+      - name: a failed check puts the public release back to draft
+        if: failure() && steps.anonymous.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          gh release edit "v$VERSION" --repo "$PUBLIC_REPO" --draft=true
+          echo "::error::v$VERSION on $PUBLIC_REPO is a draft again: its assets did not verify anonymously; re-run this job once they do"

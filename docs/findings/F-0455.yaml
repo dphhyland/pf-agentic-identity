@@ -1,0 +1,23 @@
+id: F-0455
+title: The mirrored releases' PROVENANCE.txt names a workflow run URL in a repository that is no longer public, and their checksums cannot change
+severity: low
+area: release
+source: design
+status: accepted
+plan_items: [R-CI9]
+prs: []
+verification: >
+  Checked 2026-10-03: v0.3.0 to v0.6.0's PROVENANCE.txt each carry a run: URL under
+  https://github.com/dphhyland/pf-agentic-identity/actions/runs/; release.yml on this branch writes the run id
+  instead, and tools/public-release-body.py --mirrored says so in each mirrored body (test_public_release_body.py).
+target_release: 0.7.0
+expiry: 2027-10-03
+notes: >
+  v0.3.0 to v0.6.0 were published on dphhyland/pf-agentic-identity while it was public. Their PROVENANCE.txt
+  carries "run: https://github.com/dphhyland/pf-agentic-identity/actions/runs/<id>", which answers 404 to
+  anyone without access once the repository is private. tools/mirror-releases.sh mirrors every asset byte for byte
+  and SHA256SUMS unchanged, so PROVENANCE.txt cannot be edited without breaking the checksum a consumer pinned;
+  tools/public-release-body.py says so in each mirrored release's body and tells the consumer to record the
+  commit: and tag: lines. From 0.7.0 release.yml writes "run: <id> (Release workflow of the private source
+  repository)" instead of a URL. Accepted: the alternative is a second set of checksums for the same bytes.
+  Review a year on, when the mirrored releases are two minor versions behind the supported upgrade range.
