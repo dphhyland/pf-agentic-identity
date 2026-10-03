@@ -1,92 +1,65 @@
 # Agentic Identity showcase
 
-A single-page HTML site, branded for ID Partners, that presents this repository as a product: the
-servlets, SDK plugins, libraries and services, the gates a token request passes, packaging, a
-PingFederate set-up guide, standards and assurance, and every tracked document rendered as a page.
+The ID Partners showcase explains this repository’s PingFederate extensions for management and technical readers. It covers capabilities, installation requirements and test evidence. Source links identify the supporting files and lines.
 
-`index.html` carries its CSS, JavaScript, data and logos inline. Beside it sit the PingFederate console
-screens in `screens/` and `docs.js`, the rendered documents, which is generated and not tracked (see
-"Keeping it current"). No network access is needed to view it; without `docs.js` every view but
-Documentation works, and that one says how to build it.
+## Pages
 
-For a local preview with working links into the repository, run this from the repository root:
+- `index.html` presents the components, access checks and local simulations. It also includes configuration guidance and the documentation viewer.
+- `federation.html` explains federation registration, policy controls and lifecycle limits.
+- `conformance.html` reports six OpenID Foundation test plans and their limitations. Locally hosted results do not constitute certification.
+- `screens/` contains eight PingFederate console screenshots.
+
+The main page includes its styles, scripts and data. The documentation viewer loads generated content from `docs.js`, which is not tracked in Git. Without that file, the other views work and the viewer displays build instructions. The site requires no network access to read locally.
+
+Components are labelled implemented, opt-in, proposed or unverified. The simulations make no server calls. They model the documented checks, including their limits.
+
+## Local preview
+
+1. From the repository root, install the pinned document renderer and build the documentation:
+
+   ```sh
+   npm ci --prefix tools
+   node tools/build-showcase-docs.mjs
+   ```
+
+2. Start a local server:
+
+   ```sh
+   python3 -m http.server 8765 --bind 127.0.0.1
+   ```
+
+3. Open [the showcase](http://127.0.0.1:8765/showcase/). Direct links include `#flow`, `#setup`, `#rar`, `#rar#rar-config` and `#doc:docs/unverified.md`.
+
+## Screenshots
+
+Screenshots show the local agentic-demo instance on PingFederate 13.0.3 with the RAR plugin and `oidf.war` installed. Secrets are redacted.
+
+Captions identify differences from repository defaults. The demo uses an OGNL issuance criterion without the token-endpoint filter. Its RAR processor permits requests on engine errors and skips TLS verification.
+
+## Maintenance
+
+Rebuild `docs.js` after changing a document. The renderer includes tracked Markdown and the coverage dashboard when a generated copy exists at `docs/coverage-dashboard.md`.
+
+Check source and documentation links after editing showcase copy:
 
 ```sh
-python3 -m http.server 8765 --bind 127.0.0.1
+node tools/build-showcase-docs.mjs
+python3 tools/check-showcase-links.py
 ```
 
-Then open http://127.0.0.1:8765/showcase/. Hash navigation supports direct links to each view, for
-example `#flow`, `#setup`, `#rar`, `#rar#rar-config` or `#doc:docs/unverified.md`.
+The link checker validates tracked source files, line references and documentation targets across all three pages. A missing generated dashboard produces a note. The checks do not verify whether copy accurately describes the implementation; review the cited source when behaviour changes.
 
-## What is on it
+CI generates the coverage dashboard and documentation, checks links and uploads `showcase/` as a build artefact after the required build steps pass.
 
-- **Components.** Each module page lists what it does, its failure behaviour, endpoints, packaging
-  and recorded limits. A Configuration section lists every setting the module reads (environment
-  variables, system properties, servlet init-params, client extended properties and admin-console
-  fields), with its default and effect.
-- **PingFederate set-up.** Procedures for the admin console and the runtime host, with console
-  paths, steps and field values. Eight screens illustrate the RAR processor, authorisation detail
-  types, extended properties, token managers, access token mappings, the attestation issuance
-  criterion and OAuth clients.
-- **Documentation.** All tracked Markdown in the repository, rendered as HTML with an outline and
-  working cross-links.
-- **Playground.** A local simulation of two real gate sequences. It calls nothing, and it does not
-  model amounts because no code in this repository compares them.
+## Hosting
 
-Every statement carries a small boxed link to the file behind it, labelled with the line numbers.
-Components are marked implemented, opt-in, proposed or unverified.
-
-## About the console screens
-
-The screens were captured from the local agentic-demo PingFederate 13.0.3 instance, which has the
-RAR plugin and `oidf.war` installed. Secret values are redacted. That instance differs from this
-repository's defaults in ways the captions call out: it gates tokens with the OGNL issuance
-criterion alone (no token-endpoint filter), and its RAR processor runs with `Fail open on engine
-error` on and TLS verification skipped.
-
-## Keeping it current
-
-The page was generated from the code, READMEs and Terraform, then audited claim by claim. Two parts of that
-are mechanical, and CI runs both on every Build whose reactor build completes:
-
-- **The documents.** `node tools/build-showcase-docs.mjs` renders every tracked Markdown file - and the
-  coverage dashboard, when `python3 tools/coverage-report.py` has left one at `docs/coverage-dashboard.md` -
-  into `showcase/docs.js`, which `index.html` loads before its own script (run `npm ci --prefix tools` once
-  first; the renderer is pinned). Until 2026-09-27 the documents were a line of `index.html`, which every
-  documentation change regenerated and which conflicted whenever two such changes met; `docs.js` is git-ignored
-  instead, the same decision as the dashboard (plan decision 18). CI builds it once the reactor build and the
-  dashboard have passed, and uploads `showcase/` as the run's `showcase` artefact. Locally, rebuild it after
-  changing a document; there is no `--check`, because nothing is committed to compare with.
-- **The source links.** `python3 tools/check-showcase-links.py` fails when a boxed link names a file that isn't
-  tracked or a line past its end, on this page, on `federation.html` or on `conformance.html`, and when a
-  `#doc:` link or the documentation index names a document `docs.js` does not carry - so build `docs.js` first.
-  A citation of the generated dashboard is checked against the copy the last build left, and noted rather than
-  failed when there is none.
-
-Neither can tell whether a statement still says what the code does. When the code behind one moves, re-read
-the statement, not just the line numbers.
-
-## The other two pages
-
-`federation.html` is the OpenID Federation story in plain language, with the file behind each part.
-`conformance.html` is what the OpenID Foundation's suite says about a PingFederate built from `conformance/`:
-the six plans and their results, the two FAPI 2.0 rules a filter in this repository enforces because the
-product cannot be configured to, the CIBA gap no configuration closes, and what has not been tested at all.
-Its results table is `conformance/README.md`'s, and it repeats that README's own point that a run against a
-suite you host is not a certification. The index links to both from the sidebar.
-
-## Hosting it
-
-Served from the repository root the pages reach the code with relative links. Hosted on their own there is no
-repository beside them, so `tools/build-microsite.py` rewrites every such link to the file on GitHub at one
-commit, keeping the lines, and copies in the images:
+Local pages use relative links into the repository. For standalone hosting, `tools/build-microsite.py` copies the pages and images and converts source links to GitHub links at a fixed commit.
 
 ```sh
-python3 tools/build-microsite.py --ref main     # -> build/microsite/ (git-ignored)
+python3 tools/build-microsite.py --ref main
 railway up build/microsite --path-as-root --service site
 ```
 
-`showcase/deploy/` holds the nginx image that serves the result. The site runs at
-https://agentic-identity.idpartners.global (Railway project `agentic-identity-site`), which needs a CNAME from
-that host to the service's `*.up.railway.app` target. Rebuild and redeploy after changing any page: the pages
-are the source, `build/microsite/` is only an artefact.
+`showcase/deploy/` contains the nginx configuration. The site address is [agentic-identity.idpartners.global](https://agentic-identity.idpartners.global), in Railway project `agentic-identity-site`. Its DNS CNAME points to the service’s `*.up.railway.app` target.
+
+Rebuild and redeploy after editing a page. `showcase/` is the source; `build/microsite/` is generated output.

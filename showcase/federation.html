@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#272727">
 <title>OpenID Federation · Agentic Identity for PingFederate</title>
-<meta name="description" content="What OpenID Federation 1.0 lets PingFederate do for AI agents and relying parties, in plain language, with the file behind every statement.">
+<meta name="description" content="OpenID Federation for PingFederate: agent registration, trust policies, operating controls and test evidence.">
 <style>
 :root{
   --ink:#2b2b2b;--ink-soft:#4f4f4f;--muted:#6c6c6c;--faint:#8a9a90;
@@ -122,77 +122,64 @@ footer{max-width:1080px;margin:0 auto;padding:0 24px 40px;color:var(--faint);fon
 
 <div class="hero">
   <div class="eyebrow">OpenID Federation 1.0 on PingFederate</div>
-  <h1>Trust <span>without a phone call</span></h1>
-  <p>Organisations that want to trust each other's servers usually swap details by hand. That works for ten
-  partners, not for ten thousand AI agents that exist for an afternoon. OpenID Federation replaces the phone
-  call with signed statements, and this repo makes PingFederate a full member of a federation: it checks who
-  an agent is, registers it on its first request, gives it only what its federation allows, and lets it go
-  when its federation stops vouching for it.</p>
+  <h1>Federation for <span>agent identity</span></h1>
+  <p>OpenID Federation lets organisations establish trust through signed statements. These extensions add federation to PingFederate, so it can validate and register agents under agreed policies. Registration expires when its trust chain expires. Renewal requires a valid chain.</p>
   <div class="metrics">
-    <div class="metric"><strong>25 of 25</strong><span>modules of the OpenID Foundation suite's two OP federation plans passed, none failed (2026-09-25)</span></div>
-    <div class="metric"><strong>349</strong><span>requirements of the specification pinned by a tagged test, 655 tests in all</span></div>
-    <div class="metric"><strong>95%</strong><span>of deliberate small bugs in the federation decisions caught by the tests (mutation testing)</span></div>
+    <div class="metric"><strong>25 of 25</strong><span>federation test modules completed with warnings and no failures (2026-09-25)</span></div>
+    <div class="metric"><strong>349</strong><span>specification requirements linked to tagged tests; 655 tests in total</span></div>
+    <div class="metric"><strong>95%</strong><span>of federation code mutations detected by tests</span></div>
   </div>
   <a class="src" href="../docs/federation/conformance.md">docs/federation/conformance.md</a>
 </div>
 
 <section id="who">
-  <h2>Who is who</h2>
-  <p class="lede">A federation is a tree. At the top is a <b>trust anchor</b>, whose keys everyone configures by hand. Below
-  it, organisations vouch for the organisations and servers below them. PingFederate can play every part.</p>
+  <h2>Federation roles</h2>
+  <p class="lede">A <b>trust anchor</b> is the entity whose configured public keys establish trust in a federation. Other entities form trust chains to that anchor through signed statements. PingFederate supports the following roles.</p>
   <div class="grid">
-    <div class="card"><h3>An OpenID Provider that registers clients</h3><p>Relying parties and agents from other organisations register without an administrator: on their first request, or by posting their statement to <code>/federation/register</code>.</p></div>
-    <div class="card"><h3>A trust anchor, or an intermediate</h3><p>PingFederate vouches for the entities below it, answers the federation's fetch and list endpoints, and can limit what those entities may be.</p></div>
-    <div class="card"><h3>A home for agents</h3><p>An agent that lives for an afternoon shouldn't need its own web server. PingFederate publishes and signs its statement for it, and an operator can suspend, revoke or re-key it.</p></div>
-    <div class="card"><h3>A Trust Mark issuer</h3><p>A Trust Mark is a signed badge - "certified", "passed our checks". PingFederate issues them, says whether one is still active, and can require them.</p></div>
-    <div class="card"><h3>A resolver</h3><p>Anyone can ask PingFederate to build and check an entity's chain to a named anchor and hand back the result, signed.</p></div>
-    <div class="card"><h3>A careful consumer</h3><p>The same checks decide whether PingFederate trusts a client attestation's issuer and a wallet provider.</p></div>
+    <div class="card"><h3>OpenID Provider</h3><p>Agents and relying parties can register on their first request or submit a signed statement to <code>/federation/register</code>. A relying party is an application that uses an OpenID Provider to authenticate users.</p></div>
+    <div class="card"><h3>Trust anchor or intermediate</h3><p>PingFederate signs statements about subordinate entities. It serves fetch and list endpoints and can constrain subordinate metadata.</p></div>
+    <div class="card"><h3>Hosted agents</h3><p>PingFederate signs and publishes Entity Configurations for hosted agents. Operators can suspend or revoke an agent and rotate its signing key.</p></div>
+    <div class="card"><h3>Trust Mark issuer</h3><p>A Trust Mark is a signed statement that an entity meets an issuer’s requirements. PingFederate can issue Trust Marks, report their status and require them for registration.</p></div>
+    <div class="card"><h3>Trust chain resolver</h3><p>PingFederate builds and validates an entity’s trust chain to a specified anchor. It returns a signed result.</p></div>
+    <div class="card"><h3>Attestation issuer validation</h3><p>PingFederate uses federation validation to establish trust in Client Attestation issuers and wallet providers.</p></div>
   </div>
   <a class="src" href="../docs/federation/overview.md">docs/federation/overview.md</a>
 </section>
 
 <section id="chain">
-  <h2>A chain, step by step</h2>
-  <p class="lede">An entity proves who it is with a <b>trust chain</b>: its own signed statement, a statement about it from
-  each organisation above it, and the anchor's statement at the top. PingFederate follows the chain up and checks
-  every link.</p>
+  <h2>Trust chain validation</h2>
+  <p class="lede">A <b>trust chain</b> links an entity’s signed Entity Configuration to a trust anchor through Subordinate Statements. PingFederate validates every statement in the chain.</p>
   <div class="chain" aria-label="A trust chain from an agent to its trust anchor">
-    <div class="link"><b>The agent</b><span>says who it is and which keys it uses</span></div>
+    <div class="link"><b>The agent</b><span>publishes its identity and keys</span></div>
     <div class="arrow" aria-hidden="true">→</div>
-    <div class="link"><b>Its organisation</b><span>vouches for those keys</span></div>
+    <div class="link"><b>Its organisation</b><span>signs its Subordinate Statement</span></div>
     <div class="arrow" aria-hidden="true">→</div>
-    <div class="link"><b>The federation</b><span>vouches for the organisation</span></div>
+    <div class="link"><b>The federation</b><span>signs the organisation’s statement</span></div>
     <div class="arrow" aria-hidden="true">→</div>
-    <div class="link anchor"><b>Trust anchor</b><span>its keys pinned by hand</span></div>
+    <div class="link anchor"><b>Trust anchor</b><span>public keys configured by operators</span></div>
   </div>
   <ol class="checks">
-    <li><b>Every statement is what it says it is</b> - signed, with an algorithm that isn't a shared secret, naming exactly one key.</li>
-    <li><b>Every statement is current</b> - issued in the past, not yet expired.</li>
-    <li><b>The entity signed its own statement</b> with a key it publishes.</li>
-    <li><b>Each link is signed with the key the one above vouched for</b>, all the way up.</li>
-    <li><b>The top is signed with a key you pinned</b> - never one fetched from the anchor's own website.</li>
-    <li><b>The rules the organisations above set still hold</b> - how deep the tree goes, which domain names are allowed.</li>
-    <li><b>Their policies agree</b>, and what the entity may do is what's left when they're applied.</li>
-    <li><b>Nothing marked critical is unknown.</b></li>
+    <li>Each statement has an asymmetric signature and identifies one signing key.</li>
+    <li>Each statement has a valid issue time and has not expired.</li>
+    <li>Each Entity Configuration is signed with a key it publishes.</li>
+    <li>Each Subordinate Statement is signed with a key established by its superior.</li>
+    <li>The trust anchor signature validates against configured keys.</li>
+    <li>Chain depth and domain names satisfy federation constraints.</li>
+    <li>Metadata policies are compatible and applied to the registered metadata.</li>
+    <li>Every critical claim and policy operator is understood.</li>
   </ol>
-  <p>A chain lasts as long as its shortest-lived statement, and nothing built on it lasts longer. Working one out
-  is bounded - at most 24 requests and 45 seconds by default, over https, never to a private address - so a stranger can't make PingFederate
-  crawl the internet for them.</p>
+  <p>A trust chain expires when its earliest statement expires. Chain discovery permits at most 24 fetches. By default, outbound requests require HTTPS and public IP addresses.</p>
   <a class="src" href="../docs/federation/how-it-works.md">docs/federation/how-it-works.md</a>
   <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/TrustChainValidator.java" data-lines="279-316">TrustChainValidator.java:279-316</a>
   <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/EntityStatementChecks.java" data-lines="15-57">EntityStatementChecks.java:15-57</a>
 </section>
 
 <section id="keys">
-  <h2>Keys you pin, not keys you fetch</h2>
+  <h2>Trust anchor key configuration</h2>
   <div class="two">
     <div>
-      <p>Everything rests on the trust anchor's public keys, and those are the one thing configured by hand -
-      captured once, out of band, and set in <code>OIDF_FEDERATION_TRUST_ANCHOR_JWKS</code>. PingFederate can trust
-      several anchors at once. It never takes an anchor's keys from the anchor's website: whoever controls that
-      website could otherwise put any keys there.</p>
-      <p>PingFederate can also be an anchor itself. Then chains that end at it are checked with the key it signs
-      with, read from its own key store, so the key can rotate and nobody has to pin it again.</p>
+      <p>Operators obtain trust anchor public keys out of band and configure them in <code>OIDF_FEDERATION_TRUST_ANCHOR_JWKS</code>. Several anchors can be trusted. Validation uses these configured keys.</p>
+      <p>PingFederate can act as its own trust anchor. In that configuration, validation reads the signing key from its key store on each check, so local key rotation needs no separate pin update.</p>
     </div>
     <pre><code>OIDF_FEDERATION_TRUST_ANCHOR_JWKS={
   "https://federation.example.org": {"keys": [ ... ]},
@@ -205,18 +192,12 @@ OIDF_FEDERATION_SELF_ANCHOR=https://pf.example.com</code></pre>
 </section>
 
 <section id="policy">
-  <h2>What an agent may ask for</h2>
-  <p class="lede">An agent describes itself: the scopes it wants, how it signs in. The organisations above it can
-  narrow that with a <b>metadata policy</b>, and can set <b>constraints</b> on everything below them. What
-  PingFederate registers is what's left.</p>
+  <h2>Metadata policy and constraints</h2>
+  <p class="lede">An agent declares its requested scopes and authentication method. A <b>metadata policy</b> sets rules for those declarations. Federation constraints limit subordinate entities, including chain depth and permitted domains. PingFederate registers the resulting metadata.</p>
   <div class="two">
     <div>
-      <p>For example, a domain that lets its agents have at most <code>read</code> and <code>write</code>, and always
-      <code>audit</code>. An agent that asks for <code>read write admin audit</code> is registered with
-      <code>read write audit</code>. One that leaves out <code>audit</code> isn't registered at all.</p>
-      <p>If two organisations' policies contradict each other, the chain fails: nothing is guessed. And by
-      default PingFederate refuses a chain whose organisations set no policy at all, rather than let an agent
-      grant itself whatever it asks for.</p>
+      <p>For example, a policy can limit scopes to <code>read write audit</code> and require <code>audit</code>. A request for <code>read write admin audit</code> registers as <code>read write audit</code>. A request without <code>audit</code> is rejected.</p>
+      <p>Conflicting policies invalidate the chain. By default, PingFederate also rejects registration when no superior sets a metadata policy for the entity type.</p>
     </div>
     <pre><code>"metadata_policy": {
   "oauth_client": {
@@ -232,47 +213,39 @@ OIDF_FEDERATION_SELF_ANCHOR=https://pf.example.com</code></pre>
 </section>
 
 <section id="marks">
-  <h2>Badges</h2>
-  <p>A Trust Mark is a signed badge: an issuer says an entity passed something. It's only worth what the issuer is
-  worth, so PingFederate counts one only when the federation's trust anchor names that issuer for that kind of
-  mark, the issuer's own chain reaches the same anchor, and the signature checks out - and, if you ask it to, when
-  the issuer still says the mark is active. A mark that fails is simply ignored. A deployment can require marks
-  before it registers anyone; PingFederate can issue them too, to the entities an operator grants them to.</p>
+  <h2>Trust Marks</h2>
+  <p>PingFederate accepts a Trust Mark when the trust anchor authorises its issuer, the issuer’s chain reaches that anchor and the signature is valid. Optional status checks confirm that the mark remains active. Invalid marks are ignored. Registration can require specified marks, and operators can grant marks for PingFederate to issue.</p>
   <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/TrustMarkValidator.java" data-lines="125-170">TrustMarkValidator.java:125-170</a>
   <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/trustmark/TrustMarkIssuer.java" data-lines="72-163">TrustMarkIssuer.java:72-163</a>
 </section>
 
 <section id="arriving">
-  <h2>Arriving with a chain</h2>
+  <h2>Automatic registration</h2>
   <div class="grid">
-    <div class="card"><h3>Agents, at the token endpoint</h3><p>An agent asks for a token with a signed client assertion that can carry its chain. PingFederate checks the chain, registers the agent, and lets the same request through to authenticate it as normal.</p>
+    <div class="card"><h3>Agent token requests</h3><p>An agent submits a signed client assertion with its token request. PingFederate validates the supplied or discovered trust chain and registers the agent. The request then proceeds to client authentication.</p>
       <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/TokenEndpointAutoRegistrationFilter.java" data-lines="164-211">TokenEndpointAutoRegistrationFilter.java:164-211</a></div>
-    <div class="card"><h3>Relying parties, at sign-in</h3><p>A relying party sends a signed request to the authorization or PAR endpoint. The signature proves it holds its keys; PingFederate checks the request's claims before it fetches anything, then the chain, then registers it.</p>
+    <div class="card"><h3>Relying-party authorisation requests</h3><p>A relying party submits a signed request to the authorisation or Pushed Authorization Request (PAR) endpoint. PAR lets a client submit its authorisation request directly to the server. PingFederate checks the claims before fetching the trust chain, then validates the chain and request signature before registration.</p>
       <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/FrontChannelAutoRegistrationFilter.java" data-lines="143-191">FrontChannelAutoRegistrationFilter.java:143-191</a></div>
-    <div class="card"><h3>And every time after</h3><p>A relying party proves itself on every request, not just the first: each one signed with a key it registered, with an identifier it hasn't used before. A request PingFederate can't trust gets an error page - never a redirect to an address it can't vouch for.</p>
+    <div class="card"><h3>Validation after registration</h3><p>Each later relying-party request must use a registered signing key and a fresh request identifier. Rejected requests receive an error page without a redirect.</p>
       <a class="src" href="../docs/federation/how-it-works.md">docs/federation/how-it-works.md</a></div>
   </div>
 </section>
 
 <section id="registering">
-  <h2>Registering first</h2>
-  <p>A relying party can also register before it asks for anything, by posting its signed statement - or its
-  whole chain - to <code>/federation/register</code>. PingFederate checks it the same way and answers with a
-  signed registration: what it may do, its own keys, and when the registration ends.</p>
+  <h2>Explicit registration</h2>
+  <p>A relying party can register in advance by posting its Entity Statement or trust chain to <code>/federation/register</code>. PingFederate validates it and returns a signed response containing the registered metadata, keys and expiry.</p>
   <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/RegistrationService.java" data-lines="223-306">RegistrationService.java:252-335</a>
 </section>
 
 <section id="ending">
-  <h2>How long it lasts, and how it ends</h2>
-  <p class="lede">Every registration ends: when its chain expires, or after a day, whichever comes first. An agent's
-  registration renews itself on its next request, if its federation still vouches for it. A background sweep
-  disables the ones that have lapsed, and never deletes anything.</p>
+  <h2>Registration expiry and revocation</h2>
+  <p class="lede">By default, registration expires after one day or when the trust chain expires, whichever comes first. An agent’s next request can renew its registration if validation succeeds. A background process disables expired clients without deleting them.</p>
   <div class="table-wrap"><table>
-    <thead><tr><th>You do this</th><th>This stops</th><th>This carries on</th></tr></thead>
+    <thead><tr><th>Operator action</th><th>Immediate effect</th><th>Remaining access</th></tr></thead>
     <tbody>
-      <tr><td>Suspend or revoke an agent PingFederate hosts</td><td>Its statement, at once: every new chain through it fails</td><td>Registrations other providers already made, until they expire; tokens already issued, until theirs do</td></tr>
-      <tr><td>The federation stops vouching for an entity</td><td>New chains to it</td><td>Its registration, until it's due for renewal - then the renewal fails</td></tr>
-      <tr><td>Disable the client in PingFederate</td><td>Its tokens, at once</td><td>Nothing - a renewal never undoes an operator's disable</td></tr>
+      <tr><td>Suspend or revoke an agent PingFederate hosts</td><td>New retrieval of its Entity Configuration</td><td>Cached statements, existing registrations and issued tokens remain subject to their expiry</td></tr>
+      <tr><td>The entity no longer has a valid trust chain</td><td>New trust chain validation</td><td>Existing registration until renewal is due; renewal then fails</td></tr>
+      <tr><td>Disable the client in PingFederate</td><td>New token issuance</td><td>Renewal does not re-enable a client disabled by an operator</td></tr>
     </tbody>
   </table></div>
   <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/RegistrationExpirySweeper.java" data-lines="54-75">RegistrationExpirySweeper.java:54-75</a>
@@ -280,15 +253,11 @@ OIDF_FEDERATION_SELF_ANCHOR=https://pf.example.com</code></pre>
 </section>
 
 <section id="pdp">
-  <h2>Asking a policy engine</h2>
+  <h2>Policy decisions</h2>
   <div class="two">
     <div>
-      <p>A federation says what an entity may be. It can't say what your organisation wants to let in today. So
-      PingFederate can ask a policy engine - PingAuthorize, or anything that speaks AuthZEN 1.0 - before it
-      registers a client, enrols an agent or issues a token.</p>
-      <p>The engine answers yes or no, and a yes can narrow what's granted: fewer scopes, a shorter registration,
-      a badge the client must hold. It can never widen anything. No answer - the engine down, slow, or saying
-      something that isn't a decision - means no, unless you choose otherwise.</p>
+      <p>PingFederate can consult PingAuthorize or another AuthZEN 1.0 policy decision point before registration, agent enrolment or token issuance. A policy decision point evaluates an access request against configured policy.</p>
+      <p>A permit can restrict scopes or registration lifetime and require Trust Marks. It cannot expand the federation’s permissions. By default, an unavailable or invalid policy response returns an error and stops the operation.</p>
     </div>
     <pre><code>{
   "subject":  {"type": "federation_entity",
@@ -304,45 +273,36 @@ OIDF_FEDERATION_SELF_ANCHOR=https://pf.example.com</code></pre>
 </section>
 
 <section id="asking">
-  <h2>Knowing who's asking</h2>
-  <p>By default anyone may call a federation's endpoints. A federation can decide that some of them are for
-  members only. PingFederate can then require the caller to sign its request with its own federation key - and
-  since it finds that key by checking the caller's chain, only a member of the federation gets in.</p>
+  <h2>Endpoint client authentication</h2>
+  <p>Federation endpoints allow unauthenticated access by default. Selected endpoints can require <code>private_key_jwt</code> client authentication. PingFederate validates the caller’s trust chain before accepting its signing key.</p>
   <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/EndpointClientAuthentication.java" data-lines="68-127">EndpointClientAuthentication.java:68-127</a>
 </section>
 
 <section id="logs">
-  <h2>What the logs say</h2>
-  <p>Registrations and refusals, renewals and expiries, the policy engine's answers and every change an operator
-  makes are written as one line each - who, what and why - and the ones that matter for security go to
-  PingFederate's audit log as well. No token reaches those lines: anything that looks like one is replaced with a
-  fingerprint of it.</p>
+  <h2>Audit records</h2>
+  <p>Logs record registration decisions, renewals and expiry. They also record policy decisions and operator changes. Security events go to PingFederate’s audit log. Token-like values are replaced with fingerprints.</p>
   <pre><code>event=federation.registration.refused outcome=failure reason=policy_denied subject=https://agents.example.com/a1 ...</code></pre>
   <a class="src" href="../docs/federation/operations.md">docs/federation/operations.md</a>
 </section>
 
 <section id="proof">
-  <h2>Proof</h2>
+  <h2>Test evidence</h2>
   <div class="grid">
-    <div class="card"><h3>The OpenID Foundation's own tests</h3><p>Against a PingFederate built from this repo: the deployed-entity plan 5 of 5 and the OP plan 20 of 20, with a warning on each about PingFederate's own vendor metadata and no failures. The OP plan registers a relying party thirteen wrong ways; each is refused.</p></div>
-    <div class="card"><h3>Our own tests</h3><p>Each test that pins a requirement names it, and a dashboard shows any requirement nothing pins. Every method that makes a decision is held at 100% line and branch coverage by the build.</p></div>
-    <div class="card"><h3>Tests that are tested</h3><p>Mutation testing plants small bugs in the decision code - a condition turned round, a boundary moved - and checks a test fails. The tests catch 95% of them in the federation library, 93% in PingFederate's side.</p></div>
+    <div class="card"><h3>OpenID Foundation test suite</h3><p>The deployed-entity plan completed 5 modules and the OpenID Provider plan completed 20. All returned warnings about vendor metadata, with no failures. The OpenID Provider plan also rejected 13 invalid registration requests.</p></div>
+    <div class="card"><h3>Repository tests</h3><p>Tagged tests identify the requirements they cover. A dashboard lists requirements without tagged tests. Selected decision methods must reach 100% line and branch coverage for the build to pass.</p></div>
+    <div class="card"><h3>Mutation testing</h3><p>Mutation testing introduces code changes and checks whether tests detect them. Tests detected 95% of mutations in the federation library and 93% in the PingFederate integration.</p></div>
   </div>
   <a class="src" href="../docs/federation/conformance.md">docs/federation/conformance.md</a>
   <span class="src" title="Generated, not tracked: python3 tools/coverage-report.py after mvn verify writes it, and CI publishes it as the coverage-dashboard artefact of every Build run whose reactor build completes">docs/coverage-dashboard.md (generated: tools/coverage-report.py after mvn verify, or CI's coverage-dashboard artefact)</span>
 </section>
 
 <section id="limits">
-  <h2>What it doesn't do</h2>
-  <p class="note"><b>Worth knowing before you promise a partner something.</b> PingFederate checks other entities'
-  chains with the keys they publish now, not their retired ones. Client authentication at the federation endpoints
-  is <code>private_key_jwt</code> only. The policy engine is asked at registration, enrolment and token issuance,
-  with one set of settings for the whole deployment. Where the specification leaves room, it errs towards
-  refusing. And a run against a suite you host is evidence, not a certification.</p>
+  <h2>Limits</h2>
+  <p class="note">Validation uses other entities’ current published keys. Federation endpoints support <code>private_key_jwt</code> client authentication only. Policy settings apply across the deployment. Locally hosted conformance results do not constitute OpenID Foundation certification.</p>
   <a class="src" href="../docs/federation/limits.md">docs/federation/limits.md</a>
 </section>
 
 </main>
-<footer>idpartners.com.au · Apache-2.0 · every boxed link opens the file behind the statement above it, labelled with its lines.</footer>
+<footer>idpartners.com.au · Apache-2.0 · Source links identify the supporting file and lines.</footer>
 </body>
 </html>
