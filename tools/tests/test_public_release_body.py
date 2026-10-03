@@ -195,5 +195,22 @@ class Main(unittest.TestCase):
         self.assertIn("## Verify and consume", out)
 
 
+class MissingPage(unittest.TestCase):
+    def test_missing_page_fails_unless_allowed(self):
+        import tempfile, os, io, contextlib
+        ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+        with tempfile.TemporaryDirectory() as tree:
+            os.makedirs(os.path.join(tree, "docs", "releases"))
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertEqual(body.main(["9.9.0", "--tree", tree, "--root", ROOT]), 1)
+            self.assertIn("the release page", err.getvalue())
+            out = io.StringIO(); err = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                self.assertEqual(body.main(["9.9.0", "--tree", tree, "--root", ROOT, "--page-may-be-missing"]), 0)
+            self.assertIn("is not written yet", out.getvalue())
+            self.assertIn("stand-in opening", err.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

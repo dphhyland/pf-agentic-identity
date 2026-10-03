@@ -289,6 +289,9 @@ def main(argv=None):
     ap.add_argument("--omit", action="append", default=[], metavar="ASSET[=REASON]",
                     help="an asset of the original release the mirror leaves out (with --mirrored)")
     ap.add_argument("-o", "--output", metavar="FILE", help="write the body here instead of stdout")
+    ap.add_argument("--page-may-be-missing", action="store_true",
+                    help="a dry run on a branch whose release page is not written yet: stand in a one-line opening "
+                         "instead of failing (a real release always has the page)")
     ap.add_argument("--root", default=os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")),
                     help="the repository root (default: the parent of tools/)")
     args = ap.parse_args(argv)
@@ -309,7 +312,11 @@ def main(argv=None):
             with open(page_path, encoding="utf-8") as f:
                 page = f.read()
         except OSError as e:
-            raise BodyError(f"the release page {page_path}: {e.strerror}")
+            if not args.page_may_be_missing:
+                raise BodyError(f"the release page {page_path}: {e.strerror}")
+            page = (f"The release page for {version} is not written yet: this body comes from a dry run on a "
+                    f"branch that has no `docs/releases/{version}.md`.\n")
+            print(f"note: {page_path} is missing; a stand-in opening is used (--page-may-be-missing)", file=sys.stderr)
         sums = read_sums(args.sums) if args.sums else None
         omits = parse_omits(args.omit, sums)
         pf = pf_env(args.root, args.source_ref)

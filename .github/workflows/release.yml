@@ -686,7 +686,10 @@ jobs:
         if: env.DOCS_ONLY != 'true'
         run: |
           set -euo pipefail
-          python3 tools/public-release-body.py "$VERSION" --tree "$PUBLIC_TREE" --sums dist/SHA256SUMS -o "$BODY"
+          # A dry run can run on a branch whose release page is not written yet (tools/release-notes.py assemble
+          # writes it in the release pull request); a real release fails without the page.
+          missing=(); [ "$DRY_RUN" = true ] && missing=(--page-may-be-missing)
+          python3 tools/public-release-body.py "$VERSION" --tree "$PUBLIC_TREE" --sums dist/SHA256SUMS -o "$BODY" "${missing[@]}"
           echo "--- body ($(wc -c < "$BODY") bytes)"; cat "$BODY"
 
       - name: dry run - the tree and the body, as artifacts
