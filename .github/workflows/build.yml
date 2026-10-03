@@ -34,7 +34,10 @@ jobs:
   # relocated to build/pingfederate/, both the local .gitignore and this glob stopped covering the
   # archives left behind. Match on the filename anywhere in the tree instead.
   secrets-guard:
-    runs-on: ubuntu-latest
+    # The runner is the repository variable RUNNER_LINUX's label (docs/development/ci-runners.md), or a hosted
+    # ubuntu-latest when the variable is unset - as it is until the self-hosted runners exist - and always for a
+    # pull request Dependabot opened, whose build runs the dependency's code and so never runs on the Mac.
+    runs-on: ${{ github.event.pull_request.user.login == 'dependabot[bot]' && 'ubuntu-latest' || vars.RUNNER_LINUX || 'ubuntu-latest' }}
     permissions:
       contents: read
     steps:
@@ -91,7 +94,7 @@ jobs:
   # The linters are pinned by version and checksum in tools/ci/install-lint-tools.sh, and each check is a
   # script or a one-line command, so a checkout gives the same answer the job does.
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.user.login == 'dependabot[bot]' && 'ubuntu-latest' || vars.RUNNER_LINUX || 'ubuntu-latest' }}
     permissions:
       contents: read
     steps:
@@ -168,7 +171,7 @@ jobs:
         run: python3 tools/config-reference.py --check
 
   java:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.user.login == 'dependabot[bot]' && 'ubuntu-latest' || vars.RUNNER_LINUX || 'ubuntu-latest' }}
     # actions: read is for the coverage ratchet, which reads the dashboard the last successful Build on main
     # published; nothing in the job writes to the repository.
     permissions:
@@ -400,7 +403,7 @@ jobs:
   # and reports the base image's own without failing: a PingFederate bump fixes those (build/pingfederate/README.md,
   # "Scanning the image"). .github/grype.yaml names the findings of ours that are accepted, each with its reason.
   image:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.user.login == 'dependabot[bot]' && 'ubuntu-latest' || vars.RUNNER_LINUX || 'ubuntu-latest' }}
     permissions:
       contents: read
     timeout-minutes: 45

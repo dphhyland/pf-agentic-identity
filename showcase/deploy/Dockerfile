@@ -1,5 +1,5 @@
-# The microsite on nginx. `tools/build-microsite.py` assembles the site into build/microsite/
-# and copies this file beside it; Railway builds that directory.
+# Serve the generated microsite with nginx.
+# tools/build-microsite.py copies this file into the build directory.
 FROM nginx:1.27-alpine
 
 COPY nginx.conf /etc/nginx/templates/default.conf.template

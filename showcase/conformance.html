@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#272727">
 <title>Conformance testing · Agentic Identity for PingFederate</title>
-<meta name="description" content="What the OpenID Foundation's conformance suite says about a PingFederate built from this repository: six plans, the results, and what has not been tested.">
+<meta name="description" content="OpenID Foundation conformance results for PingFederate extensions. Six test plans, recorded failures and untested scenarios.">
 <style>
 :root{
   --ink:#2b2b2b;--ink-soft:#4f4f4f;--muted:#6c6c6c;--faint:#8a9a90;
@@ -119,11 +119,8 @@ footer{max-width:1080px;margin:0 auto;padding:0 24px 40px;color:var(--faint);fon
 
 <div class="hero">
   <div class="eyebrow">OpenID Foundation conformance suite</div>
-  <h1>Tested against <span>somebody else's tests</span></h1>
-  <p>Our own tests can only tell us that the code does what we meant. The OpenID Foundation publishes a
-  conformance suite that asks the questions the specifications ask, including the awkward ones. A PingFederate
-  built from this repository has been put through six of its plans. Here is what came back, including the plan
-  it cannot pass and the things nobody has tested yet.</p>
+  <h1>Conformance results <span>and limits</span></h1>
+  <p>The OpenID Foundation conformance suite tests server behaviour against its specifications. A PingFederate installation built from this repository has run six test plans. The results below identify failures and tests that remain outstanding.</p>
   <div class="metrics">
     <div class="metric"><strong>19 of 19</strong><span>Shared Signals transmitter modules passed, on PingFederate 13.1.3</span></div>
     <div class="metric"><strong>13 of 13</strong><span>modules of the CAEP Interoperability Profile plan passed</span></div>
@@ -132,17 +129,12 @@ footer{max-width:1080px;margin:0 auto;padding:0 24px 40px;color:var(--faint);fon
   <a class="src" href="../conformance/README.md" data-lines="184-195">conformance/README.md:185-196</a>
 </div>
 
-<div class="note" style="margin-top:22px"><b>None of this is a certification.</b> Every run below was made against a
-copy of the suite we run ourselves, at <code>release-v5.3.1</code>. A run that counts towards certification is made
-on the Foundation's hosted suite, by a person who is signed in, against a server the suite can reach. The repository
-says so in four places, and this page repeats it because the difference matters.
+<div class="note" style="margin-top:22px">These results come from a locally hosted suite at <code>release-v5.3.1</code>. Certification requires an authenticated run on the OpenID Foundation’s hosted suite against a reachable server.
 <a class="src" href="../conformance/README.md" data-lines="235-237">conformance/README.md:236-238</a></div>
 
 <section id="plans">
-  <h2>Six plans, and what each one proves</h2>
-  <p class="lede">A plan is a set of modules, each a scripted conversation with the server. The suite decides
-  whether the answers match the specification. These are the plans run against a PingFederate built from this
-  repository's <code>conformance/</code> directory.</p>
+  <h2>Results by test plan</h2>
+  <p class="lede">A test plan groups automated tests into modules. Each module checks server responses against specification requirements. These results come from PingFederate installations built with <code>conformance/</code>.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Plan</th><th>What a pass shows</th><th>Result</th><th>When</th></tr></thead>
     <tbody>
@@ -156,11 +148,11 @@ says so in four places, and this page repeats it because the difference matters.
         <td class="plan">openid-ssf-transmitter-caep-test-plan</td>
         <td>The same transmitter under the CAEP Interoperability Profile, which the repository notes is the plan the Foundation certifies Shared Signals against.</td>
         <td><span class="pill pass">13 of 13 passed</span></td>
-        <td>2026-09-23 local replica<br>2026-09-24 public rig</td>
+        <td>2026-09-23 local replica<br>2026-09-24 public test environment</td>
       </tr>
       <tr>
         <td class="plan">fapi2-security-profile-final-test-plan</td>
-        <td>The authorisation server meets FAPI 2.0 Final with <code>private_key_jwt</code>, DPoP sender-constraining, PAR and PKCE.</td>
+        <td>Checks FAPI 2.0 Final using <code>private_key_jwt</code>, DPoP sender-constraining, PAR and PKCE.</td>
         <td><span class="pill warn">50 passed, 0 failed</span><br><span class="mono">3 review, 2 warning, 1 skipped, of 56</span></td>
         <td>2026-09-24<br><span class="mono">13.1.3</span></td>
       </tr>
@@ -189,53 +181,38 @@ says so in four places, and this page repeats it because the difference matters.
 </section>
 
 <section id="words">
-  <h2>What the suite's words mean</h2>
-  <p class="lede">Only FAILED means the server got something wrong. The other three outcomes are the suite being
-  careful, and each one here has a known cause.</p>
+  <h2>Results requiring qualification</h2>
+  <p class="lede">The suite reports failures separately from warnings, manual reviews and skipped tests. The following results need qualification.</p>
   <div class="legend">
     <div><b>WARNING, on discovery.</b> PingFederate publishes vendor metadata the suite does not recognise. Every
     module of both federation plans warns about this once, which is why those plans show warnings and no passes.</div>
     <div><b>WARNING, on authorisation-code reuse.</b> PingFederate refuses the second use, as required, but does not
     also revoke the token the first use produced, which the profile says it should rather than must.</div>
     <div><b>REVIEW, on three <code>request_uri</code> modules.</b> PingFederate answers a reused, expired or foreign
-    <code>request_uri</code> with an HTTP 400 error page rather than a redirect. The suite takes a picture and asks a
-    person to look at it. A fourth module was REVIEW on 13.0.3 and now passes on 13.1.3.</div>
-    <div><b>SKIPPED, on the claims-parameter module.</b> Not supported, not advertised, so not tested.</div>
+    <code>request_uri</code> with an HTTP 400 error page rather than a redirect. The suite captures the response for manual review. A fourth module was REVIEW on 13.0.3 and now passes on 13.1.3.</div>
+    <div><b>SKIPPED, on the claims-parameter module.</b> The server does not advertise support, so the suite skips this test.</div>
   </div>
-  <p style="margin-top:18px">The federation plans' earlier runs did fail, and each failure was a real defect that
-  has since been fixed: five deployed-entity modules failed because the Entity Configuration was missing OpenID
-  Connect Discovery parameters, and a relying party that had already registered went unchecked on later requests.</p>
+  <p style="margin-top:18px">Earlier federation failures identified missing OpenID Connect Discovery metadata and missing checks on requests from registered relying parties. Both defects have been fixed.</p>
   <a class="src" href="../conformance/README.md" data-lines="197-207">conformance/README.md:198-208</a>
   <a class="src" href="../docs/federation/conformance.md" data-lines="32-46">docs/federation/conformance.md:32-46</a>
 </section>
 
 <section id="filter">
-  <h2>Two rules PingFederate cannot be told to apply</h2>
+  <h2>FAPI 2.0 enforcement</h2>
   <div class="two">
     <div>
-      <p>FAPI 2.0 says a client assertion's audience is the authorisation server's issuer, alone, as a string, and
-      that a DPoP proof is signed with PS256, ES256 or EdDSA. PingFederate 13.0.3 has no setting for either. 13.1
-      adds one switch for the audience, but it applies to the whole server and still accepts a one-element array.
-      Its DPoP algorithm list is compiled in.</p>
-      <p>So this repository ships a filter that enforces both, in front of PingFederate. It can only refuse: a
-      request it lets through is exactly the request that arrived, and the worst a defect in it can do is turn away
-      a request that should have been served.</p>
-      <p><b>It applies per client, and that is the point.</b> The suite's own Shared Signals client is an ordinary
-      OAuth client that addresses its assertion to the token endpoint, as OpenID Connect Core says to. An early
-      version applied the rules to every client, and the Shared Signals plan went from 19 of 19 to 1 of 19.</p>
+      <p>FAPI 2.0 requires a client assertion’s audience to be the authorisation server’s issuer, expressed as a string. It limits DPoP proof signatures to PS256, ES256 or EdDSA. PingFederate 13.0.3 has no settings for these rules. Version 13.1 adds a server-wide audience setting that still accepts a one-element array; the DPoP algorithm list remains compiled in.</p>
+      <p>The repository’s FAPI 2.0 filter applies both checks before PingFederate processes the request. It rejects requests that fail and forwards accepted requests unchanged.</p>
+      <p>The filter applies to named clients. The suite’s Shared Signals client addresses assertions to the token endpoint. Applying the FAPI rules to every client caused 18 of its 19 modules to fail.</p>
     </div>
-    <pre><code># the two FAPI clients, and nobody else
+    <pre><code># Apply the filter to the two FAPI clients
 OIDF_FAPI2_CLIENTS=conformance-fapi2-client1,conformance-fapi2-client2
 
-# the DPoP rule, compiled in
+# Permitted DPoP signature algorithms
 ALLOWED_ALGORITHMS =
   Set.of("PS256", "ES256", "EdDSA");</code></pre>
   </div>
-  <p>Two smaller filters sit beside it: one meets FAPI 1.0 Baseline at the UserInfo endpoint for the same listed
-  clients and the FAPI 1.0 clients <code>OIDF_FAPI_RESOURCE_CLIENTS</code> adds, echoing an <code>x-fapi-interaction-id</code> and refusing an access token in the query string; the other
-  keeps an error's <code>error_description</code> inside the character set RFC 6749 allows, which PingFederate's own message breaks
-  by quoting a Java date. None of the three is registered by an annotation: the image build maps them over
-  PingFederate's endpoints when it assembles the runtime.</p>
+  <p>A UserInfo filter returns <code>x-fapi-interaction-id</code> and rejects access tokens in query strings, as required by FAPI 1.0 Baseline. An OAuth error filter restricts <code>error_description</code> to RFC 6749’s permitted characters. The image build registers all three filters on PingFederate endpoints.</p>
   <a class="src" href="../conformance/README.md" data-lines="141-150">conformance/README.md:142-151</a>
   <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/fapi2/Fapi2ProfileFilter.java" data-lines="38-63">Fapi2ProfileFilter.java:38-63</a>
   <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/fapi2/Fapi2RequestPolicy.java" data-lines="31-110">Fapi2RequestPolicy.java:31-110</a>
@@ -244,31 +221,24 @@ ALLOWED_ALGORITHMS =
 </section>
 
 <section id="ciba">
-  <h2>Where it stops: CIBA</h2>
-  <p class="lede">Three of the FAPI-CIBA plan's 35 modules fail, and no configuration and no filter can turn them.
-  They are all the same product gap.</p>
-  <p>FAPI-CIBA profiles CIBA over FAPI 1.0 Advanced, whose resource servers shall only support sender-constrained
-  access tokens via mutual TLS: certificate-bound tokens, RFC 8705 §3, <code>cnf.x5t#S256</code>. PingFederate
-  13.0.3 does not have them, and neither does 13.1.3. Every jar of both was searched for the claim, for
-  <code>mtls_endpoint_aliases</code> and for <code>tls_client_certificate_bound_access_tokens</code>, and none of
-  them is there. DPoP is the one sender-constraint the product implements.</p>
+  <h2>FAPI-CIBA limitation</h2>
+  <p class="lede">Three of 35 FAPI-CIBA modules fail because the tested PingFederate versions lack mutual-TLS certificate-bound access tokens. Configuration changes and the repository’s filters do not resolve this limitation.</p>
+  <p>FAPI-CIBA requires certificate-bound access tokens under RFC 8705 §3, identified by <code>cnf.x5t#S256</code>. The repository’s investigation of PingFederate 13.0.3 and 13.1.3 found no support for this claim or the related metadata. These versions support DPoP sender-constrained tokens.</p>
   <ul class="plain">
     <li><code>discovery-end-point-verification</code> fails on the missing metadata flag.</li>
     <li><code>ensure-mtls-holder-of-key-required</code> fails on a token issued without a certificate.</li>
     <li><code>fapi-ciba-id1</code>, the happy path, fails on its step that presents one client's certificate with
     another client's access token and expects a refusal the server cannot make.</li>
   </ul>
-  <p>A certification of this plan is therefore not available on PingFederate 13.x. The other 32 modules say the
-  rest of CIBA is right.</p>
+  <p>The tested configurations cannot pass this plan. The other 32 modules passed.</p>
   <a class="src" href="../conformance/README.md" data-lines="224-233">conformance/README.md:225-234</a>
 </section>
 
 <section id="rig">
-  <h2>A rig is not a deployment</h2>
-  <p class="lede">Some of these results sit on configuration chosen to satisfy one suite. Copying it into
-  production would be a mistake, so the repository says which choices those are and what to do instead.</p>
+  <h2>Production configuration differences</h2>
+  <p class="lede">The test environment uses settings specific to the suite. Production configuration requires the changes listed below.</p>
   <div class="table-wrap"><table>
-    <thead><tr><th>The rig does this</th><th>Why</th><th>In production</th></tr></thead>
+    <thead><tr><th>Test configuration</th><th>Why</th><th>In production</th></tr></thead>
     <tbody>
       <tr>
         <td>Turns off the server-wide client-assertion audience check (<code>Rfc7523bisCompliantAudienceVerification</code>)</td>
@@ -276,14 +246,14 @@ ALLOWED_ALGORITHMS =
         <td>Leave the check on. The FAPI clients are held to the stricter rule by the filter either way.</td>
       </tr>
       <tr>
-        <td>Runs federation and attestation inert and closed</td>
+        <td>Starts federation and attestation with requests blocked</td>
         <td>The image carries every module, and two of them refuse to boot without a trust anchor and a trust controller. The rig names PingFederate as both and leaves the anchor keys unset.</td>
         <td>Configure the anchor keys, or leave the modules out of the image.</td>
       </tr>
       <tr>
         <td>Serves a self-signed certificate, and the federation profile disables TLS checking</td>
-        <td>Local containers talking to each other.</td>
-        <td>Neither is appropriate anywhere else.</td>
+        <td>Communication between local test containers.</td>
+        <td>Use trusted certificates and enable TLS verification.</td>
       </tr>
     </tbody>
   </table></div>
@@ -292,17 +262,12 @@ ALLOWED_ALGORITHMS =
 </section>
 
 <section id="run">
-  <h2>Run it yourself</h2>
-  <p class="lede">The rig is in the repository. One script turns a clone into a running PingFederate 13.1.3 with
-  every module in it, configured for the suite, in about five minutes the first time.</p>
+  <h2>Reproduce the tests</h2>
+  <p class="lede">The repository includes a script that builds and starts PingFederate 13.1.3 with the modules and configuration required by the suite.</p>
   <div class="two">
     <div>
-      <p>You need Docker, Terraform, Maven, Node, and your own Ping DevOps licence details: the image bakes no
-      licence, and nothing licensed ever lands in git. The scripts generate the suite's eight key pairs, author a
-      stock PingFederate through its admin API with Terraform, export the configuration archive, build the image
-      from this repository's own modules, and start it.</p>
-      <p>Configuration is code the whole way: <code>terraform/</code> is the source, the archive is the artefact the
-      image imports at boot. There is no volume, so a change made in the console is gone at the next start.</p>
+      <p>The build requires Docker, Terraform, Maven and Node, plus Ping DevOps licence credentials. Scripts generate eight key pairs and use Terraform to configure PingFederate through its admin API. They export the configuration and build the image. Licence material is supplied separately.</p>
+      <p><code>terraform/</code> holds the configuration source. The image imports its exported archive at startup. Console changes are lost at the next start because the environment has no persistent volume.</p>
     </div>
     <pre><code>./up.sh
 
@@ -315,55 +280,37 @@ ALLOWED_ALGORITHMS =
 </section>
 
 <section id="ci">
-  <h2>What runs without anyone asking</h2>
+  <h2>Automated testing</h2>
   <div class="grid">
-    <div class="card"><h3>One plan, weekly</h3><p>A workflow builds a PingFederate from the clone and runs the
-    OpenID Federation deployed-entity plan against it, on Mondays and on demand. It keeps the plan's output either
-    way, and the server log when anything failed.</p>
+    <div class="card"><h3>Weekly federation tests</h3><p>A workflow builds PingFederate and runs the OpenID Federation deployed-entity plan on Mondays or on demand. It retains test output and collects the server log after a failure.</p>
     <a class="src" href="../.github/workflows/conformance-federation.yml" data-lines="12-15">conformance-federation.yml:12-15</a></div>
-    <div class="card"><h3>It needs a licence first</h3><p>The workflow stops at its first step unless the repository
-    secrets <code>PING_IDENTITY_DEVOPS_USER</code> and <code>PING_IDENTITY_DEVOPS_KEY</code> are set. Nothing in the
-    repository can say whether they are, so this page does not claim a passing weekly run.</p>
+    <div class="card"><h3>Licence requirements</h3><p>The workflow requires the repository secrets <code>PING_IDENTITY_DEVOPS_USER</code> and <code>PING_IDENTITY_DEVOPS_KEY</code>. Their presence and the latest run result must be checked in GitHub Actions.</p>
     <a class="src" href="../.github/workflows/conformance-federation.yml" data-lines="44-54">conformance-federation.yml:44-54</a></div>
-    <div class="card"><h3>The other five are run by hand</h3><p>The OP plan needs the suite hosting a relying party
-    and an anchor that PingFederate fetches from. FAPI 2.0, Shared Signals, CAEP and FAPI-CIBA are run by a person
-    against a local suite.</p>
+    <div class="card"><h3>Manual conformance runs</h3><p>The OpenID Provider plan requires the suite to host a relying party and trust anchor. Operators run this plan and the FAPI 2.0, Shared Signals, CAEP and FAPI-CIBA plans against a local suite.</p>
     <a class="src" href="../conformance/README.md" data-lines="245-248">conformance/README.md:246-249</a></div>
-    <div class="card"><h3>Mutation testing, weekly</h3><p>A second workflow plants small bugs in the federation
-    decisions and the PingFederate integration and fails if the tests do not notice, below 85% killed.</p>
+    <div class="card"><h3>Mutation testing, weekly</h3><p>A weekly mutation-testing workflow checks the federation library and PingFederate integration. The workflow fails when tests detect fewer than 85% of introduced mutations.</p>
     <a class="src" href="../.github/workflows/mutation.yml" data-lines="1-10">mutation.yml:1-10</a></div>
   </div>
 </section>
 
 <section id="untested">
-  <h2>What has not been tested</h2>
-  <p class="note"><b>Read this before repeating any number above.</b> Nothing here has been certified by the OpenID
-  Foundation. Both OpenID Federation plans are alpha. Shared Signals <b>push</b> delivery has never been run: it
-  needs a suite PingFederate can call back, and a suite on localhost is one the servlet's outbound policy rightly
-  refuses. CIBA's <b>ping</b> mode has never been run, for the same reason. The CAEP result spans two targets, a
-  local replica on 2026-09-23 and the public rig on 2026-09-24, not one run on one system. The suite's third
-  federation plan tests relying parties, which PingFederate is not, so it does not apply.</p>
+  <h2>Untested scenarios</h2>
+  <p class="note">OpenID Foundation certification has not been obtained. Both federation plans are alpha. Shared Signals <b>push</b> delivery and CIBA <b>ping</b> mode remain untested because the local suite cannot receive permitted callbacks. The CAEP results combine a local replica run on 2026-09-23 and a public test environment run on 2026-09-24. The relying-party federation plan does not apply to this OpenID Provider implementation.</p>
   <a class="src" href="../conformance/README.md" data-lines="235-241">conformance/README.md:236-242</a>
   <a class="src" href="../conformance/suite/run-plan.py" data-lines="7-9">run-plan.py:7-9</a>
 </section>
 
 <section id="ours">
-  <h2>Our own tests, and what they are worth</h2>
+  <h2>Repository test coverage</h2>
   <div class="grid">
-    <div class="card"><h3>535 methods held at 100%</h3><p>Every method that decides something - verifies a
-    signature, accepts or refuses a credential, enforces a ceiling - is gated at 100% line and branch coverage by
-    the build. Plumbing sits outside the gate on purpose.</p></div>
-    <div class="card"><h3>209 of 216 claims pinned</h3><p>Each test that pins a requirement names the clause it
-    pins, and a generated dashboard shows any row nothing pins. Seven rows are pinned by nothing, and the dashboard
-    calls that the work queue.</p></div>
-    <div class="card"><h3>Not a conformance score</h3><p>The repository is explicit: a matrix row is one line of
-    prose somebody wrote, not a count of the clauses behind it. It measures whether what this repository claims is
-    also executed, and nothing more.</p></div>
+    <div class="card"><h3>535 methods at 100% coverage</h3><p>The build requires 100% line and branch coverage for 535 selected decision methods. Other methods are outside this requirement.</p></div>
+    <div class="card"><h3>209 of 216 claims linked to tests</h3><p>Tagged tests cover 209 of 216 conformance-matrix rows in the cited report. The generated dashboard identifies the seven rows without tagged tests.</p></div>
+    <div class="card"><h3>Coverage scope</h3><p>The matrix records implementation claims and links them to tests. Its coverage count does not measure full specification conformance.</p></div>
   </div>
   <a class="src" href="../docs/coverage-dashboard.md">docs/coverage-dashboard.md</a>
 </section>
 
 </main>
-<footer>idpartners.com.au · Apache-2.0 · every boxed link opens the file behind the statement above it, labelled with its lines.</footer>
+<footer>idpartners.com.au · Apache-2.0 · Source links identify the supporting file and lines.</footer>
 </body>
 </html>
